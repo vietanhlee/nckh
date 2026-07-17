@@ -18,7 +18,7 @@ class Config:
     ADJ_PATH = "/content/drive/MyDrive/GRAPH/Graph_fix_py_3.xlsx"
 
     CSV_PATH = "/content/drive/MyDrive/GRAPH/count_7_7_merg_sort_fix_fill.csv"
-    SAVE_DIR       = "/content/drive/MyDrive/GRAPH/model/"
+    SAVE_DIR       = "model/"
 
     TIME_STEP_MINUTES = 5
     HISTORY_MINUTES   = 120

@@ -6,13 +6,12 @@ import pandas as pd
 from torch.utils.data import DataLoader
 import argparse
 
-# Import các lớp mô hình và cấu hình của 7 mô hình đang có trên đĩa
+# Import các lớp mô hình và cấu hình của 6 mô hình đang hoạt động
 from gcn_lstm import ImprovedGNN_LSTM, Config as GCNLSTMConfig
 from wavenet_gcn import GraphWaveNet_Model, Config as WaveNetConfig
 from astgcn import ASTGCN_Model, Config as ASTGCNConfig
 from stgcn import STGCN_Model, Config as STGCNConfig
 from dcrnn import DCRNN_Model, Config as DCRNNConfig
-from gcn_tcn import GCN_TCN_Model, Config as GCN_TCNConfig
 from stgcn_gcn import STGCN_GCN_Model, Config as STGCN_GCNConfig
 
 # Tái sử dụng các hàm tiện ích nạp dữ liệu và đánh giá từ astgcn.py
@@ -28,27 +27,31 @@ from astgcn import (
 )
 
 def main():
-    parser = argparse.ArgumentParser(description="So sánh kết quả huấn luyện 7 mô hình Spatial-Temporal Graph NCKH.")
+    parser = argparse.ArgumentParser(description="So sánh kết quả huấn luyện 6 mô hình Spatial-Temporal Graph NCKH.")
     parser.add_argument('--mode', type=str, default='eval', choices=['train', 'eval'],
-                        help="Chế độ chạy: 'train' (huấn luyện mới cả 7 mô hình từ đầu rồi so sánh) hoặc 'eval' (chỉ tải checkpoint và đánh giá).")
+                        help="Chế độ chạy: 'train' (huấn luyện mới cả 6 mô hình từ đầu rồi so sánh) hoặc 'eval' (chỉ tải checkpoint và đánh giá).")
     parser.add_argument('--epochs', type=int, default=None,
                         help="Số lượng epochs chạy thử nghiệm nếu chọn chế độ 'train' (mặc định lấy theo Config của từng mô hình).")
     args = parser.parse_args()
 
-    # Khởi tạo instance của Config cho cả 7 mô hình để truy cập các properties (T_IN, FULL_SAVE_PATH, v.v.)
+    # Khởi tạo instance của Config cho cả 6 mô hình để truy cập các properties (T_IN, FULL_SAVE_PATH, v.v.)
     gcn_lstm_cfg = GCNLSTMConfig()
     wavenet_cfg = WaveNetConfig()
     astgcn_cfg = ASTGCNConfig()
     stgcn_cfg = STGCNConfig()
     dcrnn_cfg = DCRNNConfig()
-    gcn_tcn_cfg = GCN_TCNConfig()
     stgcn_gcn_cfg = STGCN_GCNConfig()
+
+    # Đồng bộ hóa cấu hình SAVE_DIR sang thư mục tương đối cục bộ "model/"
+    for cfg_inst in [gcn_lstm_cfg, wavenet_cfg, astgcn_cfg, stgcn_cfg, dcrnn_cfg, stgcn_gcn_cfg]:
+        cfg_inst.SAVE_DIR = "model/"
+        os.makedirs(cfg_inst.SAVE_DIR, exist_ok=True)
 
     # Sử dụng config của GCN-LSTM làm cấu hình dữ liệu cơ bản
     cfg = gcn_lstm_cfg
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"============================================================")
-    print(f"🚀 BẮT ĐẦU CHẠY THỬ NGHIỆM SO SÁNH CẢ 7 MÔ HÌNH")
+    print(f"🚀 BẮT ĐẦU CHẠY THỬ NGHIỆM SO SÁNH CẢ 6 MÔ HÌNH")
     print(f"   Device: {device}")
     print(f"   Chế độ: {args.mode.upper()}")
     print(f"============================================================")
@@ -92,7 +95,7 @@ def main():
 
     print(f"   - Kích thước tập dữ liệu: Train={len(train_ds)}, Val={len(val_ds)}, Test={len(test_ds)}")
 
-    # 2. Định nghĩa danh sách 7 mô hình sử dụng các Config instances tương ứng
+    # 2. Định nghĩa danh sách 6 mô hình sử dụng các Config instances tương ứng
     models_dict = {
         'GCN-LSTM': {
             'class': ImprovedGNN_LSTM,
@@ -123,21 +126,6 @@ def main():
                 'output_feat': 1,
                 'A_norm': A_norm,
                 'dropout': wavenet_cfg.DROPOUT
-            }
-        },
-        'GCN-TCN': {
-            'class': GCN_TCN_Model,
-            'config': gcn_tcn_cfg,
-            'args': {
-                'num_nodes': len(nodes),
-                'in_feat': 4,
-                'gcn_hidden': gcn_tcn_cfg.GCN_HIDDEN,
-                'tcn_channels': gcn_tcn_cfg.TCN_CHANNELS,
-                'tcn_kernel': gcn_tcn_cfg.TCN_KERNEL,
-                'horizon': gcn_tcn_cfg.HORIZON,
-                'output_feat': 1,
-                'A_norm': A_norm,
-                'dropout': gcn_tcn_cfg.DROPOUT
             }
         },
         'ASTGCN': {
@@ -291,9 +279,8 @@ def main():
     print(f"============================================================")
 
     # Lưu bảng so sánh vào file markdown
-    report_path = os.path.join(os.path.dirname(cfg.SAVE_DIR), "comparison_report.md")
+    report_path = "comparison_report.md"
     try:
-        os.makedirs(os.path.dirname(report_path), exist_ok=True)
         with open(report_path, "w", encoding="utf-8") as f:
             f.write("# Báo cáo so sánh các mô hình Spatial-Temporal Graph (NCKH)\n\n")
             f.write(f"Chế độ chạy thực nghiệm: **{args.mode.upper()}**\n\n")
