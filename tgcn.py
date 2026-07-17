@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import torch.amp
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 
 class Config:
