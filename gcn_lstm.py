@@ -10,7 +10,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-from torch.cuda.amp import autocast, GradScaler
+import torch.amp
+from tqdm import tqdm
 
 
 class Config:
@@ -35,7 +36,7 @@ class Config:
     BATCH_SIZE  = 16
     EPOCHS      = 100
     LEARNING_RATE = 0.001
-    PATIENCE    = 10
+    PATIENCE    = 20
     DATA_WINDOW1 = 3
     DATA_WINDOW2 = 5
 
@@ -234,12 +235,13 @@ def train_one_epoch(model, loader, opt, loss_fn, device, scaler_obj, scaler_stat
     means = torch.tensor(scaler_stats['mean'], device=device)
     stds = torch.tensor(scaler_stats['std'], device=device)
 
-    for X, Y in loader:
+    pbar = tqdm(loader, desc="   Training", leave=False)
+    for X, Y in pbar:
         X, Y = X.to(device), Y.to(device)
         x_last = X[:, -1, :, :1].unsqueeze(1)
 
         opt.zero_grad()
-        with autocast():
+        with torch.amp.autocast('cuda'):
             pred = model(X)
             loss = loss_fn(pred, Y, x_last)
 
@@ -256,6 +258,7 @@ def train_one_epoch(model, loader, opt, loss_fn, device, scaler_obj, scaler_stat
             total_mae += mae_batch.item()
 
         count_batches += 1
+        pbar.set_postfix(loss=f"{loss.item():.4f}", mae=f"{mae_batch.item():.2f}")
 
     avg_loss = total_loss / count_batches
     avg_mae = total_mae / count_batches
@@ -272,8 +275,9 @@ def evaluate(model, loader, device, scaler_stats, loss_fn=None, verbose=False):
     means = torch.tensor(scaler_stats['mean'], device=device)
     stds = torch.tensor(scaler_stats['std'], device=device)
 
+    pbar = tqdm(loader, desc="   Evaluating", leave=False)
     with torch.no_grad():
-        for X, Y in loader:
+        for X, Y in pbar:
             X, Y = X.to(device), Y.to(device)
             x_last = X[:, -1, :, :1].unsqueeze(1)
 
@@ -290,13 +294,15 @@ def evaluate(model, loader, device, scaler_stats, loss_fn=None, verbose=False):
 
             # MAE
             abs_err = torch.abs(err)
-            total_mae += abs_err.mean().item() # Mean all metrics
+            mae_val = abs_err.mean().item()
+            total_mae += mae_val # Mean all metrics
 
             # MSE
             sq_err = err ** 2
             total_mse += sq_err.mean().item()
 
             count_batches += 1
+            pbar.set_postfix(mae=f"{mae_val:.2f}")
 
     if count_batches == 0:
         return {'mae': 9999.0, 'mse': 9999.0, 'rmse': 9999.0, 'loss': 9999.0}
@@ -464,7 +470,7 @@ def run_training():
 
     optimizer = optim.AdamW(model.parameters(), lr=CFG.LEARNING_RATE)
     loss_fn = PureHuberLoss(delta=CFG.LOSS_DELTA)
-    grad_scaler = GradScaler()
+    grad_scaler = torch.amp.GradScaler('cuda')
 
     print("\nStart Training...")
     best_mae = float('inf')
