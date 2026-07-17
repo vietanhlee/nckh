@@ -6,7 +6,7 @@ Dự án này được xây dựng nhằm nghiên cứu khoa học (NCKH), thự
 
 ## 📂 Danh sách các Kiến trúc Mô hình
 
-Dự án hiện tại hỗ trợ **8 kiến trúc mô hình độc lập**, được tối ưu hóa hiệu năng huấn luyện bằng PyTorch thuần để dễ dàng chạy thực nghiệm:
+Dự án hiện tại hỗ trợ **9 kiến trúc mô hình độc lập**, được tối ưu hóa hiệu năng huấn luyện bằng PyTorch thuần để dễ dàng chạy thực nghiệm:
 
 1. **GCN-LSTM** ([gcn_lstm.py](file:///g:/nckh/gcn_lstm.py)):
    * **Spatial**: Graph Convolutional Network (GCN) trích xuất đặc trưng không gian tĩnh.
@@ -17,19 +17,22 @@ Dự án hiện tại hỗ trợ **8 kiến trúc mô hình độc lập**, đư
 3. **GAT-TCN** ([gat_tcn.py](file:///g:/nckh/gat_tcn.py)):
    * **Spatial**: Graph Attention Network (GAT) tự động học trọng số động giữa các nút.
    * **Temporal**: Stacked Temporal Convolutional Network (TCN) với dilation tăng dần.
-4. **ASTGCN** ([astgcn.py](file:///g:/nckh/astgcn.py)):
+4. **GCN-TCN** ([gcn_tcn.py](file:///g:/nckh/gcn_tcn.py)) [NEW]:
+   * **Spatial**: Graph Convolutional Network (GCN) trích xuất đặc trưng không gian tĩnh đối xứng.
+   * **Temporal**: Stacked Temporal Convolutional Network (TCN) với dilation tăng dần qua các causal convolution 1D.
+5. **ASTGCN** ([astgcn.py](file:///g:/nckh/astgcn.py)):
    * **Spatial & Temporal Attention**: Cơ chế Attention động cả về mặt không gian (giữa các nút) và thời gian.
    * **Chebyshev GCN**: Chebyshev Spectral Graph Convolution (ChebConv) trên ma trận Scaled Laplacian.
-5. **STGCN** ([stgcn.py](file:///g:/nckh/stgcn.py)) [NEW]:
+6. **STGCN** ([stgcn.py](file:///g:/nckh/stgcn.py)) [NEW]:
    * **Spatial**: Chebyshev Spectral Graph Convolution (ChebConv).
    * **Temporal**: Lớp Temporal Gated Convolution (GLU) qua tích chập 1D.
-6. **DCRNN** ([dcrnn.py](file:///g:/nckh/dcrnn.py)) [NEW]:
+7. **DCRNN** ([dcrnn.py](file:///g:/nckh/dcrnn.py)) [NEW]:
    * **Spatial**: Tích chập lan truyền (Diffusion Convolution) dựa trên bước đi ngẫu nhiên xuôi/ngược trên đồ thị có hướng.
    * **Temporal**: DCGRU (Diffusion Convolutional GRU Cell) theo luồng Encoder-Decoder.
-7. **AGCRN** ([agcrn.py](file:///g:/nckh/agcrn.py)) [NEW]:
+8. **AGCRN** ([agcrn.py](file:///g:/nckh/agcrn.py)) [NEW]:
    * **Spatial**: NAP (Node Adaptive Parameter learning) sinh trọng số riêng cho từng nút đồ thị kết hợp với ma trận thích ứng tự học (AGCN) từ Node Embeddings.
    * **Temporal**: AGCRU Cell thay thế phép nhân GRU bằng AGCN.
-8. **TGCN** ([tgcn.py](file:///g:/nckh/tgcn.py)) [NEW]:
+9. **TGCN** ([tgcn.py](file:///g:/nckh/tgcn.py)) [NEW]:
    * **Spatial**: Graph Convolution chuẩn hóa đối xứng đối với ma trận kề cố định.
    * **Temporal**: TGCNCell tích hợp GCN đối xứng vào cổng GRU Cell.
 
@@ -59,22 +62,23 @@ Cấu hình đường dẫn dữ liệu được khai báo trong lớp `Config` 
 python gcn_lstm.py
 python wavenet_gcn.py
 python gat_tcn.py
+python gcn_tcn.py
 python astgcn.py
 python stgcn.py
 python dcrnn.py
 python agcrn.py
 python tgcn.py
 ```
-*Mỗi file mô hình đều được trang bị early stopping với độ kiên nhẫn `PATIENCE = 20`, thanh tiến trình `tqdm` và tự động lưu checkpoint đạt MAE tốt nhất trên tập Validation.*
+*Mỗi file mô hình đều được trang bị early stopping với độ kiên nhẫn `PATIENCE = 20`, thanh tiến trình `tqdm.auto` và tự động lưu checkpoint đạt MAE tốt nhất trên tập Validation.*
 
-### 2. Chạy So sánh Đồng thời cả 8 Mô hình (compare_models.py)
+### 2. Chạy So sánh Đồng thời cả 9 Mô hình (compare_models.py)
 Để thực hiện thực nghiệm so sánh tất cả các kiến trúc trên cùng một tập dữ liệu dùng chung (cùng cách phân chia Train/Val/Test), hãy sử dụng script [compare_models.py](file:///g:/nckh/compare_models.py):
 
-* **Chế độ Đánh giá nhanh (Mặc định)**: Tải các checkpoint `.pth` tốt nhất của cả 8 mô hình hiện có và đánh giá trên tập Test để xuất bảng so sánh chỉ số:
+* **Chế độ Đánh giá nhanh (Mặc định)**: Tải các checkpoint `.pth` tốt nhất của cả 9 mô hình hiện có và đánh giá trên tập Test để xuất bảng so sánh chỉ số:
   ```bash
   python compare_models.py --mode eval
   ```
-* **Chế độ Huấn luyện mới**: Huấn luyện tuần tự cả 8 mô hình từ đầu, tự động lưu checkpoint và tổng hợp bảng so sánh:
+* **Chế độ Huấn luyện mới**: Huấn luyện tuần tự cả 9 mô hình từ đầu, tự động lưu checkpoint và tổng hợp bảng so sánh:
   ```bash
   python compare_models.py --mode train --epochs 100
   ```

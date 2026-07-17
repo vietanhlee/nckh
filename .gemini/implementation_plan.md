@@ -1,10 +1,10 @@
-# Kế hoạch Thực hiện: Bổ sung 4 mô hình mới (STGCN, DCRNN, AGCRN, TGCN) vào so sánh thực nghiệm (NCKH)
+# Kế hoạch Thực hiện: Bổ sung các mô hình mới vào so sánh thực nghiệm (NCKH)
 
-Để làm phong phú thêm kết quả thực nghiệm NCKH của bạn, chúng ta sẽ xây dựng thêm 4 mô hình Spatial-Temporal Graph mới bằng PyTorch thuần (để tránh xung đột thư viện ngoài như PyTorch Geometric hay DGL) và tích hợp vào script so sánh `compare_models.py`.
+Để làm phong phú thêm kết quả thực nghiệm NCKH của bạn, chúng ta sẽ xây dựng thêm các mô hình Spatial-Temporal Graph mới bằng PyTorch thuần (để tránh xung đột thư viện ngoài như PyTorch Geometric hay DGL) và tích hợp vào script so sánh `compare_models.py`.
 
 ---
 
-## 🛠️ Thiết kế Kiến trúc 4 Mô hình Mới
+## 🛠️ Thiết kế Kiến trúc các Mô hình Mới
 
 ### 1. **STGCN** (Spatio-Temporal Graph Convolutional Networks)
 * **Tệp**: [stgcn.py](file:///g:/nckh/stgcn.py) [NEW]
@@ -34,30 +34,39 @@
   * Định nghĩa lớp `TGCNCell`: Thay thế toàn bộ các phép toán nhân ma trận của GRU Cell bằng phép toán Graph Convolution sử dụng ma trận kề chuẩn hóa đối xứng $\tilde{D}^{-1/2} \tilde{A} \tilde{D}^{-1/2}$.
   * Dự báo trực tiếp ra `Horizon` thông qua lớp tuyến tính từ hidden state của timestep cuối cùng.
 
+### 5. **GCN-TCN** (Graph Convolutional Network + Temporal Convolutional Network) [NEW]
+* **Tệp**: [gcn_tcn.py](file:///g:/nckh/gcn_tcn.py) [NEW]
+* **Ý tưởng**:
+  * Kết hợp GCN tĩnh và tích chập temporal dạng TCN thay vì LSTM hay GRU.
+  * Trích xuất đặc trưng không gian tĩnh bằng 2 lớp GCN với ma trận kề đối xứng chuẩn hóa tĩnh.
+  * Phụ thuộc thời gian được học bằng mạng TCN (stacked TCN block) với dilated causal conv 1D để tránh nhìn trước tương lai và tăng kích thước receptive field theo cấp số nhân.
+  * Final projection chiếu kết quả về chiều rộng dự báo `Horizon`.
+
 ---
 
-## 📅 Các tệp sẽ thay đổi cụ thể
+## 📅 Các tệp đã thay đổi cụ thể
 
 ### [New Models]
-#### [NEW] [stgcn.py](file:///g:/nckh/stgcn.py)
-#### [NEW] [dcrnn.py](file:///g:/nckh/dcrnn.py)
-#### [NEW] [agcrn.py](file:///g:/nckh/agcrn.py)
-#### [NEW] [tgcn.py](file:///g:/nckh/tgcn.py)
+* #### [NEW] [stgcn.py](file:///g:/nckh/stgcn.py)
+* #### [NEW] [dcrnn.py](file:///g:/nckh/dcrnn.py)
+* #### [NEW] [agcrn.py](file:///g:/nckh/agcrn.py)
+* #### [NEW] [tgcn.py](file:///g:/nckh/tgcn.py)
+* #### [NEW] [gcn_tcn.py](file:///g:/nckh/gcn_tcn.py)
 
 ### [Comparison & Documentation]
-#### [MODIFY] [compare_models.py](file:///g:/nckh/compare_models.py)
-Import thêm 4 mô hình mới, định nghĩa tham số Config và tích hợp vào danh sách so sánh.
-#### [MODIFY] [README.md](file:///g:/nckh/README.md)
-Cập nhật mô tả kiến trúc và cách chạy của 4 mô hình mới vào tài liệu.
+* #### [MODIFY] [compare_models.py](file:///g:/nckh/compare_models.py)
+  Tích hợp GCN-TCN thành **9 mô hình** so sánh tổng thể, cập nhật instance Config tương ứng.
+* #### [MODIFY] [README.md](file:///g:/nckh/README.md)
+  Bổ sung mô tả và cách chạy của mô hình GCN-TCN.
 
 ---
 
 ## 🔍 Kế hoạch Xác minh (Verification Plan)
 
 ### Kiểm tra tự động
-- Chạy thử 1 epoch huấn luyện của từng file trong 4 file mô hình mới (`python stgcn.py`, v.v.) để chắc chắn tqdm, GradScaler mới chạy mượt mà, không lỗi cú pháp.
-- Chạy thử `python compare_models.py --mode train --epochs 1` để kiểm tra khả năng chạy tuần tự và tổng hợp kết quả của cả **8 mô hình** (4 cũ + 4 mới).
+- Chạy thử 1 epoch huấn luyện của từng mô hình riêng lẻ (`python gcn_tcn.py`, v.v.) để kiểm tra độ chính xác cú pháp.
+- Chạy thử `python compare_models.py --mode train --epochs 1` để kiểm tra khả năng chạy tuần tự và tổng hợp kết quả của cả **9 mô hình**.
 
 ### Kiểm tra thủ công
-- Xác nhận bảng so sánh kết quả in ra terminal hiển thị đầy đủ thông tin của 8 mô hình.
+- Xác nhận bảng so sánh kết quả in ra terminal hiển thị đầy đủ thông tin của 9 mô hình.
 - Xác nhận báo cáo `comparison_report.md` được ghi nhận chính xác.

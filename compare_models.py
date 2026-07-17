@@ -6,7 +6,7 @@ import pandas as pd
 from torch.utils.data import DataLoader
 import argparse
 
-# Import các lớp mô hình và cấu hình của cả 8 mô hình
+# Import các lớp mô hình và cấu hình của cả 9 mô hình
 from gcn_lstm import ImprovedGNN_LSTM, Config as GCNLSTMConfig
 from wavenet_gcn import GraphWaveNet_Model, Config as WaveNetConfig
 from gat_tcn import GAT_TCN_Model, Config as GATConfig
@@ -15,6 +15,7 @@ from stgcn import STGCN_Model, Config as STGCNConfig
 from dcrnn import DCRNN_Model, Config as DCRNNConfig
 from agcrn import AGCRN_Model, Config as AGCRNConfig
 from tgcn import TGCN_Model, Config as TGCNConfig
+from gcn_tcn import GCN_TCN_Model, Config as GCN_TCNConfig
 
 # Tái sử dụng các hàm tiện ích nạp dữ liệu và đánh giá từ astgcn.py
 from astgcn import (
@@ -29,14 +30,14 @@ from astgcn import (
 )
 
 def main():
-    parser = argparse.ArgumentParser(description="So sánh kết quả huấn luyện 8 mô hình Spatial-Temporal Graph NCKH.")
+    parser = argparse.ArgumentParser(description="So sánh kết quả huấn luyện 9 mô hình Spatial-Temporal Graph NCKH.")
     parser.add_argument('--mode', type=str, default='eval', choices=['train', 'eval'],
-                        help="Chế độ chạy: 'train' (huấn luyện mới cả 8 mô hình từ đầu rồi so sánh) hoặc 'eval' (chỉ tải checkpoint và đánh giá).")
+                        help="Chế độ chạy: 'train' (huấn luyện mới cả 9 mô hình từ đầu rồi so sánh) hoặc 'eval' (chỉ tải checkpoint và đánh giá).")
     parser.add_argument('--epochs', type=int, default=None,
                         help="Số lượng epochs chạy thử nghiệm nếu chọn chế độ 'train' (mặc định lấy theo Config của từng mô hình).")
     args = parser.parse_args()
 
-    # Khởi tạo instance của Config cho cả 8 mô hình để truy cập các properties (T_IN, FULL_SAVE_PATH, v.v.)
+    # Khởi tạo instance của Config cho cả 9 mô hình để truy cập các properties (T_IN, FULL_SAVE_PATH, v.v.)
     gcn_lstm_cfg = GCNLSTMConfig()
     wavenet_cfg = WaveNetConfig()
     gat_cfg = GATConfig()
@@ -45,12 +46,13 @@ def main():
     dcrnn_cfg = DCRNNConfig()
     agcrn_cfg = AGCRNConfig()
     tgcn_cfg = TGCNConfig()
+    gcn_tcn_cfg = GCN_TCNConfig()
 
     # Sử dụng config của GCN-LSTM làm cấu hình dữ liệu cơ bản
     cfg = gcn_lstm_cfg
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"============================================================")
-    print(f"🚀 BẮT ĐẦU CHẠY THỬ NGHIỆM SO SÁNH CẢ 8 MÔ HÌNH")
+    print(f"🚀 BẮT ĐẦU CHẠY THỬ NGHIỆM SO SÁNH CẢ 9 MÔ HÌNH")
     print(f"   Device: {device}")
     print(f"   Chế độ: {args.mode.upper()}")
     print(f"============================================================")
@@ -94,7 +96,7 @@ def main():
 
     print(f"   - Kích thước tập dữ liệu: Train={len(train_ds)}, Val={len(val_ds)}, Test={len(test_ds)}")
 
-    # 2. Định nghĩa danh sách 8 mô hình sử dụng các Config instances tương ứng
+    # 2. Định nghĩa danh sách 9 mô hình sử dụng các Config instances tương ứng
     models_dict = {
         'GCN-LSTM': {
             'class': ImprovedGNN_LSTM,
@@ -141,6 +143,21 @@ def main():
                 'output_feat': 1,
                 'A_raw': A_raw,
                 'dropout': gat_cfg.DROPOUT
+            }
+        },
+        'GCN-TCN': {
+            'class': GCN_TCN_Model,
+            'config': gcn_tcn_cfg,
+            'args': {
+                'num_nodes': len(nodes),
+                'in_feat': 4,
+                'gcn_hidden': gcn_tcn_cfg.GCN_HIDDEN,
+                'tcn_channels': gcn_tcn_cfg.TCN_CHANNELS,
+                'tcn_kernel': gcn_tcn_cfg.TCN_KERNEL,
+                'horizon': gcn_tcn_cfg.HORIZON,
+                'output_feat': 1,
+                'A_norm': A_norm,
+                'dropout': gcn_tcn_cfg.DROPOUT
             }
         },
         'ASTGCN': {
