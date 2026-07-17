@@ -32,7 +32,7 @@ class Config:
 
     # --- TRAIN ---
     BATCH_SIZE  = 32
-    EPOCHS      = 100
+    EPOCHS      = 500
     LEARNING_RATE = 0.001
     PATIENCE    = 40
     DATA_WINDOW1 = 3

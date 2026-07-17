@@ -26,16 +26,16 @@ class Config:
     LOSS_DELTA = 1.0
 
     # --- MODEL ---
-    CHEB_K       = 2        # Bậc đa thức Chebyshev
-    NUM_BLOCKS   = 2        # Số lượng STGCN blocks
-    BLOCK_HIDDEN = 32       # Số channels ẩn trong mỗi block
+    BLOCK_HIDDEN = 64
+    NUM_BLOCKS   = 2
+    CHEB_K       = 2
     DROPOUT      = 0.3
 
     # --- TRAIN ---
-    BATCH_SIZE  = 32
+    BATCH_SIZE  = 16
     EPOCHS      = 500
     LEARNING_RATE = 0.001
-    PATIENCE    = 40
+    PATIENCE    = 20
     DATA_WINDOW1 = 3
     DATA_WINDOW2 = 5
 
@@ -54,12 +54,12 @@ class Config:
     @property
     def FULL_SAVE_PATH(self):
         if not os.path.exists(self.SAVE_DIR): os.makedirs(self.SAVE_DIR)
-        return os.path.join(self.SAVE_DIR, f"model_STGCN_{self.HORIZON}steps.pth")
+        return os.path.join(self.SAVE_DIR, f"model_STGCN_BiLSTM_{self.HORIZON}steps.pth")
 
 CFG = Config()
 
 # ============================================================
-#  DATA UTILITIES (Độc lập giống các file trước)
+#  DATA UTILITIES
 # ============================================================
 
 def load_adj_from_excel(excel_path):
@@ -83,23 +83,13 @@ def normalize_adj_sym(A):
 
 def compute_scaled_laplacian(A):
     A = A.astype(float)
-    n = A.shape[0]
     d = A.sum(axis=1)
-    d_inv_sqrt = np.power(d, -0.5, where=d > 0)
-    d_inv_sqrt[d <= 0] = 0
+    d_inv_sqrt = np.power(d, -0.5, where=d>0)
+    d_inv_sqrt[d<=0] = 0.0
     D_inv_sqrt = np.diag(d_inv_sqrt)
-    L_norm = np.eye(n) - D_inv_sqrt @ A @ D_inv_sqrt
-
-    try:
-        eigenvalues = np.linalg.eigvalsh(L_norm)
-        lambda_max = eigenvalues[-1]
-    except:
-        lambda_max = 2.0
-
-    if lambda_max < 1e-6:
-        lambda_max = 2.0
-
-    L_tilde = 2.0 * L_norm / lambda_max - np.eye(n)
+    L = np.eye(A.shape[0]) - D_inv_sqrt @ A @ D_inv_sqrt
+    lambda_max = np.linalg.eigvals(L).max()
+    L_tilde = (2.0 / (lambda_max + 1e-9)) * L - np.eye(A.shape[0])
     return L_tilde
 
 def add_rich_time_features(timestamps):
@@ -181,29 +171,43 @@ class MultiStepDataset(Dataset):
         return torch.from_numpy(x_final.astype(np.float32)), torch.from_numpy(y_node.astype(np.float32))
 
 # ============================================================
-#  MODEL: STGCN (Spatio-Temporal Graph Convolutional Network)
+#  MODEL: STGCN-BiLSTM
 # ============================================================
 
-class TemporalConvLayer(nn.Module):
+class BiLSTMTemporalLayer(nn.Module):
     """
-    Temporal Gated Convolution Layer (TCN block trong STGCN)
-    Sử dụng 1D Causal Convolution theo chiều thời gian kết hợp cơ chế GLU.
+    Bidirectional LSTM temporal learning layer to replace 1D Temporal Gated Conv
     """
-    def __init__(self, in_channels, out_channels, kernel_size=3):
+    def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.conv = nn.Conv2d(in_channels, 2 * out_channels, kernel_size=(1, kernel_size), padding=(0, 1))
+        self.lstm = nn.LSTM(
+            input_size=in_channels,
+            hidden_size=out_channels // 2,
+            num_layers=1,
+            batch_first=True,
+            bidirectional=True
+        )
+        self.proj = nn.Linear((out_channels // 2) * 2, out_channels)
 
     def forward(self, x):
         # x: (B, C_in, N, T)
-        # conv output: (B, 2 * C_out, N, T)
-        x = self.conv(x)
-        p, q = torch.chunk(x, 2, dim=1)
-        return p * torch.sigmoid(q)  # Gated Linear Unit (GLU)
+        B, C_in, N, T = x.shape
+        
+        # Reshape to time-series shape for each node: (B*N, T, C_in)
+        x_trans = x.permute(0, 2, 3, 1).reshape(B * N, T, C_in)
+        
+        # Run BiLSTM
+        out, _ = self.lstm(x_trans) # (B*N, T, hidden_size*2)
+        out = self.proj(out)       # (B*N, T, out_channels)
+        
+        # Reshape back to (B, out_channels, N, T)
+        out = out.view(B, N, T, -1).permute(0, 3, 1, 2).contiguous()
+        return out
 
 
 class ChebConvLayer(nn.Module):
     """
-    Chebyshev Spectral Graph Convolution (tương tự như trong ASTGCN)
+    Chebyshev Spectral Graph Convolution
     """
     def __init__(self, in_feats, out_feats, K=2):
         super().__init__()
@@ -211,7 +215,7 @@ class ChebConvLayer(nn.Module):
         self.linears = nn.ModuleList([nn.Linear(in_feats, out_feats) for _ in range(K)])
 
     def forward(self, x, L_tilde):
-        # x: (B, N, F_in)
+        # x: (B*T, N, F_in)
         # L_tilde: (N, N)
         T_prev = x
         out = self.linears[0](T_prev)
@@ -230,14 +234,13 @@ class ChebConvLayer(nn.Module):
 
 class STGCNBlock(nn.Module):
     """
-    Một khối Spatio-Temporal Convolutional Block gồm:
-    Temporal Gated Conv -> Spatial Graph Conv -> Temporal Gated Conv
+    Spatio-Temporal Block: BiLSTM -> ChebConv -> BiLSTM
     """
     def __init__(self, in_channels, out_channels, num_nodes, cheb_K=2, dropout=0.3):
         super().__init__()
-        self.tconv1 = TemporalConvLayer(in_channels, out_channels, kernel_size=3)
+        self.tconv1 = BiLSTMTemporalLayer(in_channels, out_channels)
         self.sconv = ChebConvLayer(out_channels, out_channels, cheb_K)
-        self.tconv2 = TemporalConvLayer(out_channels, out_channels, kernel_size=3)
+        self.tconv2 = BiLSTMTemporalLayer(out_channels, out_channels)
         self.ln = nn.LayerNorm([num_nodes, out_channels])
         self.dropout = nn.Dropout(dropout)
         
@@ -247,20 +250,20 @@ class STGCNBlock(nn.Module):
         # x: (B, C_in, N, T)
         res = self.residual(x)
         
-        # 1. Temporal Conv 1
+        # 1. Temporal BiLSTM 1
         h = self.tconv1(x) # (B, C_out, N, T)
         
-        # 2. Spatial Graph Conv (áp dụng cho từng timestep)
+        # 2. Spatial Spectral Conv
         B, C, N, T = h.shape
         h_s = h.permute(0, 3, 2, 1).reshape(B * T, N, C) # (B*T, N, C_out)
         h_s = self.sconv(h_s, L_tilde) # (B*T, N, C_out)
         h = h_s.view(B, T, N, C).permute(0, 3, 2, 1) # (B, C_out, N, T)
         h = F.relu(h)
         
-        # 3. Temporal Conv 2
+        # 3. Temporal BiLSTM 2
         h = self.tconv2(h) # (B, C_out, N, T)
         
-        # Residual & Norm & Dropout
+        # Residual + Norm + Dropout
         h = h + res
         h = h.permute(0, 3, 2, 1)  # (B, T, N, C_out)
         h = self.ln(h)
@@ -270,9 +273,9 @@ class STGCNBlock(nn.Module):
         return h
 
 
-class STGCN_Model(nn.Module):
+class STGCN_BiLSTM_Model(nn.Module):
     """
-    STGCN: Spatio-Temporal Graph Convolutional Networks (Yu et al., IJCAI 2018)
+    STGCN architecture redesigned with Bidirectional LSTMs for temporal learning
     """
     def __init__(self, num_nodes, in_feat, block_hidden, num_blocks, T_in,
                  cheb_K, horizon, output_feat, L_tilde=None, dropout=0.3):
@@ -287,8 +290,14 @@ class STGCN_Model(nn.Module):
             c_in = block_hidden
         self.blocks = nn.ModuleList(blocks)
 
-        # Chiếu chiều thời gian từ T_in về 1
-        self.final_conv = nn.Conv1d(block_hidden, horizon * output_feat, kernel_size=T_in)
+        self.time_conv = nn.Conv2d(block_hidden, block_hidden, kernel_size=(1, T_in))
+
+        self.proj = nn.Sequential(
+            nn.Linear(block_hidden, block_hidden // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(block_hidden // 2, horizon * output_feat)
+        )
 
         if L_tilde is None:
             self.register_buffer('L_tilde', torch.eye(num_nodes))
@@ -297,20 +306,20 @@ class STGCN_Model(nn.Module):
 
     def forward(self, x):
         # x: (B, T, N, F)
-        # Chuyển sang format (B, F, N, T)
-        h = x.permute(0, 3, 2, 1)
+        B, T, N, F = x.shape
+        h = x.permute(0, 3, 2, 1).contiguous() # (B, F, N, T)
 
         for block in self.blocks:
-            h = block(h, self.L_tilde)  # (B, C_hidden, N, T)
+            h = block(h, self.L_tilde)
 
-        # Chiếu kết quả ra Horizon
-        B, C, N, T = h.shape
-        h = h.permute(0, 2, 1, 3).reshape(B * N, C, T)  # (B*N, C_hidden, T)
-        out = self.final_conv(h)  # (B*N, horizon*output_feat, 1)
-        out = out.squeeze(-1)     # (B*N, horizon*output_feat)
+        # Collapse time dimension
+        h = self.time_conv(h) # (B, C_hidden, N, 1)
+        
+        # Output projection
+        h = h.squeeze(-1).permute(0, 2, 1)  # (B, N, C_hidden)
+        out = self.proj(h)                  # (B, N, horizon * output_feat)
         out = out.view(B, N, self.horizon, self.output_feat)
-        y_pred = out.permute(0, 2, 1, 3)  # (B, Horizon, N, output_feat)
-
+        y_pred = out.permute(0, 2, 1, 3)    # (B, Horizon, N, output_feat)
         return y_pred
 
 # ============================================================
@@ -496,14 +505,14 @@ def visualize_last_step(model, loader, device, scaler, cfg, node_list=None):
 
 def run_training():
     gc.collect(); torch.cuda.empty_cache()
-    print(f"TRAINING STGCN (Steps={CFG.HORIZON}, Future={CFG.PRED_MINUTES} mins)")
+    print(f"TRAINING STGCN-BiLSTM (Steps={CFG.HORIZON}, Future={CFG.PRED_MINUTES} mins)")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Device: {device}")
 
     A_raw, nodes = load_adj_from_excel(CFG.ADJ_PATH)
     L_tilde = compute_scaled_laplacian(A_raw)
-    print(f"Scaled Laplacian computed. Shape: {L_tilde.shape}")
+    print(f"Chebyshev Scaled Laplacian computed. Shape: {L_tilde.shape}")
 
     print(f"Loading ALL Data from: {CFG.CSV_PATH}")
     df_all = load_timeseries_double_rolling(CFG.CSV_PATH, nodes, CFG.DATA_WINDOW1, CFG.DATA_WINDOW2, CFG.TIME_STEP_MINUTES)
@@ -551,7 +560,7 @@ def run_training():
     val_loader   = DataLoader(val_ds, batch_size=CFG.BATCH_SIZE)
     test_loader  = DataLoader(test_ds, batch_size=CFG.BATCH_SIZE)
 
-    model = STGCN_Model(
+    model = STGCN_BiLSTM_Model(
         num_nodes=len(nodes),
         in_feat=4,
         block_hidden=CFG.BLOCK_HIDDEN,

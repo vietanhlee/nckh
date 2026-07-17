@@ -6,13 +6,14 @@ import pandas as pd
 from torch.utils.data import DataLoader
 import argparse
 
-# Import các lớp mô hình và cấu hình của 6 mô hình đang hoạt động
+# Import các lớp mô hình và cấu hình của cả 7 mô hình đang hoạt động
 from gcn_lstm import ImprovedGNN_LSTM, Config as GCNLSTMConfig
 from wavenet_gcn import GraphWaveNet_Model, Config as WaveNetConfig
 from astgcn import ASTGCN_Model, Config as ASTGCNConfig
 from stgcn import STGCN_Model, Config as STGCNConfig
 from dcrnn import DCRNN_Model, Config as DCRNNConfig
 from stgcn_gcn import STGCN_GCN_Model, Config as STGCN_GCNConfig
+from stgcn_bilstm import STGCN_BiLSTM_Model, Config as STGCNBiLSTMConfig
 
 # Tái sử dụng các hàm tiện ích nạp dữ liệu và đánh giá từ astgcn.py
 from astgcn import (
@@ -27,23 +28,24 @@ from astgcn import (
 )
 
 def main():
-    parser = argparse.ArgumentParser(description="So sánh kết quả huấn luyện 6 mô hình Spatial-Temporal Graph NCKH.")
+    parser = argparse.ArgumentParser(description="So sánh kết quả huấn luyện 7 mô hình Spatial-Temporal Graph NCKH.")
     parser.add_argument('--mode', type=str, default='eval', choices=['train', 'eval'],
-                        help="Chế độ chạy: 'train' (huấn luyện mới cả 6 mô hình từ đầu rồi so sánh) hoặc 'eval' (chỉ tải checkpoint và đánh giá).")
+                        help="Chế độ chạy: 'train' (huấn luyện mới cả 7 mô hình từ đầu rồi so sánh) hoặc 'eval' (chỉ tải checkpoint và đánh giá).")
     parser.add_argument('--epochs', type=int, default=None,
                         help="Số lượng epochs chạy thử nghiệm nếu chọn chế độ 'train' (mặc định lấy theo Config của từng mô hình).")
     args = parser.parse_args()
 
-    # Khởi tạo instance của Config cho cả 6 mô hình để truy cập các properties (T_IN, FULL_SAVE_PATH, v.v.)
+    # Khởi tạo instance của Config cho cả 7 mô hình để truy cập các properties (T_IN, FULL_SAVE_PATH, v.v.)
     gcn_lstm_cfg = GCNLSTMConfig()
     wavenet_cfg = WaveNetConfig()
     astgcn_cfg = ASTGCNConfig()
     stgcn_cfg = STGCNConfig()
     dcrnn_cfg = DCRNNConfig()
     stgcn_gcn_cfg = STGCN_GCNConfig()
+    stgcn_bilstm_cfg = STGCNBiLSTMConfig()
 
     # Đồng bộ hóa cấu hình SAVE_DIR sang thư mục tương đối cục bộ "model/"
-    for cfg_inst in [gcn_lstm_cfg, wavenet_cfg, astgcn_cfg, stgcn_cfg, dcrnn_cfg, stgcn_gcn_cfg]:
+    for cfg_inst in [gcn_lstm_cfg, wavenet_cfg, astgcn_cfg, stgcn_cfg, dcrnn_cfg, stgcn_gcn_cfg, stgcn_bilstm_cfg]:
         cfg_inst.SAVE_DIR = "model/"
         os.makedirs(cfg_inst.SAVE_DIR, exist_ok=True)
 
@@ -51,7 +53,7 @@ def main():
     cfg = gcn_lstm_cfg
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"============================================================")
-    print(f"🚀 BẮT ĐẦU CHẠY THỬ NGHIỆM SO SÁNH CẢ 6 MÔ HÌNH")
+    print(f"🚀 BẮT ĐẦU CHẠY THỬ NGHIỆM SO SÁNH CẢ 7 MÔ HÌNH")
     print(f"   Device: {device}")
     print(f"   Chế độ: {args.mode.upper()}")
     print(f"============================================================")
@@ -95,7 +97,7 @@ def main():
 
     print(f"   - Kích thước tập dữ liệu: Train={len(train_ds)}, Val={len(val_ds)}, Test={len(test_ds)}")
 
-    # 2. Định nghĩa danh sách 6 mô hình sử dụng các Config instances tương ứng
+    # 2. Định nghĩa danh sách 7 mô hình sử dụng các Config instances tương ứng
     models_dict = {
         'GCN-LSTM': {
             'class': ImprovedGNN_LSTM,
@@ -173,6 +175,22 @@ def main():
                 'output_feat': 1,
                 'A_norm': A_norm,
                 'dropout': stgcn_gcn_cfg.DROPOUT
+            }
+        },
+        'STGCN-BiLSTM': {
+            'class': STGCN_BiLSTM_Model,
+            'config': stgcn_bilstm_cfg,
+            'args': {
+                'num_nodes': len(nodes),
+                'in_feat': 4,
+                'block_hidden': stgcn_bilstm_cfg.BLOCK_HIDDEN,
+                'num_blocks': stgcn_bilstm_cfg.NUM_BLOCKS,
+                'T_in': stgcn_bilstm_cfg.T_IN,
+                'cheb_K': stgcn_bilstm_cfg.CHEB_K,
+                'horizon': stgcn_bilstm_cfg.HORIZON,
+                'output_feat': 1,
+                'L_tilde': L_tilde,
+                'dropout': stgcn_bilstm_cfg.DROPOUT
             }
         },
         'DCRNN': {
