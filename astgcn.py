@@ -32,7 +32,7 @@ class Config:
     DROPOUT      = 0.3
 
     # --- TRAIN ---
-    BATCH_SIZE  = 16
+    BATCH_SIZE  = 32
     EPOCHS      = 100
     LEARNING_RATE = 0.001
     PATIENCE    = 20
