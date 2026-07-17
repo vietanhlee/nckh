@@ -42,7 +42,7 @@ def main():
     gat_cfg = GATConfig()
     astgcn_cfg = ASTGCNConfig()
     stgcn_cfg = STGCNConfig()
-    dcrnn_cfg = DCRNNConfig()a
+    dcrnn_cfg = DCRNNConfig()
     agcrn_cfg = AGCRNConfig()
     tgcn_cfg = TGCNConfig()
 
