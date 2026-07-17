@@ -34,13 +34,11 @@
   * Định nghĩa lớp `TGCNCell`: Thay thế toàn bộ các phép toán nhân ma trận của GRU Cell bằng phép toán Graph Convolution sử dụng ma trận kề chuẩn hóa đối xứng $\tilde{D}^{-1/2} \tilde{A} \tilde{D}^{-1/2}$.
   * Dự báo trực tiếp ra `Horizon` thông qua lớp tuyến tính từ hidden state của timestep cuối cùng.
 
-### 5. **GCN-TCN** (Graph Convolutional Network + Temporal Convolutional Network) [NEW]
-* **Tệp**: [gcn_tcn.py](file:///g:/nckh/gcn_tcn.py) [NEW]
+### 5. **STGCN-GCN** (STGCN using standard GCN instead of ChebNet) [NEW]
+* **Tệp**: [stgcn_gcn.py](file:///g:/nckh/stgcn_gcn.py) [NEW]
 * **Ý tưởng**:
-  * Kết hợp GCN tĩnh và tích chập temporal dạng TCN thay vì LSTM hay GRU.
-  * Trích xuất đặc trưng không gian tĩnh bằng 2 lớp GCN với ma trận kề đối xứng chuẩn hóa tĩnh.
-  * Phụ thuộc thời gian được học bằng mạng TCN (stacked TCN block) với dilated causal conv 1D để tránh nhìn trước tương lai và tăng kích thước receptive field theo cấp số nhân.
-  * Final projection chiếu kết quả về chiều rộng dự báo `Horizon`.
+  * Biến thể của STGCN sử dụng lớp tích chập không gian GCN thông thường dựa trên ma trận kề chuẩn hóa đối xứng $A_{norm}$ thay thế cho Chebyshev Spectral Graph Conv (ChebConv) trên ma trận Scaled Laplacian $L_{tilde}$.
+  * Giữ nguyên cấu trúc Temporal Conv (GLU) ở hai bên và LayerNorm để so sánh rõ ràng sự khác biệt về mặt hiệu quả giữa tích chập phổ (Spectral Conv) và tích chập không gian thông thường (Spatial Conv).
 
 ---
 
@@ -51,20 +49,20 @@
 * #### [NEW] [dcrnn.py](file:///g:/nckh/dcrnn.py)
 * #### [NEW] [agcrn.py](file:///g:/nckh/agcrn.py)
 * #### [NEW] [tgcn.py](file:///g:/nckh/tgcn.py)
-* #### [NEW] [gcn_tcn.py](file:///g:/nckh/gcn_tcn.py)
+* #### [NEW] [stgcn_gcn.py](file:///g:/nckh/stgcn_gcn.py)
 
 ### [Comparison & Documentation]
 * #### [MODIFY] [compare_models.py](file:///g:/nckh/compare_models.py)
-  Tích hợp GCN-TCN thành **9 mô hình** so sánh tổng thể, cập nhật instance Config tương ứng.
+  Tích hợp các mô hình thành **9 mô hình** so sánh tổng thể (loại bỏ GCN-TCN và ASTGCN-GCN).
 * #### [MODIFY] [README.md](file:///g:/nckh/README.md)
-  Bổ sung mô tả và cách chạy của mô hình GCN-TCN.
+  Bổ sung mô tả và cách chạy của mô hình mới.
 
 ---
 
 ## 🔍 Kế hoạch Xác minh (Verification Plan)
 
 ### Kiểm tra tự động
-- Chạy thử 1 epoch huấn luyện của từng mô hình riêng lẻ (`python gcn_tcn.py`, v.v.) để kiểm tra độ chính xác cú pháp.
+- Chạy thử 1 epoch huấn luyện của mô hình STGCN-GCN riêng lẻ để kiểm tra độ chính xác cú pháp.
 - Chạy thử `python compare_models.py --mode train --epochs 1` để kiểm tra khả năng chạy tuần tự và tổng hợp kết quả của cả **9 mô hình**.
 
 ### Kiểm tra thủ công

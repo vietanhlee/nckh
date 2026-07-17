@@ -15,7 +15,7 @@ from stgcn import STGCN_Model, Config as STGCNConfig
 from dcrnn import DCRNN_Model, Config as DCRNNConfig
 from agcrn import AGCRN_Model, Config as AGCRNConfig
 from tgcn import TGCN_Model, Config as TGCNConfig
-from gcn_tcn import GCN_TCN_Model, Config as GCN_TCNConfig
+from stgcn_gcn import STGCN_GCN_Model, Config as STGCN_GCNConfig
 
 # Tái sử dụng các hàm tiện ích nạp dữ liệu và đánh giá từ astgcn.py
 from astgcn import (
@@ -46,7 +46,7 @@ def main():
     dcrnn_cfg = DCRNNConfig()
     agcrn_cfg = AGCRNConfig()
     tgcn_cfg = TGCNConfig()
-    gcn_tcn_cfg = GCN_TCNConfig()
+    stgcn_gcn_cfg = STGCN_GCNConfig()
 
     # Sử dụng config của GCN-LSTM làm cấu hình dữ liệu cơ bản
     cfg = gcn_lstm_cfg
@@ -145,21 +145,6 @@ def main():
                 'dropout': gat_cfg.DROPOUT
             }
         },
-        'GCN-TCN': {
-            'class': GCN_TCN_Model,
-            'config': gcn_tcn_cfg,
-            'args': {
-                'num_nodes': len(nodes),
-                'in_feat': 4,
-                'gcn_hidden': gcn_tcn_cfg.GCN_HIDDEN,
-                'tcn_channels': gcn_tcn_cfg.TCN_CHANNELS,
-                'tcn_kernel': gcn_tcn_cfg.TCN_KERNEL,
-                'horizon': gcn_tcn_cfg.HORIZON,
-                'output_feat': 1,
-                'A_norm': A_norm,
-                'dropout': gcn_tcn_cfg.DROPOUT
-            }
-        },
         'ASTGCN': {
             'class': ASTGCN_Model,
             'config': astgcn_cfg,
@@ -190,6 +175,21 @@ def main():
                 'output_feat': 1,
                 'L_tilde': L_tilde,
                 'dropout': stgcn_cfg.DROPOUT
+            }
+        },
+        'STGCN-GCN': {
+            'class': STGCN_GCN_Model,
+            'config': stgcn_gcn_cfg,
+            'args': {
+                'num_nodes': len(nodes),
+                'in_feat': 4,
+                'block_hidden': stgcn_gcn_cfg.BLOCK_HIDDEN,
+                'num_blocks': stgcn_gcn_cfg.NUM_BLOCKS,
+                'T_in': stgcn_gcn_cfg.T_IN,
+                'horizon': stgcn_gcn_cfg.HORIZON,
+                'output_feat': 1,
+                'A_norm': A_norm,
+                'dropout': stgcn_gcn_cfg.DROPOUT
             }
         },
         'DCRNN': {

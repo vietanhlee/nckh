@@ -11,8 +11,8 @@
   - [x] [dcrnn.py](file:///g:/nckh/dcrnn.py) [NEW]
   - [x] [agcrn.py](file:///g:/nckh/agcrn.py) [NEW]
   - [x] [tgcn.py](file:///g:/nckh/tgcn.py) [NEW]
-- [x] Xây dựng thêm mô hình GCN + TCN bằng PyTorch thuần:
-  - [x] [gcn_tcn.py](file:///g:/nckh/gcn_tcn.py) [NEW]
-- [x] Cập nhật script [compare_models.py](file:///g:/nckh/compare_models.py) để tích hợp cả 9 mô hình.
+- [x] Xây dựng thêm phiên bản STGCN dùng GCN thay thế cho ChebNet:
+  - [x] [stgcn_gcn.py](file:///g:/nckh/stgcn_gcn.py) [NEW]
+- [x] Cập nhật script [compare_models.py](file:///g:/nckh/compare_models.py) để tích hợp cả 9 mô hình (loại bỏ GCN-TCN và ASTGCN-GCN).
 - [x] Cập nhật tài liệu [README.md](file:///g:/nckh/README.md).
 - [x] Kiểm tra và chạy thực nghiệm xác minh.

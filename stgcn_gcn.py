@@ -26,7 +26,8 @@ class Config:
     LOSS_DELTA = 1.0
 
     # --- MODEL ---
-    HIDDEN_DIM   = 64       # Kích thước hidden state của TGCN
+    BLOCK_HIDDEN = 64
+    NUM_BLOCKS   = 2
     DROPOUT      = 0.3
 
     # --- TRAIN ---
@@ -52,7 +53,7 @@ class Config:
     @property
     def FULL_SAVE_PATH(self):
         if not os.path.exists(self.SAVE_DIR): os.makedirs(self.SAVE_DIR)
-        return os.path.join(self.SAVE_DIR, f"model_TGCN_{self.HORIZON}steps.pth")
+        return os.path.join(self.SAVE_DIR, f"model_STGCN_GCN_{self.HORIZON}steps.pth")
 
 CFG = Config()
 
@@ -158,91 +159,131 @@ class MultiStepDataset(Dataset):
         return torch.from_numpy(x_final.astype(np.float32)), torch.from_numpy(y_node.astype(np.float32))
 
 # ============================================================
-#  MODEL: TGCN (Temporal Graph Convolutional Network)
+#  MODEL: STGCN-GCN (Spatio-Temporal Graph Conv using standard GCN)
 # ============================================================
 
-class TGCNCell(nn.Module):
+class TemporalConvLayer(nn.Module):
     """
-    Tế bào GRU tích hợp Graph Convolution chuẩn hóa đối xứng (TGCN Cell)
+    Temporal Gated Convolution Layer (TCN block in STGCN)
+    Uses 1D Conv along time axis combined with Gated Linear Unit (GLU).
     """
-    def __init__(self, num_nodes, input_dim, hidden_dim):
+    def __init__(self, in_channels, out_channels, kernel_size=3):
         super().__init__()
-        self.hidden_dim = hidden_dim
-        # Tích chập Graph Conv cho cổng r và u
-        self.conv_gate = nn.Linear(input_dim + hidden_dim, 2 * hidden_dim)
-        # Tích chập Graph Conv cho candidate state c
-        self.conv_cand = nn.Linear(input_dim + hidden_dim, hidden_dim)
+        self.conv = nn.Conv2d(in_channels, 2 * out_channels, kernel_size=(1, kernel_size), padding=(0, 1))
 
-    def forward(self, x, h, A_norm):
-        # x: (B, N, input_dim)
-        # h: (B, N, hidden_dim)
-        # A_norm: (N, N) ma trận kề chuẩn hóa đối xứng
-        
-        # Kết hợp theo chiều channel
-        combined = torch.cat([x, h], dim=-1) # (B, N, input_dim + hidden_dim)
-        
-        # Graph Convolution: A_norm @ Combined
-        Ax = torch.einsum('ij,bjf->bif', A_norm, combined)
-        
-        # Tính cổng r và u
-        ru = self.conv_gate(Ax)
-        r, u = torch.chunk(ru, 2, dim=-1)
-        r = torch.sigmoid(r)
-        u = torch.sigmoid(u)
-        
-        # Tính candidate state
-        combined_c = torch.cat([x, r * h], dim=-1)
-        Ax_c = torch.einsum('ij,bjf->bif', A_norm, combined_c)
-        c = torch.tanh(self.conv_cand(Ax_c))
-        
-        h_new = u * h + (1.0 - u) * c
-        return h_new
+    def forward(self, x):
+        # x: (B, C_in, N, T)
+        # conv output: (B, 2 * C_out, N, T)
+        x = self.conv(x)
+        p, q = torch.chunk(x, 2, dim=1)
+        return p * torch.sigmoid(q)  # GLU
 
 
-class TGCN_Model(nn.Module):
+class GraphConvLayer(nn.Module):
     """
-    Mô hình TGCN hoàn chỉnh (Zhao et al., IEEE T-ITS 2019)
+    Standard Symmetric Normalized Graph Convolutional Layer
     """
-    def __init__(self, num_nodes, in_feat, hidden_dim, horizon, output_feat, A_norm=None, dropout=0.3):
+    def __init__(self, in_feats, out_feats):
         super().__init__()
-        self.num_nodes = num_nodes
-        self.hidden_dim = hidden_dim
-        self.horizon = horizon
-        self.output_feat = output_feat
-        
-        self.cell = TGCNCell(num_nodes, in_feat, hidden_dim)
+        self.linear = nn.Linear(in_feats, out_feats)
+
+    def forward(self, x, A_norm):
+        # x: (B, N, F_in)
+        # A_norm: (N, N)
+        Ax = torch.einsum('ij,bjf->bif', A_norm, x)
+        return self.linear(Ax)
+
+
+class STGCNBlock(nn.Module):
+    """
+    Spatio-Temporal Convolutional Block:
+    Temporal Gated Conv -> Spatial GCN -> Temporal Gated Conv
+    """
+    def __init__(self, in_channels, out_channels, num_nodes, dropout=0.3):
+        super().__init__()
+        self.tconv1 = TemporalConvLayer(in_channels, out_channels, kernel_size=3)
+        self.sconv = GraphConvLayer(out_channels, out_channels)
+        self.tconv2 = TemporalConvLayer(out_channels, out_channels, kernel_size=3)
+        self.ln = nn.LayerNorm([num_nodes, out_channels])
         self.dropout = nn.Dropout(dropout)
         
+        self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=1) if in_channels != out_channels else nn.Identity()
+
+    def forward(self, x, A_norm):
+        # x: (B, C_in, N, T)
+        res = self.residual(x)
+        
+        # 1. Temporal Conv 1
+        h = self.tconv1(x) # (B, C_out, N, T)
+        
+        # 2. Spatial Graph Conv (Standard GCN)
+        B, C, N, T = h.shape
+        h_s = h.permute(0, 3, 2, 1).reshape(B * T, N, C) # (B*T, N, C_out)
+        h_s = self.sconv(h_s, A_norm) # (B*T, N, C_out)
+        h = h_s.view(B, T, N, C).permute(0, 3, 2, 1) # (B, C_out, N, T)
+        h = F.relu(h)
+        
+        # 3. Temporal Conv 2
+        h = self.tconv2(h) # (B, C_out, N, T)
+        
+        # Residual & Norm & Dropout
+        h = h + res
+        h = h.permute(0, 3, 2, 1)  # (B, T, N, C_out)
+        h = self.ln(h)
+        h = h.permute(0, 3, 2, 1)  # (B, C_out, N, T)
+        h = self.dropout(h)
+        
+        return h
+
+
+class STGCN_GCN_Model(nn.Module):
+    """
+    STGCN using standard Graph Convolutional Networks (GCN) instead of Chebyshev Spectral Graph Conv
+    """
+    def __init__(self, num_nodes, in_feat, block_hidden, num_blocks, T_in,
+                 horizon, output_feat, A_norm=None, dropout=0.3):
+        super().__init__()
+        self.horizon = horizon
+        self.output_feat = output_feat
+
+        blocks = []
+        c_in = in_feat
+        for _ in range(num_blocks):
+            blocks.append(STGCNBlock(c_in, block_hidden, num_nodes, dropout))
+            c_in = block_hidden
+        self.blocks = nn.ModuleList(blocks)
+
+        # Time reduction layer
+        self.time_conv = nn.Conv2d(block_hidden, block_hidden, kernel_size=(1, T_in))
+
         self.proj = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.Linear(block_hidden, block_hidden // 2),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 2, horizon * output_feat)
+            nn.Linear(block_hidden // 2, horizon * output_feat)
         )
-        
+
         if A_norm is None:
             self.register_buffer('A_norm', torch.eye(num_nodes))
         else:
             self.register_buffer('A_norm', torch.tensor(A_norm, dtype=torch.float32))
-            
+
     def forward(self, x):
         # x: (B, T, N, F)
-        B, T, N, F_in = x.shape
+        B, T, N, F = x.shape
+        h = x.permute(0, 3, 2, 1).contiguous() # (B, F, N, T)
+
+        for block in self.blocks:
+            h = block(h, self.A_norm)
+
+        # Collapse temporal dimension (B, C, N, 1)
+        h = self.time_conv(h)
         
-        # Khởi tạo hidden state ban đầu
-        h = torch.zeros(B, N, self.hidden_dim, device=x.device)
-        
-        # Duyệt qua từng bước thời gian đầu vào
-        for t in range(T):
-            x_t = x[:, t, :, :] # (B, N, F)
-            h = self.cell(x_t, h, self.A_norm)
-            h = self.dropout(h)
-            
-        # Dự báo đa bước
-        out = self.proj(h) # (B, N, horizon * output_feat)
+        # Projection out
+        h = h.squeeze(-1).permute(0, 2, 1)  # (B, N, block_hidden)
+        out = self.proj(h)                  # (B, N, horizon * output_feat)
         out = out.view(B, N, self.horizon, self.output_feat)
-        y_pred = out.permute(0, 2, 1, 3) # (B, Horizon, N, output_feat)
-        
+        y_pred = out.permute(0, 2, 1, 3)    # (B, Horizon, N, output_feat)
         return y_pred
 
 # ============================================================
@@ -428,7 +469,7 @@ def visualize_last_step(model, loader, device, scaler, cfg, node_list=None):
 
 def run_training():
     gc.collect(); torch.cuda.empty_cache()
-    print(f"TRAINING TGCN (Steps={CFG.HORIZON}, Future={CFG.PRED_MINUTES} mins)")
+    print(f"TRAINING STGCN-GCN (Steps={CFG.HORIZON}, Future={CFG.PRED_MINUTES} mins)")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Device: {device}")
@@ -483,10 +524,12 @@ def run_training():
     val_loader   = DataLoader(val_ds, batch_size=CFG.BATCH_SIZE)
     test_loader  = DataLoader(test_ds, batch_size=CFG.BATCH_SIZE)
 
-    model = TGCN_Model(
+    model = STGCN_GCN_Model(
         num_nodes=len(nodes),
         in_feat=4,
-        hidden_dim=CFG.HIDDEN_DIM,
+        block_hidden=CFG.BLOCK_HIDDEN,
+        num_blocks=CFG.NUM_BLOCKS,
+        T_in=CFG.T_IN,
         horizon=CFG.HORIZON,
         output_feat=1,
         A_norm=A_norm,

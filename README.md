@@ -17,15 +17,15 @@ Dự án hiện tại hỗ trợ **9 kiến trúc mô hình độc lập**, đư
 3. **GAT-TCN** ([gat_tcn.py](file:///g:/nckh/gat_tcn.py)):
    * **Spatial**: Graph Attention Network (GAT) tự động học trọng số động giữa các nút.
    * **Temporal**: Stacked Temporal Convolutional Network (TCN) với dilation tăng dần.
-4. **GCN-TCN** ([gcn_tcn.py](file:///g:/nckh/gcn_tcn.py)) [NEW]:
-   * **Spatial**: Graph Convolutional Network (GCN) trích xuất đặc trưng không gian tĩnh đối xứng.
-   * **Temporal**: Stacked Temporal Convolutional Network (TCN) với dilation tăng dần qua các causal convolution 1D.
-5. **ASTGCN** ([astgcn.py](file:///g:/nckh/astgcn.py)):
+4. **ASTGCN** ([astgcn.py](file:///g:/nckh/astgcn.py)):
    * **Spatial & Temporal Attention**: Cơ chế Attention động cả về mặt không gian (giữa các nút) và thời gian.
    * **Chebyshev GCN**: Chebyshev Spectral Graph Convolution (ChebConv) trên ma trận Scaled Laplacian.
-6. **STGCN** ([stgcn.py](file:///g:/nckh/stgcn.py)) [NEW]:
+5. **STGCN** ([stgcn.py](file:///g:/nckh/stgcn.py)) [NEW]:
    * **Spatial**: Chebyshev Spectral Graph Convolution (ChebConv).
    * **Temporal**: Lớp Temporal Gated Convolution (GLU) qua tích chập 1D.
+6. **STGCN-GCN** ([stgcn_gcn.py](file:///g:/nckh/stgcn_gcn.py)) [NEW]:
+   * **Spatial**: Graph Convolutional Network (GCN) trích xuất đặc trưng không gian tĩnh đối xứng.
+   * **Temporal**: Lớp Temporal Gated Convolution (GLU) tương tự như STGCN nhưng dùng GCN thay thế cho ChebNet.
 7. **DCRNN** ([dcrnn.py](file:///g:/nckh/dcrnn.py)) [NEW]:
    * **Spatial**: Tích chập lan truyền (Diffusion Convolution) dựa trên bước đi ngẫu nhiên xuôi/ngược trên đồ thị có hướng.
    * **Temporal**: DCGRU (Diffusion Convolutional GRU Cell) theo luồng Encoder-Decoder.
@@ -62,9 +62,9 @@ Cấu hình đường dẫn dữ liệu được khai báo trong lớp `Config` 
 python gcn_lstm.py
 python wavenet_gcn.py
 python gat_tcn.py
-python gcn_tcn.py
 python astgcn.py
 python stgcn.py
+python stgcn_gcn.py
 python dcrnn.py
 python agcrn.py
 python tgcn.py
