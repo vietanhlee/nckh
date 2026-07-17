@@ -36,8 +36,18 @@ def main():
                         help="Số lượng epochs chạy thử nghiệm nếu chọn chế độ 'train' (mặc định lấy theo Config của từng mô hình).")
     args = parser.parse_args()
 
+    # Khởi tạo instance của Config cho cả 8 mô hình để truy cập các properties (T_IN, FULL_SAVE_PATH, v.v.)
+    gcn_lstm_cfg = GCNLSTMConfig()
+    wavenet_cfg = WaveNetConfig()
+    gat_cfg = GATConfig()
+    astgcn_cfg = ASTGCNConfig()
+    stgcn_cfg = STGCNConfig()
+    dcrnn_cfg = DCRNNConfig()a
+    agcrn_cfg = AGCRNConfig()
+    tgcn_cfg = TGCNConfig()
+
     # Sử dụng config của GCN-LSTM làm cấu hình dữ liệu cơ bản
-    cfg = GCNLSTMConfig
+    cfg = gcn_lstm_cfg
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"============================================================")
     print(f"🚀 BẮT ĐẦU CHẠY THỬ NGHIỆM SO SÁNH CẢ 8 MÔ HÌNH")
@@ -84,125 +94,125 @@ def main():
 
     print(f"   - Kích thước tập dữ liệu: Train={len(train_ds)}, Val={len(val_ds)}, Test={len(test_ds)}")
 
-    # 2. Định nghĩa danh sách 8 mô hình
+    # 2. Định nghĩa danh sách 8 mô hình sử dụng các Config instances tương ứng
     models_dict = {
         'GCN-LSTM': {
             'class': ImprovedGNN_LSTM,
-            'config': GCNLSTMConfig,
+            'config': gcn_lstm_cfg,
             'args': {
                 'num_nodes': len(nodes),
                 'in_feat': 4,
-                'gcn_hidden': GCNLSTMConfig.GCN_HIDDEN,
-                'lstm_hidden': GCNLSTMConfig.LSTM_HIDDEN,
-                'lstm_layers': GCNLSTMConfig.LSTM_LAYERS,
+                'gcn_hidden': gcn_lstm_cfg.GCN_HIDDEN,
+                'lstm_hidden': gcn_lstm_cfg.LSTM_HIDDEN,
+                'lstm_layers': gcn_lstm_cfg.LSTM_LAYERS,
                 'output_feat': 1,
-                'horizon': GCNLSTMConfig.HORIZON,
+                'horizon': gcn_lstm_cfg.HORIZON,
                 'A_norm': A_norm,
-                'dropout': GCNLSTMConfig.DROPOUT
+                'dropout': gcn_lstm_cfg.DROPOUT
             }
         },
         'Graph WaveNet': {
             'class': GraphWaveNet_Model,
-            'config': WaveNetConfig,
+            'config': wavenet_cfg,
             'args': {
                 'num_nodes': len(nodes),
                 'in_feat': 4,
-                'residual_channels': WaveNetConfig.RESIDUAL_CHANNELS,
-                'skip_channels': WaveNetConfig.SKIP_CHANNELS,
-                'dilation_list': WaveNetConfig.DILATION_LIST,
-                'adaptive_emb_dim': WaveNetConfig.ADAPTIVE_EMB,
-                'horizon': WaveNetConfig.HORIZON,
+                'residual_channels': wavenet_cfg.RESIDUAL_CHANNELS,
+                'skip_channels': wavenet_cfg.SKIP_CHANNELS,
+                'dilation_list': wavenet_cfg.DILATION_LIST,
+                'adaptive_emb_dim': wavenet_cfg.ADAPTIVE_EMB,
+                'horizon': wavenet_cfg.HORIZON,
                 'output_feat': 1,
                 'A_norm': A_norm,
-                'dropout': WaveNetConfig.DROPOUT
+                'dropout': wavenet_cfg.DROPOUT
             }
         },
         'GAT-TCN': {
             'class': GAT_TCN_Model,
-            'config': GATConfig,
+            'config': gat_cfg,
             'args': {
                 'num_nodes': len(nodes),
                 'in_feat': 4,
-                'gat_hidden': GATConfig.GAT_HIDDEN,
-                'gat_heads': GATConfig.GAT_HEADS,
-                'tcn_channels': GATConfig.TCN_CHANNELS,
-                'tcn_kernel': GATConfig.TCN_KERNEL,
-                'horizon': GATConfig.HORIZON,
+                'gat_hidden': gat_cfg.GAT_HIDDEN,
+                'gat_heads': gat_cfg.GAT_HEADS,
+                'tcn_channels': gat_cfg.TCN_CHANNELS,
+                'tcn_kernel': gat_cfg.TCN_KERNEL,
+                'horizon': gat_cfg.HORIZON,
                 'output_feat': 1,
                 'A_raw': A_raw,
-                'dropout': GATConfig.DROPOUT
+                'dropout': gat_cfg.DROPOUT
             }
         },
         'ASTGCN': {
             'class': ASTGCN_Model,
-            'config': ASTGCNConfig,
+            'config': astgcn_cfg,
             'args': {
                 'num_nodes': len(nodes),
                 'in_feat': 4,
-                'block_hidden': ASTGCNConfig.BLOCK_HIDDEN,
-                'num_blocks': ASTGCNConfig.NUM_BLOCKS,
-                'T_in': ASTGCNConfig.T_IN,
-                'cheb_K': ASTGCNConfig.CHEB_K,
-                'horizon': ASTGCNConfig.HORIZON,
+                'block_hidden': astgcn_cfg.BLOCK_HIDDEN,
+                'num_blocks': astgcn_cfg.NUM_BLOCKS,
+                'T_in': astgcn_cfg.T_IN,
+                'cheb_K': astgcn_cfg.CHEB_K,
+                'horizon': astgcn_cfg.HORIZON,
                 'output_feat': 1,
                 'L_tilde': L_tilde,
-                'dropout': ASTGCNConfig.DROPOUT
+                'dropout': astgcn_cfg.DROPOUT
             }
         },
         'STGCN': {
             'class': STGCN_Model,
-            'config': STGCNConfig,
+            'config': stgcn_cfg,
             'args': {
                 'num_nodes': len(nodes),
                 'in_feat': 4,
-                'block_hidden': STGCNConfig.BLOCK_HIDDEN,
-                'num_blocks': STGCNConfig.NUM_BLOCKS,
-                'T_in': STGCNConfig.T_IN,
-                'cheb_K': STGCNConfig.CHEB_K,
-                'horizon': STGCNConfig.HORIZON,
+                'block_hidden': stgcn_cfg.BLOCK_HIDDEN,
+                'num_blocks': stgcn_cfg.NUM_BLOCKS,
+                'T_in': stgcn_cfg.T_IN,
+                'cheb_K': stgcn_cfg.CHEB_K,
+                'horizon': stgcn_cfg.HORIZON,
                 'output_feat': 1,
                 'L_tilde': L_tilde,
-                'dropout': STGCNConfig.DROPOUT
+                'dropout': stgcn_cfg.DROPOUT
             }
         },
         'DCRNN': {
             'class': DCRNN_Model,
-            'config': DCRNNConfig,
+            'config': dcrnn_cfg,
             'args': {
                 'num_nodes': len(nodes),
                 'in_feat': 4,
-                'hidden_dim': DCRNNConfig.HIDDEN_DIM,
-                'K': DCRNNConfig.K,
-                'horizon': DCRNNConfig.HORIZON,
+                'hidden_dim': dcrnn_cfg.HIDDEN_DIM,
+                'K': dcrnn_cfg.K,
+                'horizon': dcrnn_cfg.HORIZON,
                 'output_feat': 1,
                 'A_raw': A_raw,
-                'dropout': DCRNNConfig.DROPOUT
+                'dropout': dcrnn_cfg.DROPOUT
             }
         },
         'AGCRN': {
             'class': AGCRN_Model,
-            'config': AGCRNConfig,
+            'config': agcrn_cfg,
             'args': {
                 'num_nodes': len(nodes),
                 'in_feat': 4,
-                'hidden_dim': AGCRNConfig.HIDDEN_DIM,
-                'embed_dim': AGCRNConfig.EMBED_DIM,
-                'horizon': AGCRNConfig.HORIZON,
+                'hidden_dim': agcrn_cfg.HIDDEN_DIM,
+                'embed_dim': agcrn_cfg.EMBED_DIM,
+                'horizon': agcrn_cfg.HORIZON,
                 'output_feat': 1,
-                'dropout': AGCRNConfig.DROPOUT
+                'dropout': agcrn_cfg.DROPOUT
             }
         },
         'TGCN': {
             'class': TGCN_Model,
-            'config': TGCNConfig,
+            'config': tgcn_cfg,
             'args': {
                 'num_nodes': len(nodes),
                 'in_feat': 4,
-                'hidden_dim': TGCNConfig.HIDDEN_DIM,
-                'horizon': TGCNConfig.HORIZON,
+                'hidden_dim': tgcn_cfg.HIDDEN_DIM,
+                'horizon': tgcn_cfg.HORIZON,
                 'output_feat': 1,
                 'A_norm': A_norm,
-                'dropout': TGCNConfig.DROPOUT
+                'dropout': tgcn_cfg.DROPOUT
             }
         }
     }
