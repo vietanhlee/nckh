@@ -6,7 +6,7 @@ import pandas as pd
 from torch.utils.data import DataLoader
 import argparse
 
-# Import các lớp mô hình và cấu hình của cả 7 mô hình đang hoạt động
+# Import các lớp mô hình và cấu hình của cả 9 mô hình đang hoạt động
 from gcn_lstm import ImprovedGNN_LSTM, Config as GCNLSTMConfig
 from wavenet_gcn import GraphWaveNet_Model, Config as WaveNetConfig
 from astgcn import ASTGCN_Model, Config as ASTGCNConfig
@@ -14,6 +14,8 @@ from stgcn import STGCN_Model, Config as STGCNConfig
 from dcrnn import DCRNN_Model, Config as DCRNNConfig
 from stgcn_gcn import STGCN_GCN_Model, Config as STGCN_GCNConfig
 from stgcn_bilstm import STGCN_BiLSTM_Model, Config as STGCNBiLSTMConfig
+from dcrnn_glu import DCRNN_GLU_Model, Config as DCRNNGLUConfig
+from wavenet_glu import GraphWaveNet_GLU_Model, Config as WaveNetGLUConfig
 
 # Tái sử dụng các hàm tiện ích nạp dữ liệu và đánh giá từ astgcn.py
 from astgcn import (
@@ -28,14 +30,14 @@ from astgcn import (
 )
 
 def main():
-    parser = argparse.ArgumentParser(description="So sánh kết quả huấn luyện 7 mô hình Spatial-Temporal Graph NCKH.")
+    parser = argparse.ArgumentParser(description="So sánh kết quả huấn luyện 9 mô hình Spatial-Temporal Graph NCKH.")
     parser.add_argument('--mode', type=str, default='eval', choices=['train', 'eval'],
-                        help="Chế độ chạy: 'train' (huấn luyện mới cả 7 mô hình từ đầu rồi so sánh) hoặc 'eval' (chỉ tải checkpoint và đánh giá).")
+                        help="Chế độ chạy: 'train' (huấn luyện mới cả 9 mô hình từ đầu rồi so sánh) hoặc 'eval' (chỉ tải checkpoint và đánh giá).")
     parser.add_argument('--epochs', type=int, default=None,
                         help="Số lượng epochs chạy thử nghiệm nếu chọn chế độ 'train' (mặc định lấy theo Config của từng mô hình).")
     args = parser.parse_args()
 
-    # Khởi tạo instance của Config cho cả 7 mô hình để truy cập các properties (T_IN, FULL_SAVE_PATH, v.v.)
+    # Khởi tạo instance của Config cho cả 9 mô hình để truy cập các properties (T_IN, FULL_SAVE_PATH, v.v.)
     gcn_lstm_cfg = GCNLSTMConfig()
     wavenet_cfg = WaveNetConfig()
     astgcn_cfg = ASTGCNConfig()
@@ -43,9 +45,11 @@ def main():
     dcrnn_cfg = DCRNNConfig()
     stgcn_gcn_cfg = STGCN_GCNConfig()
     stgcn_bilstm_cfg = STGCNBiLSTMConfig()
+    dcrnn_glu_cfg = DCRNNGLUConfig()
+    wavenet_glu_cfg = WaveNetGLUConfig()
 
     # Đồng bộ hóa cấu hình SAVE_DIR sang thư mục tương đối cục bộ "model/"
-    for cfg_inst in [gcn_lstm_cfg, wavenet_cfg, astgcn_cfg, stgcn_cfg, dcrnn_cfg, stgcn_gcn_cfg, stgcn_bilstm_cfg]:
+    for cfg_inst in [gcn_lstm_cfg, wavenet_cfg, astgcn_cfg, stgcn_cfg, dcrnn_cfg, stgcn_gcn_cfg, stgcn_bilstm_cfg, dcrnn_glu_cfg, wavenet_glu_cfg]:
         cfg_inst.SAVE_DIR = "model/"
         os.makedirs(cfg_inst.SAVE_DIR, exist_ok=True)
 
@@ -53,7 +57,7 @@ def main():
     cfg = gcn_lstm_cfg
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"============================================================")
-    print(f"🚀 BẮT ĐẦU CHẠY THỬ NGHIỆM SO SÁNH CẢ 7 MÔ HÌNH")
+    print(f"🚀 BẮT ĐẦU CHẠY THỬ NGHIỆM SO SÁNH CẢ 9 MÔ HÌNH")
     print(f"   Device: {device}")
     print(f"   Chế độ: {args.mode.upper()}")
     print(f"============================================================")
@@ -97,7 +101,7 @@ def main():
 
     print(f"   - Kích thước tập dữ liệu: Train={len(train_ds)}, Val={len(val_ds)}, Test={len(test_ds)}")
 
-    # 2. Định nghĩa danh sách 7 mô hình sử dụng các Config instances tương ứng
+    # 2. Định nghĩa danh sách 9 mô hình sử dụng các Config instances tương ứng
     models_dict = {
         'GCN-LSTM': {
             'class': ImprovedGNN_LSTM,
@@ -128,6 +132,22 @@ def main():
                 'output_feat': 1,
                 'A_norm': A_norm,
                 'dropout': wavenet_cfg.DROPOUT
+            }
+        },
+        'Graph WaveNet-GLU': {
+            'class': GraphWaveNet_GLU_Model,
+            'config': wavenet_glu_cfg,
+            'args': {
+                'num_nodes': len(nodes),
+                'in_feat': 4,
+                'residual_channels': wavenet_glu_cfg.RESIDUAL_CHANNELS,
+                'skip_channels': wavenet_glu_cfg.SKIP_CHANNELS,
+                'dilation_list': wavenet_glu_cfg.DILATION_LIST,
+                'adaptive_emb_dim': wavenet_glu_cfg.ADAPTIVE_EMB,
+                'horizon': wavenet_glu_cfg.HORIZON,
+                'output_feat': 1,
+                'A_norm': A_norm,
+                'dropout': wavenet_glu_cfg.DROPOUT
             }
         },
         'ASTGCN': {
@@ -205,6 +225,22 @@ def main():
                 'output_feat': 1,
                 'A_raw': A_raw,
                 'dropout': dcrnn_cfg.DROPOUT
+            }
+        },
+        'DCRNN-GLU': {
+            'class': DCRNN_GLU_Model,
+            'config': dcrnn_glu_cfg,
+            'args': {
+                'num_nodes': len(nodes),
+                'in_feat': 4,
+                'block_hidden': dcrnn_glu_cfg.BLOCK_HIDDEN,
+                'num_blocks': dcrnn_glu_cfg.NUM_BLOCKS,
+                'T_in': dcrnn_glu_cfg.T_IN,
+                'K': dcrnn_glu_cfg.K,
+                'horizon': dcrnn_glu_cfg.HORIZON,
+                'output_feat': 1,
+                'A_raw': A_raw,
+                'dropout': dcrnn_glu_cfg.DROPOUT
             }
         }
     }

@@ -26,40 +26,40 @@ class Config:
     LOSS_DELTA = 1.0
 
     # --- MODEL ---
-    CHEB_K       = 2        # Bậc đa thức Chebyshev
-    NUM_BLOCKS   = 2        # Số ASTGCN blocks
-    BLOCK_HIDDEN = 32       # Hidden size mỗi block
+    BLOCK_HIDDEN = 64
+    NUM_BLOCKS   = 2
+    K            = 2
     DROPOUT      = 0.3
 
-    # --- TRAIN ---00 
-    BATCH_SIZE  = 32
-    EPOCHS      = 500
+    # --- TRAIN ---
+    BATCH_SIZE  = 16
+    EPOCHS      = 100
     LEARNING_RATE = 0.001
-    PATIENCE    = 40
+    PATIENCE    = 20
     DATA_WINDOW1 = 3
     DATA_WINDOW2 = 5
 
     @property
     def T_IN(self):
-      return int(self.HISTORY_MINUTES/self.TIME_STEP_MINUTES)
+        return int(self.HISTORY_MINUTES/self.TIME_STEP_MINUTES)
 
     @property
     def T_OUT(self):
-      return self.HORIZON
+        return self.HORIZON
 
     @property
     def PRED_MINUTES(self):
-      return self.HORIZON * self.TIME_STEP_MINUTES
+        return self.HORIZON * self.TIME_STEP_MINUTES
 
     @property
     def FULL_SAVE_PATH(self):
         if not os.path.exists(self.SAVE_DIR): os.makedirs(self.SAVE_DIR)
-        return os.path.join(self.SAVE_DIR, f"model_ASTGCN_{self.HORIZON}steps.pth")
+        return os.path.join(self.SAVE_DIR, f"model_DCRNN_GLU_{self.HORIZON}steps.pth")
 
 CFG = Config()
 
 # ============================================================
-#  DATA UTILITIES (tái sử dụng từ gcn_lstm.py)
+#  DATA UTILITIES
 # ============================================================
 
 def load_adj_from_excel(excel_path):
@@ -72,50 +72,6 @@ def load_adj_from_excel(excel_path):
     weights[mask] = np.exp(-mat[mask] / (sigma + 1e-9))
     return weights, list(df.index)
 
-def normalize_adj_sym(A):
-    A = A.astype(float)
-    A = A + np.eye(A.shape[0])
-    d = A.sum(axis=1)
-    d_inv_sqrt = np.power(d, -0.5, where=d>0)
-    d_inv_sqrt[d<=0] = 0
-    D_inv_sqrt = np.diag(d_inv_sqrt)
-    return D_inv_sqrt @ A @ D_inv_sqrt
-
-def compute_scaled_laplacian(A):
-    """
-    Tính Scaled Laplacian cho Chebyshev Convolution:
-    L̃ = 2L_norm / λ_max − I
-
-    Trong đó:
-    - L_norm = I − D^{−1/2} A D^{−1/2} (Normalized Laplacian)
-    - λ_max = eigenvalue lớn nhất của L_norm
-    """
-    A = A.astype(float)
-    n = A.shape[0]
-
-    # Degree matrix
-    d = A.sum(axis=1)
-
-    # Normalized Laplacian: L_norm = I - D^{-1/2} A D^{-1/2}
-    d_inv_sqrt = np.power(d, -0.5, where=d > 0)
-    d_inv_sqrt[d <= 0] = 0
-    D_inv_sqrt = np.diag(d_inv_sqrt)
-    L_norm = np.eye(n) - D_inv_sqrt @ A @ D_inv_sqrt
-
-    # Tính eigenvalue lớn nhất
-    try:
-        eigenvalues = np.linalg.eigvalsh(L_norm)
-        lambda_max = eigenvalues[-1]
-    except:
-        lambda_max = 2.0   # Fallback
-
-    if lambda_max < 1e-6:
-        lambda_max = 2.0
-
-    # Scaled Laplacian
-    L_tilde = 2.0 * L_norm / lambda_max - np.eye(n)
-    return L_tilde
-
 def add_rich_time_features(timestamps):
     tod = timestamps.hour * 60 + timestamps.minute
     tod_rad = 2 * np.pi * tod / 1440.0
@@ -123,7 +79,7 @@ def add_rich_time_features(timestamps):
     features = np.stack([np.sin(tod_rad), np.cos(tod_rad), hour_norm], axis=1)
     return features
 
-def load_timeseries_double_rolling(csv_path, node_list, window1 = 3, window2 = 5, step_minutes=5):
+def load_timeseries_double_rolling(csv_path, node_list, window1=3, window2=5, step_minutes=5):
     print(f"   Reading CSV: {csv_path}...")
     df = pd.read_csv(csv_path)
     df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
@@ -151,7 +107,7 @@ def load_timeseries_double_rolling(csv_path, node_list, window1 = 3, window2 = 5
     return pivot_final
 
 # ============================================================
-#  DATASET (tái sử dụng từ gcn_lstm.py)
+#  DATASET
 # ============================================================
 
 class MultiStepDataset(Dataset):
@@ -168,7 +124,6 @@ class MultiStepDataset(Dataset):
         self.N = len(node_order)
 
         self.values = self.df.values.astype(float).reshape(-1, self.N, 1)
-
         self.time_feats = add_rich_time_features(self.timestamps)
 
         if scaler is None:
@@ -196,266 +151,159 @@ class MultiStepDataset(Dataset):
         return torch.from_numpy(x_final.astype(np.float32)), torch.from_numpy(y_node.astype(np.float32))
 
 # ============================================================
-#  MODEL: ASTGCN (Attention-based Spatial-Temporal GCN)
+#  MODEL: DCRNN-GLU
 # ============================================================
 
-class SpatialAttention(nn.Module):
+class TemporalConvLayer(nn.Module):
     """
-    Spatial Attention (Guo et al., AAAI 2019)
-    Học ma trận attention động S ∈ R^{N×N} giữa các node,
-    phản ánh mức độ ảnh hưởng lẫn nhau tại mỗi thời điểm.
-
-    Công thức: S = V_s · σ( (X·W1)·W2 · (W3·X)^T ) + b_s
+    1D Temporal Gated Convolutional Layer using Gated Linear Unit (GLU)
     """
-    def __init__(self, num_nodes, F_in, T_in):
+    def __init__(self, in_channels, out_channels, kernel_size=3):
         super().__init__()
-        self.W1 = nn.Parameter(torch.empty(T_in))
-        self.W2 = nn.Parameter(torch.empty(F_in, T_in))
-        self.W3 = nn.Parameter(torch.empty(F_in))
-        self.bs = nn.Parameter(torch.zeros(1, num_nodes, num_nodes))
-        self.Vs = nn.Parameter(torch.empty(num_nodes, num_nodes))
-
-        nn.init.uniform_(self.W1, -0.1, 0.1)
-        nn.init.xavier_uniform_(self.W2.unsqueeze(0))
-        nn.init.uniform_(self.W3, -0.1, 0.1)
-        nn.init.xavier_uniform_(self.Vs.unsqueeze(0))
+        self.conv = nn.Conv2d(in_channels, 2 * out_channels, kernel_size=(1, kernel_size), padding=(0, kernel_size // 2))
 
     def forward(self, x):
-        """
-        Args:
-            x: (B, N, F, T)
-        Returns:
-            S: (B, N, N) — spatial attention matrix
-        """
-        # Contract over T: (B,N,F,T) @ (T,) -> (B,N,F)
-        lhs = torch.einsum('bnft,t->bnf', x, self.W1)
-        # Project: (B,N,F) @ (F,T) -> (B,N,T)
-        lhs = torch.einsum('bnf,ft->bnt', lhs, self.W2)
-        # Contract over F: (F,) @ (B,N,F,T) -> (B,N,T)
-        rhs = torch.einsum('f,bnft->bnt', self.W3, x)
-        # Outer product: (B,N,T) @ (B,T,N) -> (B,N,N)
-        product = torch.bmm(lhs, rhs.transpose(1, 2))
-        # Apply V_s and sigmoid
-        S = torch.einsum('ij,bjk->bik', self.Vs, torch.sigmoid(product + self.bs))
-        # Normalize
-        S = F.softmax(S, dim=-1)
-        return S
+        # x: (B, C_in, N, T)
+        x = self.conv(x)
+        p, q = torch.chunk(x, 2, dim=1)
+        return p * torch.sigmoid(q)
 
 
-class TemporalAttention(nn.Module):
+class DiffusionConv(nn.Module):
     """
-    Temporal Attention (Guo et al., AAAI 2019)
-    Học ma trận attention động E ∈ R^{T×T} giữa các time steps,
-    cho phép model focus vào các thời điểm quan trọng nhất.
-
-    Công thức: E = V_e · σ( (X·U1)·U2 · (U3·X)^T ) + b_e
+    Diffusion Convolution on directed graphs
     """
-    def __init__(self, num_nodes, F_in, T_in):
-        super().__init__()
-        self.U1 = nn.Parameter(torch.empty(num_nodes))
-        self.U2 = nn.Parameter(torch.empty(F_in, num_nodes))
-        self.U3 = nn.Parameter(torch.empty(F_in))
-        self.be = nn.Parameter(torch.zeros(1, T_in, T_in))
-        self.Ve = nn.Parameter(torch.empty(T_in, T_in))
-
-        nn.init.uniform_(self.U1, -0.1, 0.1)
-        nn.init.xavier_uniform_(self.U2.unsqueeze(0))
-        nn.init.uniform_(self.U3, -0.1, 0.1)
-        nn.init.xavier_uniform_(self.Ve.unsqueeze(0))
-
-    def forward(self, x):
-        """
-        Args:
-            x: (B, N, F, T)
-        Returns:
-            E: (B, T, T) — temporal attention matrix
-        """
-        # Contract over N: (B,N,F,T) -> (B,F,T)
-        lhs = torch.einsum('bnft,n->bft', x, self.U1)
-        # Project: (B,F,T) -> (B,T,N)
-        lhs = torch.einsum('bft,fn->btn', lhs, self.U2)
-        # Contract over F: (B,N,F,T) -> (B,N,T)
-        rhs = torch.einsum('f,bnft->bnt', self.U3, x)
-        # Outer product: (B,T,N) @ (B,N,T) -> (B,T,T)
-        product = torch.bmm(lhs, rhs)
-        # Apply V_e and sigmoid
-        E = torch.einsum('ij,bjk->bik', self.Ve, torch.sigmoid(product + self.be))
-        E = F.softmax(E, dim=-1)
-        return E
-
-
-class ChebConvLayer(nn.Module):
-    """
-    Chebyshev Spectral Graph Convolution (Defferrard et al., 2016)
-    Sử dụng đa thức Chebyshev bậc K trên Scaled Laplacian
-    để thực hiện convolution trên miền phổ của đồ thị.
-
-    T_0(L̃)x = x
-    T_1(L̃)x = L̃x
-    T_k(L̃)x = 2L̃·T_{k-1}(L̃)x − T_{k-2}(L̃)x
-    """
-    def __init__(self, in_feats, out_feats, K=2):
+    def __init__(self, in_channels, out_channels, K=2):
         super().__init__()
         self.K = K
-        self.linears = nn.ModuleList([nn.Linear(in_feats, out_feats) for _ in range(K)])
+        self.linears = nn.ModuleList([nn.Linear(in_channels, out_channels) for _ in range(2 * K + 1)])
 
-    def forward(self, x, L_tilde):
-        """
-        Args:
-            x:       (B, N, F_in) — node features
-            L_tilde: (N, N)       — scaled Laplacian tensor
-        Returns:
-            (B, N, F_out)
-        """
-        # T_0(L̃)x = x
-        T_prev = x
-        out = self.linears[0](T_prev)
-
-        if self.K > 1:
-            # T_1(L̃)x = L̃·x
-            T_curr = torch.einsum('ij,bjf->bif', L_tilde, x)
-            out = out + self.linears[1](T_curr)
-
-            # T_k = 2L̃·T_{k-1} − T_{k-2}  (cho K > 2)
-            for k in range(2, self.K):
-                T_next = 2.0 * torch.einsum('ij,bjf->bif', L_tilde, T_curr) - T_prev
-                out = out + self.linears[k](T_next)
-                T_prev, T_curr = T_curr, T_next
-
+    def forward(self, x, P_forward, P_backward):
+        # x: (B*T, N, C_in)
+        out = self.linears[0](x)
+        
+        if self.K > 0:
+            # Forward walking
+            x_f = x
+            for k in range(1, self.K + 1):
+                x_f = torch.einsum('ij,bjf->bif', P_forward, x_f)
+                out = out + self.linears[k](x_f)
+                
+            # Backward walking
+            x_b = x
+            for k in range(1, self.K + 1):
+                x_b = torch.einsum('ij,bjf->bif', P_backward, x_b)
+                out = out + self.linears[self.K + k](x_b)
+                
         return out
 
 
-class ASTGCNBlock(nn.Module):
+class DCRNNGLUBlock(nn.Module):
     """
-    ASTGCN Block: kết hợp Spatial Attention → ChebConv → Temporal Attention → TemporalConv
-
-    Flow: x → TemporalAttention → SpatialAttention → ChebConv → TemporalConv → Residual → Output
+    Spatio-Temporal block: Temporal Conv (GLU) -> Diffusion Graph Conv -> Temporal Conv (GLU)
     """
-    def __init__(self, num_nodes, F_in, F_out, T_in, cheb_K=2, dropout=0.3):
+    def __init__(self, in_channels, out_channels, num_nodes, K=2, dropout=0.3):
         super().__init__()
-        self.spatial_attn = SpatialAttention(num_nodes, F_in, T_in)
-        self.temporal_attn = TemporalAttention(num_nodes, F_in, T_in)
-        self.cheb_conv = ChebConvLayer(F_in, F_out, cheb_K)
-        self.time_conv = nn.Conv1d(F_out, F_out, kernel_size=3, padding=1)
-        self.norm = nn.LayerNorm(F_out)
+        self.tconv1 = TemporalConvLayer(in_channels, out_channels, kernel_size=3)
+        self.sconv = DiffusionConv(out_channels, out_channels, K)
+        self.tconv2 = TemporalConvLayer(out_channels, out_channels, kernel_size=3)
+        self.ln = nn.LayerNorm([num_nodes, out_channels])
         self.dropout = nn.Dropout(dropout)
+        
+        self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=1) if in_channels != out_channels else nn.Identity()
 
-        # Residual projection (nếu F thay đổi)
-        self.residual = nn.Linear(F_in, F_out) if F_in != F_out else nn.Identity()
-
-    def forward(self, x, L_tilde):
-        """
-        Args:
-            x:       (B, N, F_in, T)
-            L_tilde: (N, N)
-        Returns:
-            (B, N, F_out, T)
-        """
-        B, N, F_in, T = x.shape
-        residual = x
-
-        # === 1. Temporal Attention: reweight time steps ===
-        E = self.temporal_attn(x)                                    # (B, T, T)
-        x_ta = torch.einsum('bnfs,bts->bnft', x, E)                 # (B, N, F, T)
-
-        # === 2. Spatial Attention + ChebConv ===
-        S = self.spatial_attn(x_ta)                                  # (B, N, N)
-
-        # Reshape: xử lý từng time step
-        x_reshaped = x_ta.permute(0, 3, 1, 2).reshape(B * T, N, F_in)  # (B*T, N, F)
-        S_exp = S.unsqueeze(1).expand(-1, T, -1, -1).reshape(B * T, N, N)
-        x_sa = torch.bmm(S_exp, x_reshaped)                         # (B*T, N, F)
-
-        h = self.cheb_conv(x_sa, L_tilde)                           # (B*T, N, F_out)
-        F_out = h.shape[-1]
-        h = h.view(B, T, N, F_out).permute(0, 2, 3, 1)             # (B, N, F_out, T)
-
-        # === 3. Temporal Convolution ===
-        h = h.reshape(B * N, F_out, T)                               # (B*N, F_out, T)
-        h = self.time_conv(h)                                        # (B*N, F_out, T)
-        h = h.view(B, N, F_out, T)
-
-        # === 4. Residual ===
-        res = residual.permute(0, 1, 3, 2)                           # (B, N, T, F_in)
-        res = self.residual(res)                                      # (B, N, T, F_out)
-        res = res.permute(0, 1, 3, 2)                                 # (B, N, F_out, T)
-
-        h = h + res
-
-        # === 5. Norm + Activation ===
-        h = h.permute(0, 1, 3, 2)                                    # (B, N, T, F_out)
-        h = self.norm(h)
-        h = h.permute(0, 1, 3, 2)                                    # (B, N, F_out, T)
+    def forward(self, x, P_forward, P_backward):
+        # x: (B, C_in, N, T)
+        res = self.residual(x)
+        
+        # 1. Temporal GLU 1
+        h = self.tconv1(x) # (B, C_out, N, T)
+        
+        # 2. Spatial Diffusion Graph Conv
+        B, C, N, T = h.shape
+        h_s = h.permute(0, 3, 2, 1).reshape(B * T, N, C) # (B*T, N, C_out)
+        h_s = self.sconv(h_s, P_forward, P_backward) # (B*T, N, C_out)
+        h = h_s.view(B, T, N, C).permute(0, 3, 2, 1) # (B, C_out, N, T)
         h = F.relu(h)
+        
+        # 3. Temporal GLU 2
+        h = self.tconv2(h) # (B, C_out, N, T)
+        
+        # Residual + Norm + Dropout
+        h = h + res
+        h = h.permute(0, 3, 2, 1)  # (B, T, N, C_out)
+        h = self.ln(h)
+        h = h.permute(0, 3, 2, 1)  # (B, C_out, N, T)
         h = self.dropout(h)
-
+        
         return h
 
 
-class ASTGCN_Model(nn.Module):
+class DCRNN_GLU_Model(nn.Module):
     """
-    ASTGCN: Attention-based Spatial-Temporal Graph Convolutional Network
-    (Guo et al., AAAI 2019)
-
-    Kết hợp:
-    - Spatial Attention: dynamic attention giữa nodes
-    - Temporal Attention: dynamic attention giữa time steps
-    - Chebyshev Graph Convolution: spectral graph convolution
-    - Temporal Convolution: 1D convolution theo chiều thời gian
-
-    Pipeline: Input → ASTGCNBlock(×NUM_BLOCKS) → FinalConv → Output
+    DCRNN model redesigned to use 1D Gated CNN (GLU) layers instead of DCGRU Cells
     """
     def __init__(self, num_nodes, in_feat, block_hidden, num_blocks, T_in,
-                 cheb_K, horizon, output_feat, L_tilde=None, dropout=0.3):
+                 K, horizon, output_feat, A_raw=None, dropout=0.3):
         super().__init__()
         self.horizon = horizon
         self.output_feat = output_feat
 
-        # Stack ASTGCN blocks
         blocks = []
-        f_in = in_feat
-        for i in range(num_blocks):
-            blocks.append(ASTGCNBlock(num_nodes, f_in, block_hidden, T_in, cheb_K, dropout))
-            f_in = block_hidden
+        c_in = in_feat
+        for _ in range(num_blocks):
+            blocks.append(DCRNNGLUBlock(c_in, block_hidden, num_nodes, K, dropout))
+            c_in = block_hidden
         self.blocks = nn.ModuleList(blocks)
 
-        # Final: Conv1d giảm T_in xuống 1, output horizon * output_feat channels
-        self.final_conv = nn.Conv1d(block_hidden, horizon * output_feat, kernel_size=T_in)
+        self.time_conv = nn.Conv2d(block_hidden, block_hidden, kernel_size=(1, T_in))
 
-        # Scaled Laplacian
-        if L_tilde is None:
-            self.register_buffer('L_tilde', torch.eye(num_nodes))
-        else:
-            self.register_buffer('L_tilde', torch.tensor(L_tilde, dtype=torch.float32))
+        self.proj = nn.Sequential(
+            nn.Linear(block_hidden, block_hidden // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(block_hidden // 2, horizon * output_feat)
+        )
+
+        if A_raw is None:
+            A_raw = np.eye(num_nodes)
+            
+        # P_f = D_out^-1 * A
+        d_out = A_raw.sum(axis=1)
+        d_out_inv = np.power(d_out, -1.0, where=d_out > 0)
+        d_out_inv[d_out <= 0] = 0.0
+        P_f = np.diag(d_out_inv) @ A_raw
+        
+        # P_b = D_in^-1 * A^T
+        A_T = A_raw.T
+        d_in = A_T.sum(axis=1)
+        d_in_inv = np.power(d_in, -1.0, where=d_in > 0)
+        d_in_inv[d_in <= 0] = 0.0
+        P_b = np.diag(d_in_inv) @ A_T
+
+        self.register_buffer('P_forward', torch.tensor(P_f, dtype=torch.float32))
+        self.register_buffer('P_backward', torch.tensor(P_b, dtype=torch.float32))
 
     def forward(self, x):
-        """
-        Args:
-            x: (B, T, N, F) — từ DataLoader
-        Returns:
-            (B, Horizon, N, output_feat)
-        """
-        B, T, N, F_in = x.shape
+        # x: (B, T, N, F)
+        B, T, N, F = x.shape
+        h = x.permute(0, 3, 2, 1).contiguous() # (B, F, N, T)
 
-        # Chuyển sang format ASTGCN: (B, N, F, T)
-        h = x.permute(0, 2, 3, 1)
-
-        # Pass qua các blocks
         for block in self.blocks:
-            h = block(h, self.L_tilde)    # (B, N, F_hidden, T)
+            h = block(h, self.P_forward, self.P_backward)
 
-        # Final projection: giảm chiều T
-        F_hidden = h.shape[2]
-        h = h.reshape(B * N, F_hidden, T)  # (B*N, F_hidden, T)
-        out = self.final_conv(h)            # (B*N, horizon*output_feat, 1)
-        out = out.squeeze(-1)               # (B*N, horizon*output_feat)
+        # Collapse time dimension
+        h = self.time_conv(h) # (B, C_hidden, N, 1)
+        
+        # Output projection
+        h = h.squeeze(-1).permute(0, 2, 1)  # (B, N, C_hidden)
+        out = self.proj(h)                  # (B, N, horizon * output_feat)
         out = out.view(B, N, self.horizon, self.output_feat)
-        y_pred = out.permute(0, 2, 1, 3)   # (B, Horizon, N, output_feat)
-
+        y_pred = out.permute(0, 2, 1, 3)    # (B, Horizon, N, output_feat)
         return y_pred
 
 # ============================================================
-#  LOSS (tái sử dụng từ gcn_lstm.py)
+#  LOSS
 # ============================================================
 
 class PureHuberLoss(nn.Module):
@@ -467,11 +315,10 @@ class PureHuberLoss(nn.Module):
         return self.loss_fn(pred, target)
 
 # ============================================================
-#  TRAINING UTILITIES (tái sử dụng từ gcn_lstm.py)
+#  TRAINING UTILITIES
 # ============================================================
 
 def train_one_epoch(model, loader, opt, loss_fn, device, scaler_obj, scaler_stats):
-
     model.train()
     total_loss = 0
     total_mae = 0
@@ -510,7 +357,6 @@ def train_one_epoch(model, loader, opt, loss_fn, device, scaler_obj, scaler_stat
     return avg_loss, avg_mae
 
 def evaluate(model, loader, device, scaler_stats, loss_fn=None, verbose=False):
-
     model.eval()
     total_mae = 0
     total_mse = 0
@@ -536,7 +382,6 @@ def evaluate(model, loader, device, scaler_stats, loss_fn=None, verbose=False):
             y_pred = pred * stds + means
 
             err = y_true - y_pred
-
             abs_err = torch.abs(err)
             mae_val = abs_err.mean().item()
             total_mae += mae_val
@@ -545,6 +390,7 @@ def evaluate(model, loader, device, scaler_stats, loss_fn=None, verbose=False):
             total_mse += sq_err.mean().item()
 
             count_batches += 1
+            pbar.set_postfix(mae=f"{mae_val:.2f}")
 
     if count_batches == 0:
         return {'mae': 9999.0, 'mse': 9999.0, 'rmse': 9999.0, 'loss': 9999.0}
@@ -557,9 +403,7 @@ def evaluate(model, loader, device, scaler_stats, loss_fn=None, verbose=False):
     return {'mae': avg_mae, 'mse': avg_mse, 'rmse': avg_rmse, 'loss': avg_loss}
 
 def plot_training_history(train_losses, val_losses, train_maes, val_maes):
-
     epochs = range(1, len(train_losses) + 1)
-
     plt.figure(figsize=(18, 6))
 
     plt.subplot(1, 2, 1)
@@ -641,15 +485,13 @@ def visualize_last_step(model, loader, device, scaler, cfg, node_list=None):
 
 def run_training():
     gc.collect(); torch.cuda.empty_cache()
-    print(f"TRAINING ASTGCN (Steps={CFG.HORIZON}, Future={CFG.PRED_MINUTES} mins)")
+    print(f"TRAINING DCRNN-GLU (Steps={CFG.HORIZON}, Future={CFG.PRED_MINUTES} mins)")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Device: {device}")
 
-    # Load adjacency và tính Scaled Laplacian cho ChebConv
     A_raw, nodes = load_adj_from_excel(CFG.ADJ_PATH)
-    L_tilde = compute_scaled_laplacian(A_raw)
-    print(f"Scaled Laplacian computed. Shape: {L_tilde.shape}")
+    print(f"Graph loaded. Shape: {A_raw.shape}")
 
     print(f"Loading ALL Data from: {CFG.CSV_PATH}")
     df_all = load_timeseries_double_rolling(CFG.CSV_PATH, nodes, CFG.DATA_WINDOW1, CFG.DATA_WINDOW2, CFG.TIME_STEP_MINUTES)
@@ -697,16 +539,16 @@ def run_training():
     val_loader   = DataLoader(val_ds, batch_size=CFG.BATCH_SIZE)
     test_loader  = DataLoader(test_ds, batch_size=CFG.BATCH_SIZE)
 
-    model = ASTGCN_Model(
+    model = DCRNN_GLU_Model(
         num_nodes=len(nodes),
         in_feat=4,
         block_hidden=CFG.BLOCK_HIDDEN,
         num_blocks=CFG.NUM_BLOCKS,
         T_in=CFG.T_IN,
-        cheb_K=CFG.CHEB_K,
+        K=CFG.K,
         horizon=CFG.HORIZON,
         output_feat=1,
-        L_tilde=L_tilde,
+        A_raw=A_raw,
         dropout=CFG.DROPOUT
     ).to(device)
 
@@ -724,9 +566,7 @@ def run_training():
     }
 
     for ep in range(CFG.EPOCHS):
-
         train_loss, train_mae = train_one_epoch(model, train_loader, optimizer, loss_fn, device, grad_scaler, scaler)
-
         val_metrics = evaluate(model, val_loader, device, scaler, loss_fn=loss_fn, verbose=False)
         val_mae = val_metrics['mae']
         val_loss = val_metrics['loss']
