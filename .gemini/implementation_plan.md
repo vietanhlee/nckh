@@ -1,44 +1,31 @@
-# Kế hoạch Thực hiện: Bổ sung các mô hình mới vào so sánh thực nghiệm (NCKH)
+# Kế hoạch Thực hiện: So sánh thực nghiệm 7 kiến trúc Spatial-Temporal Graph (NCKH)
 
-Để làm phong phú thêm kết quả thực nghiệm NCKH của bạn, chúng ta sẽ xây dựng thêm các mô hình Spatial-Temporal Graph mới bằng PyTorch thuần (để tránh xung đột thư viện ngoài như PyTorch Geometric hay DGL) và tích hợp vào script so sánh `compare_models.py`.
+Dự án nghiên cứu khoa học tập trung so sánh 7 kiến trúc đồ thị không-thời gian bằng PyTorch thuần để phục vụ dự báo lưu lượng giao thông.
 
 ---
 
-## 🛠️ Thiết kế Kiến trúc các Mô hình Mới
+## 🛠️ Thiết kế Kiến trúc các Mô hình
 
-### 1. **STGCN** (Spatio-Temporal Graph Convolutional Networks)
-* **Tệp**: [stgcn.py](file:///g:/nckh/stgcn.py) [NEW]
-* **Ý tưởng**:
-  * Chồng nhiều khối **ST-Conv block**. Mỗi block gồm: 1 lớp Temporal Gated Conv (sử dụng 1D Causal Conv kết hợp với Gated Linear Unit - GLU) -> 1 lớp Spatial Graph Conv (sử dụng đa thức Chebyshev trên ma trận L_tilde tương tự ASTGCN) -> 1 lớp Temporal Gated Conv (GLU).
-  * Đầu ra đi qua lớp tích chập cuối để chiếu ra số bước dự báo `Horizon`.
+### 1. **GCN-LSTM** ([gcn_lstm.py](file:///g:/nckh/gcn_lstm.py))
+* Kết hợp GCN trích xuất đặc trưng không gian tĩnh và LSTM học phụ thuộc thời gian.
 
-### 2. **DCRNN** (Diffusion Convolutional Recurrent Neural Network)
-* **Tệp**: [dcrnn.py](file:///g:/nckh/dcrnn.py) [NEW]
-* **Ý tưởng**:
-  * Thực hiện tích chập lan truyền (Diffusion Convolution) bằng tổng các bước lan truyền ngẫu nhiên (random walk) xuôi và ngược trên đồ thị:
-    $$H = \sum_{k=0}^{K} \left( W_{k,1} (D_O^{-1} A)^k X + W_{k,2} (D_I^{-1} A^T)^k X \right)$$
-  * Tích hợp Diffusion Conv vào các cổng của GRU tạo thành tế bào `DCGRUCell`.
-  * Xây dựng luồng Encoder-Decoder tuần tự qua các bước thời gian để sinh dự báo `Horizon` bước.
+### 2. **Graph WaveNet** ([wavenet_gcn.py](file:///g:/nckh/wavenet_gcn.py))
+* Tích hợp ma trận kề thích ứng động tự học song song với ma trận kề tĩnh và Gated TCN (Dilated Causal Conv).
 
-### 3. **AGCRN** (Adaptive Graph Convolutional Recurrent Network)
-* **Tệp**: [agcrn.py](file:///g:/nckh/agcrn.py) [NEW]
-* **Ý tưởng**:
-  * **NAP (Node Adaptive Parameter learning)**: Tự động học ma trận đặc trưng nút (Node Embeddings) để sinh tham số trọng số riêng biệt cho từng nút đồ thị.
-  * **AGCN (Adaptive Graph Convolution)**: Tự sinh ma trận kề thích ứng động: $A_{adp} = Softmax(ReLU(E \cdot E^T))$ mà không cần ma trận kề tĩnh từ Excel.
-  * **AGCRU**: Thay thế các phép tính tuyến tính trong GRU bằng tích chập thích ứng AGCN.
+### 3. **GCN-TCN** ([gcn_tcn.py](file:///g:/nckh/gcn_tcn.py)) [NEW]
+* Kết hợp GCN tĩnh và tích chập temporal dạng TCN (Stacked causal conv với dilation tăng dần).
 
-### 4. **TGCN** (Temporal Graph Convolutional Network)
-* **Tệp**: [tgcn.py](file:///g:/nckh/tgcn.py) [NEW]
-* **Ý tưởng**:
-  * Kết hợp GCN đơn giản và GRU.
-  * Định nghĩa lớp `TGCNCell`: Thay thế toàn bộ các phép toán nhân ma trận của GRU Cell bằng phép toán Graph Convolution sử dụng ma trận kề chuẩn hóa đối xứng $\tilde{D}^{-1/2} \tilde{A} \tilde{D}^{-1/2}$.
-  * Dự báo trực tiếp ra `Horizon` thông qua lớp tuyến tính từ hidden state của timestep cuối cùng.
+### 4. **ASTGCN** ([astgcn.py](file:///g:/nckh/astgcn.py))
+* Cơ chế Spatial-Temporal Attention động cùng Chebyshev Spectral Graph Conv (ChebConv).
 
-### 5. **STGCN-GCN** (STGCN using standard GCN instead of ChebNet) [NEW]
-* **Tệp**: [stgcn_gcn.py](file:///g:/nckh/stgcn_gcn.py) [NEW]
-* **Ý tưởng**:
-  * Biến thể của STGCN sử dụng lớp tích chập không gian GCN thông thường dựa trên ma trận kề chuẩn hóa đối xứng $A_{norm}$ thay thế cho Chebyshev Spectral Graph Conv (ChebConv) trên ma trận Scaled Laplacian $L_{tilde}$.
-  * Giữ nguyên cấu trúc Temporal Conv (GLU) ở hai bên và LayerNorm để so sánh rõ ràng sự khác biệt về mặt hiệu quả giữa tích chập phổ (Spectral Conv) và tích chập không gian thông thường (Spatial Conv).
+### 5. **STGCN** ([stgcn.py](file:///g:/nckh/stgcn.py)) [NEW]
+* Chebyshev Spectral Graph Conv (ChebConv) kết hợp lớp Temporal Gated Conv (GLU) qua tích chập 1D.
+
+### 6. **STGCN-GCN** ([stgcn_gcn.py](file:///g:/nckh/stgcn_gcn.py)) [NEW]
+* Biến thể của STGCN sử dụng tích chập không gian GCN tĩnh thay vì ChebNet, giữ nguyên cấu trúc Temporal Conv (GLU).
+
+### 7. **DCRNN** ([dcrnn.py](file:///g:/nckh/dcrnn.py)) [NEW]
+* Tích chập lan truyền (Diffusion Convolution) dựa trên bước đi ngẫu nhiên trên đồ thị tích hợp vào DCGRU Cell theo cấu trúc Sequence-to-Sequence.
 
 ---
 
@@ -47,24 +34,22 @@
 ### [New Models]
 * #### [NEW] [stgcn.py](file:///g:/nckh/stgcn.py)
 * #### [NEW] [dcrnn.py](file:///g:/nckh/dcrnn.py)
-* #### [NEW] [agcrn.py](file:///g:/nckh/agcrn.py)
-* #### [NEW] [tgcn.py](file:///g:/nckh/tgcn.py)
+* #### [NEW] [gcn_tcn.py](file:///g:/nckh/gcn_tcn.py)
 * #### [NEW] [stgcn_gcn.py](file:///g:/nckh/stgcn_gcn.py)
 
 ### [Comparison & Documentation]
 * #### [MODIFY] [compare_models.py](file:///g:/nckh/compare_models.py)
-  Tích hợp các mô hình thành **9 mô hình** so sánh tổng thể (loại bỏ GCN-TCN và ASTGCN-GCN).
+  Tích hợp các mô hình thành **7 mô hình** so sánh tổng thể.
 * #### [MODIFY] [README.md](file:///g:/nckh/README.md)
-  Bổ sung mô tả và cách chạy của mô hình mới.
+  Bổ sung mô tả và cách chạy của 7 mô hình.
 
 ---
 
 ## 🔍 Kế hoạch Xác minh (Verification Plan)
 
 ### Kiểm tra tự động
-- Chạy thử 1 epoch huấn luyện của mô hình STGCN-GCN riêng lẻ để kiểm tra độ chính xác cú pháp.
-- Chạy thử `python compare_models.py --mode train --epochs 1` để kiểm tra khả năng chạy tuần tự và tổng hợp kết quả của cả **9 mô hình**.
+- Chạy thử `python compare_models.py --mode train --epochs 1` để kiểm tra khả năng chạy tuần tự và tổng hợp kết quả của cả **7 mô hình**.
 
 ### Kiểm tra thủ công
-- Xác nhận bảng so sánh kết quả in ra terminal hiển thị đầy đủ thông tin của 9 mô hình.
+- Xác nhận bảng so sánh kết quả in ra terminal hiển thị đầy đủ thông tin của 7 mô hình.
 - Xác nhận báo cáo `comparison_report.md` được ghi nhận chính xác.
