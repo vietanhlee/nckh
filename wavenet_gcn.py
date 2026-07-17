@@ -36,7 +36,7 @@ class Config:
     BATCH_SIZE  = 32
     EPOCHS      = 100
     LEARNING_RATE = 0.001
-    PATIENCE    = 20
+    PATIENCE    = 40
     DATA_WINDOW1 = 3
     DATA_WINDOW2 = 5
 
