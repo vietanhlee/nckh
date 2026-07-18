@@ -26,11 +26,11 @@ class Config:
     LOSS_DELTA = 1.0
 
     # --- MODEL ---
-    RESIDUAL_CHANNELS = 32
-    SKIP_CHANNELS     = 128
-    DILATION_LIST     = [1, 2, 4, 8, 1, 2, 4, 8]
-    ADAPTIVE_EMB      = 10
-    DROPOUT           = 0.3
+    BLOCK_HIDDEN = 64
+    NUM_BLOCKS   = 2
+    K            = 2
+    DROPOUT      = 0.3
+    NUM_HEADS    = 4
 
     # --- TRAIN ---
     BATCH_SIZE  = 16
@@ -55,7 +55,7 @@ class Config:
     @property
     def FULL_SAVE_PATH(self):
         if not os.path.exists(self.SAVE_DIR): os.makedirs(self.SAVE_DIR)
-        return os.path.join(self.SAVE_DIR, f"model_GraphWaveNet_GLU_{self.HORIZON}steps.pth")
+        return os.path.join(self.SAVE_DIR, f"model_DCRNN_Attention_{self.HORIZON}steps.pth")
 
 CFG = Config()
 
@@ -72,15 +72,6 @@ def load_adj_from_excel(excel_path):
     mask = mat > 0
     weights[mask] = np.exp(-mat[mask] / (sigma + 1e-9))
     return weights, list(df.index)
-
-def normalize_adj_sym(A):
-    A = A.astype(float)
-    A = A + np.eye(A.shape[0])
-    d = A.sum(axis=1)
-    d_inv_sqrt = np.power(d, -0.5, where=d>0)
-    d_inv_sqrt[d<=0] = 0
-    D_inv_sqrt = np.diag(d_inv_sqrt)
-    return D_inv_sqrt @ A @ D_inv_sqrt
 
 def add_rich_time_features(timestamps):
     tod = timestamps.hour * 60 + timestamps.minute
@@ -161,143 +152,162 @@ class MultiStepDataset(Dataset):
         return torch.from_numpy(x_final.astype(np.float32)), torch.from_numpy(y_node.astype(np.float32))
 
 # ============================================================
-#  MODEL: Graph WaveNet with Gated CNN (GLU) 1D
+#  MODEL: DCRNN-Attention
 # ============================================================
 
-class GraphConvWN(nn.Module):
+class AttentionTemporalLayer(nn.Module):
     """
-    Standard GCN implementation for Graph WaveNet
+    Temporal Self-Attention layer using Multihead Attention
     """
-    def __init__(self, in_feats, out_feats):
+    def __init__(self, in_channels, out_channels, num_heads=4):
         super().__init__()
-        self.linear = nn.Linear(in_feats, out_feats)
-
-    def forward(self, x, A):
-        Ax = torch.einsum('ij,bjf->bif', A, x)
-        return self.linear(Ax)
-
-
-class GatedDilatedConvGLU(nn.Module):
-    """
-    Dilated Causal Convolution using Gated Linear Unit (GLU) 1D instead of WaveNet Gated TCN
-    """
-    def __init__(self, channels, kernel_size=2, dilation=1):
-        super().__init__()
-        self.causal_padding = (kernel_size - 1) * dilation
-        self.conv = nn.Conv1d(channels, 2 * channels, kernel_size,
-                              dilation=dilation, padding=self.causal_padding)
+        self.mha = nn.MultiheadAttention(embed_dim=in_channels, num_heads=num_heads, batch_first=True)
+        self.proj = nn.Linear(in_channels, out_channels) if in_channels != out_channels else nn.Identity()
 
     def forward(self, x):
-        # x: (B, C, T)
-        out = self.conv(x)
-        if self.causal_padding > 0:
-            out = out[:, :, :-self.causal_padding]
+        # x: (B, C_in, N, T)
+        B, C, N, T = x.shape
+        x_trans = x.permute(0, 2, 3, 1).reshape(B * N, T, C) # (B*N, T, C_in)
         
-        # Split channels and calculate GLU
-        p, q = torch.chunk(out, 2, dim=1)
-        return p * torch.sigmoid(q)
+        # Self-Attention
+        attn_out, _ = self.mha(x_trans, x_trans, x_trans) # (B*N, T, C_in)
+        out = self.proj(attn_out) # (B*N, T, C_out)
+        
+        out = out.view(B, N, T, -1).permute(0, 3, 1, 2).contiguous() # (B, C_out, N, T)
+        return out
 
 
-class GraphWaveNet_GLU_Model(nn.Module):
+class DiffusionConv(nn.Module):
     """
-    Graph WaveNet with Gated CNN (GLU) 1D temporal processing layers
+    Diffusion Convolution on directed graphs
     """
-    def __init__(self, num_nodes, in_feat, residual_channels, skip_channels,
-                 dilation_list, adaptive_emb_dim, horizon, output_feat,
-                 A_norm=None, dropout=0.3):
+    def __init__(self, in_channels, out_channels, K=2):
+        super().__init__()
+        self.K = K
+        self.linears = nn.ModuleList([nn.Linear(in_channels, out_channels) for _ in range(2 * K + 1)])
+
+    def forward(self, x, P_forward, P_backward):
+        # x: (B*T, N, C_in)
+        out = self.linears[0](x)
+        
+        if self.K > 0:
+            # Forward walking
+            x_f = x
+            for k in range(1, self.K + 1):
+                x_f = torch.einsum('ij,bjf->bif', P_forward, x_f)
+                out = out + self.linears[k](x_f)
+                
+            # Backward walking
+            x_b = x
+            for k in range(1, self.K + 1):
+                x_b = torch.einsum('ij,bjf->bif', P_backward, x_b)
+                out = out + self.linears[self.K + k](x_b)
+                
+        return out
+
+
+class DCRNNAttentionBlock(nn.Module):
+    """
+    Spatio-Temporal block: Attention -> Diffusion Graph Conv -> Attention
+    """
+    def __init__(self, in_channels, out_channels, num_nodes, K=2, num_heads=4, dropout=0.3):
+        super().__init__()
+        self.tconv1 = AttentionTemporalLayer(in_channels, out_channels, num_heads=num_heads)
+        self.sconv = DiffusionConv(out_channels, out_channels, K)
+        self.tconv2 = AttentionTemporalLayer(out_channels, out_channels, num_heads=num_heads)
+        self.ln = nn.LayerNorm([num_nodes, out_channels])
+        self.dropout = nn.Dropout(dropout)
+        
+        self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=1) if in_channels != out_channels else nn.Identity()
+
+    def forward(self, x, P_forward, P_backward):
+        # x: (B, C_in, N, T)
+        res = self.residual(x)
+        
+        # 1. Temporal Attention 1
+        h = self.tconv1(x) # (B, C_out, N, T)
+        
+        # 2. Spatial Diffusion Graph Conv
+        B, C, N, T = h.shape
+        h_s = h.permute(0, 3, 2, 1).reshape(B * T, N, C) # (B*T, N, C_out)
+        h_s = self.sconv(h_s, P_forward, P_backward) # (B*T, N, C_out)
+        h = h_s.view(B, T, N, C).permute(0, 3, 2, 1) # (B, C_out, N, T)
+        h = F.relu(h)
+        
+        # 3. Temporal Attention 2
+        h = self.tconv2(h) # (B, C_out, N, T)
+        
+        # Residual + Norm + Dropout
+        h = h + res
+        h = h.permute(0, 3, 2, 1)  # (B, T, N, C_out)
+        h = self.ln(h)
+        h = h.permute(0, 3, 2, 1)  # (B, C_out, N, T)
+        h = self.dropout(h)
+        
+        return h
+
+
+class DCRNN_Attention_Model(nn.Module):
+    """
+    DCRNN model redesigned to use Self-Attention layers
+    """
+    def __init__(self, num_nodes, in_feat, block_hidden, num_blocks, T_in,
+                 K, horizon, output_feat, A_raw=None, num_heads=4, dropout=0.3):
         super().__init__()
         self.horizon = horizon
         self.output_feat = output_feat
-        self.num_nodes = num_nodes
 
-        self.input_proj = nn.Linear(in_feat, residual_channels)
+        blocks = []
+        c_in = in_feat
+        for _ in range(num_blocks):
+            blocks.append(DCRNNAttentionBlock(c_in, block_hidden, num_nodes, K, num_heads, dropout))
+            c_in = block_hidden
+        self.blocks = nn.ModuleList(blocks)
 
-        self.E1 = nn.Parameter(torch.randn(num_nodes, adaptive_emb_dim) * 0.1)
-        self.E2 = nn.Parameter(torch.randn(num_nodes, adaptive_emb_dim) * 0.1)
+        self.time_conv = nn.Conv2d(block_hidden, block_hidden, kernel_size=(1, T_in))
 
-        self.gated_convs    = nn.ModuleList()
-        self.skip_convs     = nn.ModuleList()
-        self.residual_convs = nn.ModuleList()
-        self.gcn_fixed      = nn.ModuleList()
-        self.gcn_adaptive   = nn.ModuleList()
-        self.norms          = nn.ModuleList()
+        self.proj = nn.Sequential(
+            nn.Linear(block_hidden, block_hidden // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(block_hidden // 2, horizon * output_feat)
+        )
 
-        for dilation in dilation_list:
-            self.gated_convs.append(GatedDilatedConvGLU(residual_channels, kernel_size=2, dilation=dilation))
-            self.skip_convs.append(nn.Conv1d(residual_channels, skip_channels, 1))
-            self.residual_convs.append(nn.Conv1d(residual_channels, residual_channels, 1))
-            self.gcn_fixed.append(GraphConvWN(residual_channels, residual_channels))
-            self.gcn_adaptive.append(GraphConvWN(residual_channels, residual_channels))
-            self.norms.append(nn.LayerNorm(residual_channels))
+        if A_raw is None:
+            A_raw = np.eye(num_nodes)
+            
+        # P_f = D_out^-1 * A
+        d_out = A_raw.sum(axis=1)
+        d_out_inv = np.power(d_out, -1.0, where=d_out > 0)
+        d_out_inv[d_out <= 0] = 0.0
+        P_f = np.diag(d_out_inv) @ A_raw
+        
+        # P_b = D_in^-1 * A^T
+        A_T = A_raw.T
+        d_in = A_T.sum(axis=1)
+        d_in_inv = np.power(d_in, -1.0, where=d_in > 0)
+        d_in_inv[d_in <= 0] = 0.0
+        P_b = np.diag(d_in_inv) @ A_T
 
-        self.end_conv1 = nn.Conv1d(skip_channels, skip_channels, 1)
-        self.end_conv2 = nn.Conv1d(skip_channels, horizon * output_feat, 1)
-
-        self.dropout = nn.Dropout(dropout)
-
-        if A_norm is None:
-            self.register_buffer('A_norm', torch.eye(num_nodes))
-        else:
-            self.register_buffer('A_norm', torch.tensor(A_norm, dtype=torch.float32))
+        self.register_buffer('P_forward', torch.tensor(P_f, dtype=torch.float32))
+        self.register_buffer('P_backward', torch.tensor(P_b, dtype=torch.float32))
 
     def forward(self, x):
-        B, T, N, F_in = x.shape
-        C = None   
+        # x: (B, T, N, F)
+        B, T, N, F = x.shape
+        h = x.permute(0, 3, 2, 1).contiguous() # (B, F, N, T)
 
-        # === Input projection ===
-        h = self.input_proj(x)                  # (B, T, N, C)
-        C = h.shape[-1]
+        for block in self.blocks:
+            h = block(h, self.P_forward, self.P_backward)
 
-        # === Adaptive adjacency ===
-        A_adp = F.softmax(F.relu(self.E1 @ self.E2.T), dim=1)   # (N, N)
-
-        # === WaveNet blocks ===
-        skip_total = None
-
-        for gated, skip_conv, res_conv, gcn_f, gcn_a, norm in zip(
-            self.gated_convs, self.skip_convs, self.residual_convs,
-            self.gcn_fixed, self.gcn_adaptive, self.norms):
-
-            residual = h                        # (B, T, N, C)
-
-            # --- Temporal: Gated Dilated ConvGLU ---
-            h_tn = h.permute(0, 2, 3, 1).reshape(B * N, C, T)  
-            h_tn = gated(h_tn)                                   
-            h = h_tn.view(B, N, C, T).permute(0, 3, 1, 2)       # (B, T, N, C)
-
-            # --- Spatial: GCN fixed + adaptive ---
-            h_sn = h.reshape(B * T, N, C)                        
-            h_fixed = gcn_f(h_sn, self.A_norm)                   
-            h_adp = gcn_a(h_sn, A_adp)                           
-            h = (h_fixed + h_adp).view(B, T, N, C)
-
-            # --- Skip connection ---
-            h_skip = h.permute(0, 2, 3, 1).reshape(B * N, C, T) 
-            s = skip_conv(h_skip)                                 
-            s = s.view(B, N, -1, T)                               
-            if skip_total is None:
-                skip_total = s
-            else:
-                skip_total = skip_total + s
-
-            # --- Residual connection ---
-            h_res = h.permute(0, 2, 3, 1).reshape(B * N, C, T)  
-            h_res = res_conv(h_res)                               
-            h = h_res.view(B, N, C, T).permute(0, 3, 1, 2)       
-            h = h + residual
-
-            # --- Norm + Dropout ---
-            h = norm(h)
-            h = self.dropout(h)
-
-        # === Output: aggregate skip connections ===
-        out = skip_total[:, :, :, -1]                  # (B, N, skip_ch)
-        out = out.reshape(B * N, -1, 1)                # (B*N, skip_ch, 1)
-        out = F.relu(self.end_conv1(out))               # (B*N, skip_ch, 1)
-        out = self.end_conv2(out)                       # (B*N, horizon*output_feat, 1)
-        out = out.squeeze(-1)                           
+        # Collapse time dimension
+        h = self.time_conv(h) # (B, C_hidden, N, 1)
+        
+        # Output projection
+        h = h.squeeze(-1).permute(0, 2, 1)  # (B, N, C_hidden)
+        out = self.proj(h)                  # (B, N, horizon * output_feat)
         out = out.view(B, N, self.horizon, self.output_feat)
-        y_pred = out.permute(0, 2, 1, 3)               
+        y_pred = out.permute(0, 2, 1, 3)    # (B, Horizon, N, output_feat)
         return y_pred
 
 # ============================================================
@@ -483,14 +493,13 @@ def visualize_last_step(model, loader, device, scaler, cfg, node_list=None):
 
 def run_training():
     gc.collect(); torch.cuda.empty_cache()
-    print(f"TRAINING GRAPH-WAVENET-GLU (Steps={CFG.HORIZON}, Future={CFG.PRED_MINUTES} mins)")
+    print(f"TRAINING DCRNN-Attention (Steps={CFG.HORIZON}, Future={CFG.PRED_MINUTES} mins)")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Device: {device}")
 
     A_raw, nodes = load_adj_from_excel(CFG.ADJ_PATH)
-    A_norm = normalize_adj_sym(A_raw)
-    print(f"Symmetric Normalized Adjacency computed. Shape: {A_norm.shape}")
+    print(f"Graph loaded. Shape: {A_raw.shape}")
 
     print(f"Loading ALL Data from: {CFG.CSV_PATH}")
     df_all = load_timeseries_double_rolling(CFG.CSV_PATH, nodes, CFG.DATA_WINDOW1, CFG.DATA_WINDOW2, CFG.TIME_STEP_MINUTES)
@@ -538,16 +547,17 @@ def run_training():
     val_loader   = DataLoader(val_ds, batch_size=CFG.BATCH_SIZE)
     test_loader  = DataLoader(test_ds, batch_size=CFG.BATCH_SIZE)
 
-    model = GraphWaveNet_GLU_Model(
+    model = DCRNN_Attention_Model(
         num_nodes=len(nodes),
         in_feat=4,
-        residual_channels=CFG.RESIDUAL_CHANNELS,
-        skip_channels=CFG.SKIP_CHANNELS,
-        dilation_list=CFG.DILATION_LIST,
-        adaptive_emb_dim=CFG.ADAPTIVE_EMB,
+        block_hidden=CFG.BLOCK_HIDDEN,
+        num_blocks=CFG.NUM_BLOCKS,
+        T_in=CFG.T_IN,
+        K=CFG.K,
         horizon=CFG.HORIZON,
         output_feat=1,
-        A_norm=A_norm,
+        A_raw=A_raw,
+        num_heads=CFG.NUM_HEADS,
         dropout=CFG.DROPOUT
     ).to(device)
 

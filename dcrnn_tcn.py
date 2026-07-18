@@ -26,15 +26,16 @@ class Config:
     LOSS_DELTA = 1.0
 
     # --- MODEL ---
-    K            = 2        # Bậc lan truyền (diffusion steps)
-    HIDDEN_DIM   = 64       # Số chiều ẩn trong DCGRU
+    BLOCK_HIDDEN = 64
+    NUM_BLOCKS   = 2
+    K            = 2
     DROPOUT      = 0.3
 
     # --- TRAIN ---
-    BATCH_SIZE  = 32
-    EPOCHS      = 500
+    BATCH_SIZE  = 16
+    EPOCHS      = 100
     LEARNING_RATE = 0.001
-    PATIENCE    = 40
+    PATIENCE    = 20
     DATA_WINDOW1 = 3
     DATA_WINDOW2 = 5
 
@@ -53,7 +54,7 @@ class Config:
     @property
     def FULL_SAVE_PATH(self):
         if not os.path.exists(self.SAVE_DIR): os.makedirs(self.SAVE_DIR)
-        return os.path.join(self.SAVE_DIR, f"model_DCRNN_{self.HORIZON}steps.pth")
+        return os.path.join(self.SAVE_DIR, f"model_DCRNN_TCN_{self.HORIZON}steps.pth")
 
 CFG = Config()
 
@@ -70,15 +71,6 @@ def load_adj_from_excel(excel_path):
     mask = mat > 0
     weights[mask] = np.exp(-mat[mask] / (sigma + 1e-9))
     return weights, list(df.index)
-
-def normalize_adj_sym(A):
-    A = A.astype(float)
-    A = A + np.eye(A.shape[0])
-    d = A.sum(axis=1)
-    d_inv_sqrt = np.power(d, -0.5, where=d>0)
-    d_inv_sqrt[d<=0] = 0
-    D_inv_sqrt = np.diag(d_inv_sqrt)
-    return D_inv_sqrt @ A @ D_inv_sqrt
 
 def add_rich_time_features(timestamps):
     tod = timestamps.hour * 60 + timestamps.minute
@@ -159,35 +151,62 @@ class MultiStepDataset(Dataset):
         return torch.from_numpy(x_final.astype(np.float32)), torch.from_numpy(y_node.astype(np.float32))
 
 # ============================================================
-#  MODEL: DCRNN (Diffusion Convolutional Recurrent Neural Network)
+#  MODEL: DCRNN-TCN
 # ============================================================
+
+class TCNTemporalLayer(nn.Module):
+    """
+    Stacked Temporal Convolutional Network (TCN) layer
+    """
+    def __init__(self, in_channels, out_channels, kernel_size=2):
+        super().__init__()
+        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size, dilation=1, padding=kernel_size - 1)
+        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size, dilation=2, padding=(kernel_size - 1) * 2)
+        self.padding_1 = kernel_size - 1
+        self.padding_2 = (kernel_size - 1) * 2
+
+    def forward(self, x):
+        # x: (B, C_in, N, T)
+        B, C, N, T = x.shape
+        x_trans = x.permute(0, 2, 1, 3).reshape(B * N, C, T) # (B*N, C, T)
+        
+        # Dilated causal layer 1
+        h = self.conv1(x_trans)
+        if self.padding_1 > 0:
+            h = h[:, :, :-self.padding_1]
+        h = F.relu(h)
+        
+        # Dilated causal layer 2
+        h = self.conv2(h)
+        if self.padding_2 > 0:
+            h = h[:, :, :-self.padding_2]
+        h = F.relu(h)
+        
+        out = h.view(B, N, -1, T).permute(0, 2, 1, 3).contiguous() # (B, C_out, N, T)
+        return out
+
 
 class DiffusionConv(nn.Module):
     """
-    Tích chập lan truyền (Diffusion Convolution) trên đồ thị có hướng.
+    Diffusion Convolution on directed graphs
     """
     def __init__(self, in_channels, out_channels, K=2):
         super().__init__()
         self.K = K
-        # Bậc 0: in_channels -> out_channels. Bậc 1 đến K: 2 bộ lọc (xuôi và ngược)
         self.linears = nn.ModuleList([nn.Linear(in_channels, out_channels) for _ in range(2 * K + 1)])
 
     def forward(self, x, P_forward, P_backward):
-        # x: (B, N, C_in)
-        # P_forward: (N, N) ma trận chuyển tiếp xuôi
-        # P_backward: (N, N) ma trận chuyển tiếp ngược
-        
-        # Bậc 0
+        # x: (B*T, N, C_in)
         out = self.linears[0](x)
         
-        # Lan truyền xuôi (Forward Diffusion)
         if self.K > 0:
+            # Forward walking
             x_f = x
             for k in range(1, self.K + 1):
                 x_f = torch.einsum('ij,bjf->bif', P_forward, x_f)
                 out = out + self.linears[k](x_f)
                 
-            # Lan truyền ngược (Backward Diffusion)
+            # Backward walking
             x_b = x
             for k in range(1, self.K + 1):
                 x_b = torch.einsum('ij,bjf->bif', P_backward, x_b)
@@ -196,59 +215,73 @@ class DiffusionConv(nn.Module):
         return out
 
 
-class DCGRUCell(nn.Module):
+class DCRNNTCNBlock(nn.Module):
     """
-    Tế bào GRU tích hợp Diffusion Convolution (DCGRU Cell)
+    Spatio-Temporal block: TCN -> Diffusion Graph Conv -> TCN
     """
-    def __init__(self, num_nodes, input_dim, hidden_dim, K=2):
+    def __init__(self, in_channels, out_channels, num_nodes, K=2, dropout=0.3):
         super().__init__()
-        self.hidden_dim = hidden_dim
-        # Cổng reset r và update u
-        self.conv_ru = DiffusionConv(input_dim + hidden_dim, 2 * hidden_dim, K)
-        # Trạng thái ẩn ứng viên c
-        self.conv_c = DiffusionConv(input_dim + hidden_dim, hidden_dim, K)
-
-    def forward(self, x, h, P_forward, P_backward):
-        # x: (B, N, input_dim)
-        # h: (B, N, hidden_dim)
-        combined = torch.cat([x, h], dim=-1) # (B, N, input_dim + hidden_dim)
-        
-        # Tính cổng r và u
-        ru = self.conv_ru(combined, P_forward, P_backward)
-        r, u = torch.chunk(ru, 2, dim=-1)
-        r = torch.sigmoid(r)
-        u = torch.sigmoid(u)
-        
-        # Tính trạng thái ẩn ứng viên
-        combined_c = torch.cat([x, r * h], dim=-1)
-        c = torch.tanh(self.conv_c(combined_c, P_forward, P_backward))
-        
-        h_new = u * h + (1.0 - u) * c
-        return h_new
-
-
-class DCRNN_Model(nn.Module):
-    """
-    Mô hình DCRNN hoàn chỉnh (Li et al., ICLR 2018)
-    """
-    def __init__(self, num_nodes, in_feat, hidden_dim, K, horizon, output_feat, A_raw=None, dropout=0.3):
-        super().__init__()
-        self.num_nodes = num_nodes
-        self.hidden_dim = hidden_dim
-        self.horizon = horizon
-        self.output_feat = output_feat
-        
-        self.cell = DCGRUCell(num_nodes, in_feat, hidden_dim, K)
+        self.tconv1 = TCNTemporalLayer(in_channels, out_channels, kernel_size=2)
+        self.sconv = DiffusionConv(out_channels, out_channels, K)
+        self.tconv2 = TCNTemporalLayer(out_channels, out_channels, kernel_size=2)
+        self.ln = nn.LayerNorm([num_nodes, out_channels])
         self.dropout = nn.Dropout(dropout)
         
+        self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=1) if in_channels != out_channels else nn.Identity()
+
+    def forward(self, x, P_forward, P_backward):
+        # x: (B, C_in, N, T)
+        res = self.residual(x)
+        
+        # 1. Temporal TCN 1
+        h = self.tconv1(x) # (B, C_out, N, T)
+        
+        # 2. Spatial Diffusion Graph Conv
+        B, C, N, T = h.shape
+        h_s = h.permute(0, 3, 2, 1).reshape(B * T, N, C) # (B*T, N, C_out)
+        h_s = self.sconv(h_s, P_forward, P_backward) # (B*T, N, C_out)
+        h = h_s.view(B, T, N, C).permute(0, 3, 2, 1) # (B, C_out, N, T)
+        h = F.relu(h)
+        
+        # 3. Temporal TCN 2
+        h = self.tconv2(h) # (B, C_out, N, T)
+        
+        # Residual + Norm + Dropout
+        h = h + res
+        h = h.permute(0, 3, 2, 1)  # (B, T, N, C_out)
+        h = self.ln(h)
+        h = h.permute(0, 3, 2, 1)  # (B, C_out, N, T)
+        h = self.dropout(h)
+        
+        return h
+
+
+class DCRNN_TCN_Model(nn.Module):
+    """
+    DCRNN model redesigned to use TCN layers
+    """
+    def __init__(self, num_nodes, in_feat, block_hidden, num_blocks, T_in,
+                 K, horizon, output_feat, A_raw=None, dropout=0.3):
+        super().__init__()
+        self.horizon = horizon
+        self.output_feat = output_feat
+
+        blocks = []
+        c_in = in_feat
+        for _ in range(num_blocks):
+            blocks.append(DCRNNTCNBlock(c_in, block_hidden, num_nodes, K, dropout))
+            c_in = block_hidden
+        self.blocks = nn.ModuleList(blocks)
+
+        self.time_conv = nn.Conv2d(block_hidden, block_hidden, kernel_size=(1, T_in))
+
         self.proj = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.Linear(block_hidden, block_hidden // 2),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 2, horizon * output_feat)
+            nn.Linear(block_hidden // 2, horizon * output_feat)
         )
-        
-        # Tính ma trận chuyển tiếp ngẫu nhiên (Transition matrices)
+
         if A_raw is None:
             A_raw = np.eye(num_nodes)
             
@@ -264,28 +297,26 @@ class DCRNN_Model(nn.Module):
         d_in_inv = np.power(d_in, -1.0, where=d_in > 0)
         d_in_inv[d_in <= 0] = 0.0
         P_b = np.diag(d_in_inv) @ A_T
-        
+
         self.register_buffer('P_forward', torch.tensor(P_f, dtype=torch.float32))
         self.register_buffer('P_backward', torch.tensor(P_b, dtype=torch.float32))
-        
+
     def forward(self, x):
         # x: (B, T, N, F)
-        B, T, N, F_in = x.shape
+        B, T, N, F = x.shape
+        h = x.permute(0, 3, 2, 1).contiguous() # (B, F, N, T)
+
+        for block in self.blocks:
+            h = block(h, self.P_forward, self.P_backward)
+
+        # Collapse time dimension
+        h = self.time_conv(h) # (B, C_hidden, N, 1)
         
-        # Khởi tạo hidden state
-        h = torch.zeros(B, N, self.hidden_dim, device=x.device)
-        
-        # Duyệt qua các bước thời gian đầu vào
-        for t in range(T):
-            x_t = x[:, t, :, :]  # (B, N, F)
-            h = self.cell(x_t, h, self.P_forward, self.P_backward)
-            h = self.dropout(h)
-            
-        # Dự báo đa bước thời gian
-        out = self.proj(h)  # (B, N, horizon * output_feat)
+        # Output projection
+        h = h.squeeze(-1).permute(0, 2, 1)  # (B, N, C_hidden)
+        out = self.proj(h)                  # (B, N, horizon * output_feat)
         out = out.view(B, N, self.horizon, self.output_feat)
-        y_pred = out.permute(0, 2, 1, 3)  # (B, Horizon, N, output_feat)
-        
+        y_pred = out.permute(0, 2, 1, 3)    # (B, Horizon, N, output_feat)
         return y_pred
 
 # ============================================================
@@ -471,13 +502,13 @@ def visualize_last_step(model, loader, device, scaler, cfg, node_list=None):
 
 def run_training():
     gc.collect(); torch.cuda.empty_cache()
-    print(f"TRAINING DCRNN (Steps={CFG.HORIZON}, Future={CFG.PRED_MINUTES} mins)")
+    print(f"TRAINING DCRNN-TCN (Steps={CFG.HORIZON}, Future={CFG.PRED_MINUTES} mins)")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Device: {device}")
 
     A_raw, nodes = load_adj_from_excel(CFG.ADJ_PATH)
-    print(f"Graph Adjacency loaded. Shape: {A_raw.shape}")
+    print(f"Graph loaded. Shape: {A_raw.shape}")
 
     print(f"Loading ALL Data from: {CFG.CSV_PATH}")
     df_all = load_timeseries_double_rolling(CFG.CSV_PATH, nodes, CFG.DATA_WINDOW1, CFG.DATA_WINDOW2, CFG.TIME_STEP_MINUTES)
@@ -525,10 +556,12 @@ def run_training():
     val_loader   = DataLoader(val_ds, batch_size=CFG.BATCH_SIZE)
     test_loader  = DataLoader(test_ds, batch_size=CFG.BATCH_SIZE)
 
-    model = DCRNN_Model(
+    model = DCRNN_TCN_Model(
         num_nodes=len(nodes),
         in_feat=4,
-        hidden_dim=CFG.HIDDEN_DIM,
+        block_hidden=CFG.BLOCK_HIDDEN,
+        num_blocks=CFG.NUM_BLOCKS,
+        T_in=CFG.T_IN,
         K=CFG.K,
         horizon=CFG.HORIZON,
         output_feat=1,

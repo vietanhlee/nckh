@@ -2,39 +2,38 @@
 
 Dự án này được xây dựng nhằm nghiên cứu khoa học (NCKH), thực nghiệm và so sánh hiệu năng của các kiến trúc mạng nơ-ron đồ thị không-thời gian (Spatial-Temporal Graph Neural Networks) phổ biến trong bài toán dự báo lưu lượng giao thông (Traffic Flow Forecasting).
 
+Nghiên cứu tập trung so sánh các baseline kinh điển và thực hiện đánh giá sâu sắc các cơ chế mô hình hóa thời gian khác nhau (**GLU, BiLSTM, TCN, Attention**) trên cùng một bộ khung không gian đồ thị có hướng (**Diffusion Graph Convolution**).
+
 ---
 
 ## 📂 Danh sách các Kiến trúc Mô hình
 
-Dự án hiện tại hỗ trợ **9 kiến trúc mô hình độc lập**, được tối ưu hóa hiệu năng huấn luyện bằng PyTorch thuần để dễ dàng chạy thực nghiệm:
+Dự án hiện tại hỗ trợ **7 kiến trúc mô hình độc lập**, được tối ưu hóa hiệu năng huấn luyện bằng PyTorch thuần để dễ dàng chạy thực nghiệm:
 
-1. **GCN-LSTM** ([gcn_lstm.py](file:///g:/nckh/gcn_lstm.py)):
-   * **Spatial**: Graph Convolutional Network (GCN) trích xuất đặc trưng không gian tĩnh.
-   * **Temporal**: Long Short-Term Memory (LSTM) học các phụ thuộc thời gian dài hạn.
-2. **Graph WaveNet** ([wavenet_gcn.py](file:///g:/nckh/wavenet_gcn.py)):
-   * **Spatial**: Kết hợp GCN cố định cùng cơ chế ma trận kề thích ứng (Adaptive Adjacency) tự học cấu trúc đồ thị từ dữ liệu.
-   * **Temporal**: Lớp Dilated Causal Convolution (Gated TCN) mở rộng receptive field nhanh chóng.
-3. **Graph WaveNet-GLU** ([wavenet_glu.py](file:///g:/nckh/wavenet_glu.py)) [NEW - ĐỀ XUẤT]:
-   * **Spatial**: GCN tĩnh kết hợp ma trận kề thích ứng học cấu trúc đồ thị động.
-   * **Temporal**: Lớp Dilated Causal Convolution sử dụng **Gated Linear Unit (GLU) 1D** thay thế cho cơ chế gating tanh-sigmoid của WaveNet truyền thống để nâng cao tốc độ học và độ ổn định.
-4. **ASTGCN** ([astgcn.py](file:///g:/nckh/astgcn.py)):
-   * **Spatial & Temporal Attention**: Cơ chế Attention động cả về mặt không gian (giữa các nút) và thời gian.
-   * **Chebyshev GCN**: Chebyshev Spectral Graph Convolution (ChebConv) trên ma trận Scaled Laplacian.
-5. **STGCN** ([stgcn.py](file:///g:/nckh/stgcn.py)):
-   * **Spatial**: Chebyshev Spectral Graph Convolution (ChebConv).
-   * **Temporal**: Lớp Temporal Gated Convolution (GLU) qua tích chập 1D.
-6. **STGCN-GCN** ([stgcn_gcn.py](file:///g:/nckh/stgcn_gcn.py)):
-   * **Spatial**: Graph Convolutional Network (GCN) trích xuất đặc trưng không gian tĩnh đối xứng.
-   * **Temporal**: Lớp Temporal Gated Convolution (GLU) tương tự như STGCN nhưng dùng GCN thay thế cho ChebNet.
-7. **STGCN-BiLSTM** ([stgcn_bilstm.py](file:///g:/nckh/stgcn_bilstm.py)) [NEW - ĐỀ XUẤT]:
-   * **Spatial**: Chebyshev Spectral Graph Convolution (ChebConv).
-   * **Temporal**: Lớp Temporal Bidirectional LSTM (BiLSTM) xử lý chuỗi thời gian hai chiều động chất lượng cao thay cho tích chập 1D thông thường.
-8. **DCRNN** ([dcrnn.py](file:///g:/nckh/dcrnn.py)):
-   * **Spatial**: Tích chập lan truyền (Diffusion Convolution) dựa trên bước đi ngẫu nhiên xuôi/ngược trên đồ thị có hướng.
-   * **Temporal**: DCGRU (Diffusion Convolutional GRU Cell) theo cấu trúc Sequence-to-Sequence.
-9. **DCRNN-GLU** ([dcrnn_glu.py](file:///g:/nckh/dcrnn_glu.py)) [NEW - ĐỀ XUẤT]:
-   * **Spatial**: Tích chập lan truyền (Diffusion Convolution) trên đồ thị có hướng.
-   * **Temporal**: Lớp **Gated CNN (GLU) 1D** thay thế cho các tế bào tuần tự DCGRU (Sequence-to-Sequence) giúp mô hình hóa phụ thuộc thời gian song song hóa cực nhanh, tránh hiện tượng mất mát gradient khi huấn luyện dài hạn.
+### 1. Các Kiến trúc Baseline chính
+* **GCN-LSTM** ([gcn_lstm.py](file:///g:/nckh/gcn_lstm.py)):
+  * **Spatial**: Graph Convolutional Network (GCN) trích xuất đặc trưng không gian tĩnh.
+  * **Temporal**: Long Short-Term Memory (LSTM) học các phụ thuộc thời gian dài hạn.
+* **Graph WaveNet** ([wavenet_gcn.py](file:///g:/nckh/wavenet_gcn.py)):
+  * **Spatial**: Kết hợp GCN cố định cùng cơ chế ma trận kề thích ứng (Adaptive Adjacency) tự học cấu trúc đồ thị từ dữ liệu.
+  * **Temporal**: Lớp Dilated Causal Convolution (Gated TCN) mở rộng receptive field nhanh chóng.
+* **STGCN** ([stgcn.py](file:///g:/nckh/stgcn.py)):
+  * **Spatial**: Chebyshev Spectral Graph Convolution (ChebConv).
+  * **Temporal**: Lớp Temporal Gated Convolution (GLU) qua tích chập 1D.
+
+### 2. Các Biến thể cải tiến của DCRNN (Mô hình hóa thời gian song song)
+* **DCRNN-GLU** ([dcrnn_glu.py](file:///g:/nckh/dcrnn_glu.py)) [NEW - ĐỀ XUẤT]:
+  * **Spatial**: Tích chập lan truyền (Diffusion Convolution) trên đồ thị có hướng.
+  * **Temporal**: Lớp **Gated CNN (GLU) 1D** thay thế cho các tế bào tuần tự DCGRU giúp song song hóa học thời gian cực nhanh.
+* **DCRNN-BiLSTM** ([dcrnn_bilstm.py](file:///g:/nckh/dcrnn_bilstm.py)) [NEW - ĐỀ XUẤT]:
+  * **Spatial**: Tích chập lan truyền (Diffusion Convolution) trên đồ thị có hướng.
+  * **Temporal**: Lớp **Bidirectional LSTM (BiLSTM)** xử lý đặc trưng chuỗi thời gian hai chiều động.
+* **DCRNN-TCN** ([dcrnn_tcn.py](file:///g:/nckh/dcrnn_tcn.py)) [NEW - ĐỀ XUẤT]:
+  * **Spatial**: Tích chập lan truyền (Diffusion Convolution) trên đồ thị có hướng.
+  * **Temporal**: Lớp **Stacked Dilated Causal TCN** học quan hệ thời gian dài hạn bằng giãn nở exponential.
+* **DCRNN-Attention** ([dcrnn_attention.py](file:///g:/nckh/dcrnn_attention.py)) [NEW - ĐỀ XUẤT]:
+  * **Spatial**: Tích chập lan truyền (Diffusion Convolution) trên đồ thị có hướng.
+  * **Temporal**: Lớp **Multi-Head Temporal Self-Attention** trích xuất ngữ cảnh thời gian động toàn cục.
 
 ---
 
@@ -61,24 +60,22 @@ Cấu hình đường dẫn dữ liệu được khai báo trong lớp `Config` 
 ```bash
 python gcn_lstm.py
 python wavenet_gcn.py
-python wavenet_glu.py
-python astgcn.py
 python stgcn.py
-python stgcn_gcn.py
-python stgcn_bilstm.py
-python dcrnn.py
 python dcrnn_glu.py
+python dcrnn_bilstm.py
+python dcrnn_tcn.py
+python dcrnn_attention.py
 ```
 *Mỗi file mô hình đều được trang bị early stopping với độ kiên nhẫn `PATIENCE = 20`, thanh tiến trình `tqdm.auto` và tự động lưu checkpoint đạt MAE tốt nhất trên tập Validation vào thư mục `./model/`.*
 
-### 2. Chạy So sánh Đồng thời cả 9 Mô hình (compare_models.py)
+### 2. Chạy So sánh Đồng thời cả 7 Mô hình (compare_models.py)
 Để thực hiện thực nghiệm so sánh tất cả các kiến trúc trên cùng một tập dữ liệu dùng chung (cùng cách phân chia Train/Val/Test), hãy sử dụng script [compare_models.py](file:///g:/nckh/compare_models.py):
 
-* **Chế độ Đánh giá nhanh (Mặc định)**: Tải các checkpoint `.pth` tốt nhất trong thư mục `model/` của cả 9 mô hình hiện có và đánh giá trên tập Test để xuất bảng so sánh chỉ số:
+* **Chế độ Đánh giá nhanh (Mặc định)**: Tải các checkpoint `.pth` tốt nhất trong thư mục `model/` của cả 7 mô hình hiện có và đánh giá trên tập Test để xuất bảng so sánh chỉ số:
   ```bash
   python compare_models.py --mode eval
   ```
-* **Chế độ Huấn luyện mới**: Huấn luyện tuần tự cả 9 mô hình từ đầu, tự động lưu checkpoint vào `model/` và tổng hợp bảng so sánh:
+* **Chế độ Huấn luyện mới**: Huấn luyện tuần tự cả 7 mô hình từ đầu, tự động lưu checkpoint vào `model/` và tổng hợp bảng so sánh:
   ```bash
   python compare_models.py --mode train --epochs 100
   ```
