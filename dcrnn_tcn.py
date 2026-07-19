@@ -644,10 +644,13 @@ def run_training():
                     "train_loss": train_loss,
                     "train_mae": train_mae,
                     "val_loss": val_loss,
-                    "val_mae": val_mae
+                    "val_mae": val_mae,
+                    "val_mse": val_metrics['mse'],
+                    "val_rmse": val_metrics['rmse']
                 })
             except:
                 pass
+
 
         if val_mae < best_mae:
             best_mae = val_mae
