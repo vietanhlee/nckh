@@ -12,13 +12,27 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import torch.amp
 from tqdm.auto import tqdm
+from dotenv import load_dotenv
+
+# Đọc file .env và đăng nhập WandB
+load_dotenv()
+api_key = os.getenv("WANDB_API_KEY")
+use_wandb = False
+if api_key:
+    try:
+        import wandb
+        wandb.login(key=api_key)
+        use_wandb = True
+    except Exception as e:
+        print(f"⚠️ WandB login lỗi: {e}")
 
 
 class Config:
-    ADJ_PATH = "/content/drive/MyDrive/GRAPH/Graph_fix_py_3.xlsx"
+    ROOT_DIR = "/content/drive/MyDrive/GRAPH/"
+    ADJ_PATH = os.path.join(ROOT_DIR, "Graph_fix_py_3.xlsx")
+    CSV_PATH = os.path.join(ROOT_DIR, "count_7_7_merg_sort_fix_fill.csv")
+    SAVE_DIR = os.path.join(ROOT_DIR, "model/")
 
-    CSV_PATH = "/content/drive/MyDrive/GRAPH/count_7_7_merg_sort_fix_fill.csv"
-    SAVE_DIR       = "model/"
 
     TIME_STEP_MINUTES = 5
     HISTORY_MINUTES   = 120
@@ -317,7 +331,7 @@ def evaluate(model, loader, device, scaler_stats, loss_fn=None, verbose=False):
 
     return {'mae': avg_mae, 'mse': avg_mse, 'rmse': avg_rmse, 'loss': avg_loss}
 
-def plot_training_history(train_losses, val_losses, train_maes, val_maes):
+def plot_training_history(train_losses, val_losses, train_maes, val_maes, use_wandb=False):
 
     epochs = range(1, len(train_losses) + 1)
 
@@ -348,7 +362,14 @@ def plot_training_history(train_losses, val_losses, train_maes, val_maes):
     plt.grid(True, linestyle='--', alpha=0.6)
 
     plt.tight_layout()
+    if use_wandb:
+        try:
+            import wandb
+            wandb.log({"training_history_plot": wandb.Image(plt)})
+        except:
+            pass
     plt.show()
+
 
 def visualize_last_step(model, loader, device, scaler, cfg, node_list=None):
     if node_list is None: node_list = [383, 266]
@@ -481,6 +502,24 @@ def run_training():
         'train_mae': [], 'val_mae': []
     }
 
+    if use_wandb:
+        try:
+            import wandb
+            wandb.init(
+                project="NCKH-Traffic-Flow-Individual",
+                name="Train-GCN-LSTM",
+                config={
+                    "model": "GCN-LSTM",
+                    "learning_rate": CFG.LEARNING_RATE,
+                    "epochs": CFG.EPOCHS,
+                    "batch_size": CFG.BATCH_SIZE,
+                    "patience": CFG.PATIENCE,
+                    "horizon": CFG.HORIZON
+                }
+            )
+        except:
+            pass
+
     for ep in range(CFG.EPOCHS):
 
         train_loss, train_mae = train_one_epoch(model, train_loader, optimizer, loss_fn, device, grad_scaler, scaler)
@@ -495,6 +534,19 @@ def run_training():
         history['val_mae'].append(val_mae)
 
         print(f"Ep {ep+1:03d} | Loss: {train_loss:.4f} / {val_loss:.4f} | MAE: {train_mae:.2f} / {val_mae:.2f}", end="")
+
+        if use_wandb:
+            try:
+                import wandb
+                wandb.log({
+                    "epoch": ep + 1,
+                    "train_loss": train_loss,
+                    "train_mae": train_mae,
+                    "val_loss": val_loss,
+                    "val_mae": val_mae
+                })
+            except:
+                pass
 
         if val_mae < best_mae:
             best_mae = val_mae
@@ -512,7 +564,7 @@ def run_training():
     print("PLOTTING TRAINING HISTORY")
     print("="*40)
     plot_training_history(history['train_loss'], history['val_loss'],
-                          history['train_mae'], history['val_mae'])
+                          history['train_mae'], history['val_mae'], use_wandb=use_wandb)
 
     print("\n" + "="*40)
     print("FINAL EVALUATION ON TEST SET")
@@ -526,6 +578,19 @@ def run_training():
     print(f"FINAL TEST MSE : {test_metrics['mse']:.4f}")
     print(f"FINAL TEST RMSE: {test_metrics['rmse']:.4f}")
     print("="*40)
+
+    if use_wandb:
+        try:
+            import wandb
+            wandb.log({
+                "test_loss": test_metrics['loss'],
+                "test_mae": test_metrics['mae'],
+                "test_mse": test_metrics['mse'],
+                "test_rmse": test_metrics['rmse']
+            })
+            wandb.finish()
+        except:
+            pass
 
     visualize_last_step(model, test_loader, device, scaler, CFG, node_list=[7, 266, 489, 89, 26, 32, 380, 365, 557])
 

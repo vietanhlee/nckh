@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from torch.utils.data import DataLoader
 import argparse
+from dotenv import load_dotenv
 
 # Import các lớp mô hình và cấu hình của cả 7 mô hình đang hoạt động
 from gcn_lstm import ImprovedGNN_LSTM, Config as GCNLSTMConfig
@@ -27,15 +28,39 @@ from stgcn import (
     evaluate
 )
 
+# ------------------------------------------------------------
+#  Cấu hình WandB & Đọc file .env
+# ------------------------------------------------------------
+load_dotenv()
+api_key = os.getenv("WANDB_API_KEY")
+use_wandb = False
+
+if api_key:
+    try:
+        import wandb
+        wandb.login(key=api_key)
+        use_wandb = True
+        print("✅ WandB login thành công! Tiến trình sẽ log các metric lên hệ thống.")
+    except Exception as e:
+        print(f"⚠️ Không thể khởi động WandB mặc dù có WANDB_API_KEY: {e}")
+else:
+    print("ℹ️ Không tìm thấy WANDB_API_KEY trong file .env. Chạy bình thường không log WandB.")
+
 def main():
     parser = argparse.ArgumentParser(description="So sánh kết quả huấn luyện 7 mô hình Spatial-Temporal Graph NCKH.")
     parser.add_argument('--mode', type=str, default='eval', choices=['train', 'eval'],
                         help="Chế độ chạy: 'train' (huấn luyện mới cả 7 mô hình từ đầu rồi so sánh) hoặc 'eval' (chỉ tải checkpoint và đánh giá).")
     parser.add_argument('--epochs', type=int, default=None,
                         help="Số lượng epochs chạy thử nghiệm nếu chọn chế độ 'train' (mặc định lấy theo Config của từng mô hình).")
+    parser.add_argument('--root_dir', type=str, default="/content/drive/MyDrive/GRAPH/",
+                        help="Đường dẫn thư mục gốc chứa dữ liệu và lưu checkpoint.")
     args = parser.parse_args()
 
-    # Khởi tạo instance của Config cho cả 7 mô hình để truy cập các properties (T_IN, FULL_SAVE_PATH, v.v.)
+    # Thư mục gốc động
+    root_dir = args.root_dir
+    print(f"📂 Thư mục gốc hoạt động: {root_dir}")
+
+    # Khởi tạo instance của Config cho cả 7 mô hình để truy cập các properties
     gcn_lstm_cfg = GCNLSTMConfig()
     wavenet_cfg = WaveNetConfig()
     stgcn_cfg = STGCNConfig()
@@ -44,9 +69,12 @@ def main():
     dcrnn_tcn_cfg = DCRNNTCNConfig()
     dcrnn_attn_cfg = DCRNNAttentionConfig()
 
-    # Đồng bộ hóa cấu hình SAVE_DIR sang thư mục tương đối cục bộ "model/"
+    # Cập nhật đường dẫn động ROOT_DIR cho tất cả Config của mô hình
     for cfg_inst in [gcn_lstm_cfg, wavenet_cfg, stgcn_cfg, dcrnn_glu_cfg, dcrnn_bilstm_cfg, dcrnn_tcn_cfg, dcrnn_attn_cfg]:
-        cfg_inst.SAVE_DIR = "model/"
+        cfg_inst.ROOT_DIR = root_dir
+        cfg_inst.ADJ_PATH = os.path.join(root_dir, "Graph_fix_py_3.xlsx")
+        cfg_inst.CSV_PATH = os.path.join(root_dir, "count_7_7_merg_sort_fix_fill.csv")
+        cfg_inst.SAVE_DIR = os.path.join(root_dir, "model/")
         os.makedirs(cfg_inst.SAVE_DIR, exist_ok=True)
 
     # Sử dụng config của GCN-LSTM làm cấu hình dữ liệu cơ bản
@@ -221,6 +249,21 @@ def main():
         print(f"⚙️ Đang xử lý mô hình: {model_name}")
         print(f"==========================================")
         
+        # Khởi tạo run WandB riêng cho mô hình nếu chạy Train để so sánh trực quan
+        if args.mode == 'train' and use_wandb:
+            wandb.init(
+                project="NCKH-Traffic-Flow-Comparison",
+                name=f"Compare-{model_name}",
+                config={
+                    "model": model_name,
+                    "learning_rate": model_info['config'].LEARNING_RATE,
+                    "batch_size": model_info['config'].BATCH_SIZE,
+                    "patience": model_info['config'].PATIENCE,
+                    "horizon": model_info['config'].HORIZON
+                },
+                reinit=True
+            )
+
         # Khởi tạo mô hình
         model = model_info['class'](**model_info['args']).to(device)
         save_path = model_info['config'].FULL_SAVE_PATH
@@ -246,6 +289,16 @@ def main():
 
                 print(f"Ep {ep+1:03d} | Loss: {train_loss:.4f} / {val_loss:.4f} | MAE: {train_mae:.2f} / {val_mae:.2f}", end="")
 
+                # Log epoch metrics lên WandB
+                if args.mode == 'train' and use_wandb:
+                    wandb.log({
+                        "epoch": ep + 1,
+                        "train_loss": train_loss,
+                        "train_mae": train_mae,
+                        "val_loss": val_loss,
+                        "val_mae": val_mae
+                    })
+
                 if val_mae < best_mae:
                     best_mae = val_mae
                     patience_cnt = 0
@@ -262,6 +315,8 @@ def main():
         print(f"-> Đánh giá mô hình {model_name} trên tập TEST...")
         if not os.path.exists(save_path):
             print(f"❌ KHÔNG tìm thấy checkpoint tại {save_path}. Bỏ qua đánh giá.")
+            if args.mode == 'train' and use_wandb:
+                wandb.finish()
             continue
 
         model.load_state_dict(torch.load(save_path, map_location=device))
@@ -269,6 +324,16 @@ def main():
         
         results[model_name] = test_metrics
         print(f"   [Test Results] Loss: {test_metrics['loss']:.4f} | MAE: {test_metrics['mae']:.4f} | MSE: {test_metrics['mse']:.4f} | RMSE: {test_metrics['rmse']:.4f}")
+
+        # Log kết quả đánh giá cuối cùng lên WandB
+        if args.mode == 'train' and use_wandb:
+            wandb.log({
+                "test_loss": test_metrics['loss'],
+                "test_mae": test_metrics['mae'],
+                "test_mse": test_metrics['mse'],
+                "test_rmse": test_metrics['rmse']
+            })
+            wandb.finish()
 
         # Dọn dẹp GPU memory
         del model
@@ -301,7 +366,7 @@ def main():
     print(f"============================================================")
 
     # Lưu bảng so sánh vào file markdown
-    report_path = "comparison_report.md"
+    report_path = os.path.join(root_dir, "comparison_report.md")
     try:
         with open(report_path, "w", encoding="utf-8") as f:
             f.write("# Báo cáo so sánh các mô hình Spatial-Temporal Graph (NCKH)\n\n")
@@ -311,6 +376,20 @@ def main():
         print(f"💾 Đã lưu báo cáo so sánh vào: {report_path}")
     except Exception as e:
         print(f"⚠️ Không thể lưu báo cáo ra file: {e}")
+
+    # Nếu ở chế độ eval và có WandB, tạo 1 run lớn để log bảng so sánh
+    if args.mode == 'eval' and use_wandb:
+        wandb.init(project="NCKH-Traffic-Flow-Comparison", name="Final-Eval-Report")
+        # Log bảng dạng text
+        wandb.log({"Comparison Report Table": wandb.Html(df_report.to_html())})
+        # Log các metrics của từng model riêng rẽ
+        for idx, row in df_report.iterrows():
+            m_name = row['Model']
+            wandb.log({
+                f"{m_name}_test_mae": float(row['MAE']),
+                f"{m_name}_test_rmse": float(row['RMSE'])
+            })
+        wandb.finish()
 
 if __name__ == "__main__":
     main()
