@@ -280,7 +280,7 @@ def main():
             patience_cnt = 0
 
             for ep in range(epochs):
-                train_loss, train_mae = train_one_epoch(
+                train_loss, train_mae, train_mse, train_rmse = train_one_epoch(
                     model, train_loader, optimizer, loss_fn, device, grad_scaler, scaler
                 )
                 val_metrics = evaluate(model, val_loader, device, scaler, loss_fn=loss_fn, verbose=False)
@@ -295,11 +295,14 @@ def main():
                         "epoch": ep + 1,
                         "train_loss": train_loss,
                         "train_mae": train_mae,
+                        "train_mse": train_mse,
+                        "train_rmse": train_rmse,
                         "val_loss": val_loss,
                         "val_mae": val_mae,
                         "val_mse": val_metrics['mse'],
                         "val_rmse": val_metrics['rmse']
                     })
+
 
 
                 if val_mae < best_mae:

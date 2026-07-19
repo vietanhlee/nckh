@@ -354,6 +354,7 @@ def train_one_epoch(model, loader, opt, loss_fn, device, scaler_obj, scaler_stat
     model.train()
     total_loss = 0
     total_mae = 0
+    total_mse = 0
     count_batches = 0
 
     means = torch.tensor(scaler_stats['mean'], device=device)
@@ -378,15 +379,21 @@ def train_one_epoch(model, loader, opt, loss_fn, device, scaler_obj, scaler_stat
         with torch.no_grad():
             y_true = Y * stds + means
             y_pred = pred * stds + means
-            mae_batch = torch.abs(y_true - y_pred).mean()
+            err = y_true - y_pred
+            mae_batch = torch.abs(err).mean()
             total_mae += mae_batch.item()
+            mse_batch = (err ** 2).mean()
+            total_mse += mse_batch.item()
 
         count_batches += 1
         pbar.set_postfix(loss=f"{loss.item():.4f}", mae=f"{mae_batch.item():.2f}")
 
     avg_loss = total_loss / count_batches
     avg_mae = total_mae / count_batches
-    return avg_loss, avg_mae
+    avg_mse = total_mse / count_batches
+    avg_rmse = np.sqrt(avg_mse)
+    return avg_loss, avg_mae, avg_mse, avg_rmse
+
 
 def evaluate(model, loader, device, scaler_stats, loss_fn=None, verbose=False):
     model.eval()
@@ -623,7 +630,7 @@ def run_training():
             pass
 
     for ep in range(CFG.EPOCHS):
-        train_loss, train_mae = train_one_epoch(model, train_loader, optimizer, loss_fn, device, grad_scaler, scaler)
+        train_loss, train_mae, train_mse, train_rmse = train_one_epoch(model, train_loader, optimizer, loss_fn, device, grad_scaler, scaler)
         val_metrics = evaluate(model, val_loader, device, scaler, loss_fn=loss_fn, verbose=False)
         val_mae = val_metrics['mae']
         val_loss = val_metrics['loss']
@@ -642,6 +649,8 @@ def run_training():
                     "epoch": ep + 1,
                     "train_loss": train_loss,
                     "train_mae": train_mae,
+                    "train_mse": train_mse,
+                    "train_rmse": train_rmse,
                     "val_loss": val_loss,
                     "val_mae": val_mae,
                     "val_mse": val_metrics['mse'],
@@ -649,6 +658,7 @@ def run_training():
                 })
             except:
                 pass
+
 
 
         if val_mae < best_mae:
