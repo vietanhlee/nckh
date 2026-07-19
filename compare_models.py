@@ -69,12 +69,12 @@ def main():
     dcrnn_tcn_cfg = DCRNNTCNConfig()
     dcrnn_attn_cfg = DCRNNAttentionConfig()
 
-    # Cập nhật đường dẫn động ROOT_DIR cho tất cả Config của mô hình
+    # Cập nhật đường dẫn động cho tất cả Config của mô hình
     for cfg_inst in [gcn_lstm_cfg, wavenet_cfg, stgcn_cfg, dcrnn_glu_cfg, dcrnn_bilstm_cfg, dcrnn_tcn_cfg, dcrnn_attn_cfg]:
         cfg_inst.ROOT_DIR = root_dir
         cfg_inst.ADJ_PATH = os.path.join(root_dir, "Graph_fix_py_3.xlsx")
         cfg_inst.CSV_PATH = os.path.join(root_dir, "count_7_7_merg_sort_fix_fill.csv")
-        cfg_inst.SAVE_DIR = os.path.join(root_dir, "model/")
+        cfg_inst.SAVE_DIR = "model/"
         os.makedirs(cfg_inst.SAVE_DIR, exist_ok=True)
 
     # Sử dụng config của GCN-LSTM làm cấu hình dữ liệu cơ bản
@@ -366,7 +366,8 @@ def main():
     print(f"============================================================")
 
     # Lưu bảng so sánh vào file markdown
-    report_path = os.path.join(root_dir, "comparison_report.md")
+    report_path = "comparison_report.md"
+
     try:
         with open(report_path, "w", encoding="utf-8") as f:
             f.write("# Báo cáo so sánh các mô hình Spatial-Temporal Graph (NCKH)\n\n")
