@@ -519,6 +519,7 @@ def evaluate(model, loader, device, scaler_stats, loss_fn=None, verbose=False):
     total_mae = 0
     total_mse = 0
     total_loss = 0
+    total_step_maes = [0.0] * 6
     count_batches = 0
 
     means = torch.tensor(scaler_stats['mean'], device=device)
@@ -533,7 +534,10 @@ def evaluate(model, loader, device, scaler_stats, loss_fn=None, verbose=False):
             pred = model(X)
 
             if loss_fn is not None:
-                loss_val = loss_fn(pred, Y, x_last)
+                try:
+                    loss_val = loss_fn(pred, Y, x_last)
+                except TypeError:
+                    loss_val = loss_fn(pred, Y)
                 total_loss += loss_val.item()
 
             y_true = Y * stds + means
@@ -544,6 +548,9 @@ def evaluate(model, loader, device, scaler_stats, loss_fn=None, verbose=False):
             mae_val = abs_err.mean().item()
             total_mae += mae_val
 
+            for t_idx in range(6):
+                total_step_maes[t_idx] += abs_err[:, t_idx, :, :].mean().item()
+
             sq_err = err ** 2
             total_mse += sq_err.mean().item()
 
@@ -551,14 +558,19 @@ def evaluate(model, loader, device, scaler_stats, loss_fn=None, verbose=False):
             pbar.set_postfix(mae=f"{mae_val:.2f}")
 
     if count_batches == 0:
-        return {'mae': 9999.0, 'mse': 9999.0, 'rmse': 9999.0, 'loss': 9999.0}
+        res = {'mae': 9999.0, 'mse': 9999.0, 'rmse': 9999.0, 'loss': 9999.0}
+        for t_idx in range(6): res[f'mae_t{t_idx+1}'] = 9999.0
+        return res
 
     avg_mae = total_mae / count_batches
     avg_mse = total_mse / count_batches
     avg_loss = total_loss / count_batches
     avg_rmse = np.sqrt(avg_mse)
 
-    return {'mae': avg_mae, 'mse': avg_mse, 'rmse': avg_rmse, 'loss': avg_loss}
+    res = {'mae': avg_mae, 'mse': avg_mse, 'rmse': avg_rmse, 'loss': avg_loss}
+    for t_idx in range(6):
+        res[f'mae_t{t_idx+1}'] = total_step_maes[t_idx] / count_batches
+    return res
 
 def plot_training_history(train_losses, val_losses, train_maes, val_maes, save_dir="plots", use_wandb=False, tag="stgcn"):
     epochs = range(1, len(train_losses) + 1)
@@ -870,10 +882,12 @@ def run_training():
     model.load_state_dict(torch.load(CFG.FULL_SAVE_PATH))
     test_metrics = evaluate(model, test_loader, device, scaler, loss_fn=loss_fn)
 
-    print(f"FINAL TEST LOSS: {test_metrics['loss']:.4f}")
-    print(f"FINAL TEST MAE : {test_metrics['mae']:.4f}")
-    print(f"FINAL TEST MSE : {test_metrics['mse']:.4f}")
-    print(f"FINAL TEST RMSE: {test_metrics['rmse']:.4f}")
+    print(f"FINAL TEST LOSS  : {test_metrics['loss']:.4f}")
+    print(f"FINAL TEST MAE   : {test_metrics['mae']:.4f}")
+    for t_idx in range(6):
+        print(f"  └─ MAE t+{t_idx+1} ({(t_idx+1)*5}m): {test_metrics[f'mae_t{t_idx+1}']:.4f}")
+    print(f"FINAL TEST MSE   : {test_metrics['mse']:.4f}")
+    print(f"FINAL TEST RMSE  : {test_metrics['rmse']:.4f}")
     print("="*40)
 
     if use_wandb:
