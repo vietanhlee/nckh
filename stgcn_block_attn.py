@@ -53,7 +53,7 @@ class Config:
 
     # --- MODEL CONFIG ---
     CHEB_K              = 3        # Bậc đa thức Chebyshev
-    NUM_BLOCKS          = 3        # Số lượng STGCN blocks
+    NUM_BLOCKS          = 2        # Số lượng STGCN blocks (2 blocks)
     BLOCK_HIDDEN        = 64       # Số channels ẩn trong mỗi block
     DROPOUT             = 0.25
     ATTN_NUM_HEADS      = 4        # Số heads trong Multi-Head Temporal Attention

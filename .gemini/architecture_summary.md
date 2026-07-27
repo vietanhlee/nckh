@@ -16,7 +16,8 @@ Báo cáo này mô tả sơ đồ kiến trúc, luồng dữ liệu và cấu h�
 | **Học Thời gian (Temporal)** | LSTM | Gated 1D Conv (GLU) | Multi-Head Temporal Self-Attention |
 | **Cấu trúc trong Block** | GCN -> LSTM | GLU -> ChebNet -> GLU | Attn1 -> ChebNet -> Attn2 |
 | **Vị trí Attention** | Không có | Cuối mô hình (Model-Level) | Trong từng Block & Cuối mô hình |
-| **Số lớp Attention** | 0 | 1 lớp | **7 lớp** (2/block × 3 blocks + 1 final) |
+| **Số lớp Attention** | 0 | 1 lớp | **5 lớp** (2/block × 2 blocks + 1 final) |
+| **Số Blocks (`NUM_BLOCKS`)** | N/A | **2 Blocks** | **2 Blocks** |
 | **Số Channels (`Hidden`)** | GCN=32, LSTM=64 | Block=64 | Block=64 (Heads=4) |
 
 ---
@@ -24,7 +25,7 @@ Báo cáo này mô tả sơ đồ kiến trúc, luồng dữ liệu và cấu h�
 ## 🏛️ 2. Mô hình 1: GCN-LSTM
 
 ### Mô tả
-kết hợp **GCN tĩnh** và **LSTM**. Ở mỗi bước thời gian $t$, GCN trích xuất đặc trưng không gian giữa các nút. Sau đó, chuỗi đặc trưng được đưa qua LSTM để học phụ thuộc thời gian.
+Kết hợp **GCN tĩnh** và **LSTM**. Ở mỗi bước thời gian $t$, GCN trích xuất đặc trưng không gian giữa các nút. Sau đó, chuỗi đặc trưng được đưa qua LSTM để học phụ thuộc thời gian.
 
 ### Sơ đồ Luồng xử lý (Architecture Flowchart)
 
@@ -65,7 +66,7 @@ kết hợp **GCN tĩnh** và **LSTM**. Ở mỗi bước thời gian $t$, GCN t
 ## 🏛️ 3. Mô hình 2: STGCN GLU-ATTN (Hybrid)
 
 ### Mô tả
-Giữ nguyên các khối STGCN tiêu chuẩn (dùng Gated 1D Conv GLU bắt thời gian ngắn hạn và ChebNet $K=3$ học không gian), kết hợp **1 lớp Multi-Head Temporal Self-Attention ở CUỐI MÔ HÌNH** trước khi chiếu ra đầu ra.
+Gồm **2 khối STGCN Block** (dùng Gated 1D Conv GLU bắt thời gian ngắn hạn và ChebNet $K=3$ học không gian), kết hợp **1 lớp Multi-Head Temporal Self-Attention ở CUỐI MÔ HÌNH** trước khi chiếu ra đầu ra.
 
 ### Sơ đồ Luồng xử lý (Architecture Flowchart)
 
@@ -94,15 +95,6 @@ Giữ nguyên các khối STGCN tiêu chuẩn (dùng Gated 1D Conv GLU bắt th�
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────┐
-│ STGCN BLOCK 3                                           │
-│  ├─ Temporal Conv GLU 1                                 │
-│  ├─ Spatial Graph Conv (ChebNet K=3) + ReLU             │
-│  ├─ Temporal Conv GLU 2                                 │
-│  └─ Residual Add + LayerNorm + Dropout                  │
-└────────────────────────────┬────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────┐
 │ FINAL TEMPORAL SELF-ATTENTION (Model-Level Attention)   │
 │  └─ Multi-Head Attention + Residual + LayerNorm + FFN   │
 └────────────────────────────┬────────────────────────────┘
@@ -123,7 +115,7 @@ Giữ nguyên các khối STGCN tiêu chuẩn (dùng Gated 1D Conv GLU bắt th�
 ## 🏛️ 4. Mô hình 3: STGCN Pure Attn (Block-Attn)
 
 ### Mô tả
-Kiến trúc **Pure Spatio-Temporal Graph Attention Transformer**. Toàn bộ các lớp GLU cục bộ đều được thay bằng **Multi-Head Temporal Self-Attention** ở cả 2 vị trí trong từng khối `STGCNBlockAttn`, kết hợp thêm **1 lớp Final Temporal Attention ở cuối** (Hierarchical Dual Attention).
+Kiến trúc **Pure Spatio-Temporal Graph Attention Transformer** (dùng **2 Blocks**). Toàn bộ các lớp GLU cục bộ đều được thay bằng **Multi-Head Temporal Self-Attention** ở cả 2 vị trí trong từng khối `STGCNBlockAttn`, kết hợp thêm **1 lớp Final Temporal Attention ở cuối** (Hierarchical Dual Attention).
 
 ### Sơ đồ Luồng xử lý (Architecture Flowchart)
 
@@ -157,15 +149,6 @@ Kiến trúc **Pure Spatio-Temporal Graph Attention Transformer**. Toàn bộ c�
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────┐
-│ BLOCK 3 (Pure Attention Block)                          │
-│  ├─ Temporal Self-Attention 1 (Multi-Head + FFN)        │
-│  ├─ Spatial Graph Conv (ChebNet K=3) + ReLU             │
-│  ├─ Temporal Self-Attention 2 (Multi-Head + FFN)        │
-│  └─ Residual Add + LayerNorm + Dropout                  │
-└────────────────────────────┬────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────┐
 │ FINAL TEMPORAL SELF-ATTENTION (Hierarchical Dual)       │
 │  └─ Multi-Head Attention + Residual + LayerNorm + FFN   │
 └────────────────────────────┬────────────────────────────┘
@@ -187,10 +170,10 @@ Kiến trúc **Pure Spatio-Temporal Graph Attention Transformer**. Toàn bộ c�
 
 | Tham số | GCN-LSTM | STGCN GLU-ATTN | STGCN Pure Attn |
 | :--- | :---: | :---: | :---: |
-| `BATCH_SIZE` | 32 | 64 | 64 |
+| `BATCH_SIZE` | 32 | 64 | 32 |
 | `LEARNING_RATE` | 0.001 | 0.0005 | 0.0005 |
 | `PATIENCE` | 40 | 60 | 60 |
-| `NUM_BLOCKS` | N/A | 3 | 3 |
+| `NUM_BLOCKS` | N/A | **2** | **2** |
 | `BLOCK_HIDDEN` | GCN=32, LSTM=64 | 64 | 64 |
 | `CHEB_K` | N/A | 3 | 3 |
 | `ATTN_NUM_HEADS` | N/A | 4 | 4 |
