@@ -68,7 +68,7 @@ class Config:
     DATA_WINDOW2  = 5
 
     # --- TRAINING STABILITY ---
-    GRAD_CLIP_NORM    = 5.0a
+    GRAD_CLIP_NORM    = 5.0
     USE_LR_SCHEDULER  = True
     LR_SCHED_FACTOR   = 0.5
     LR_SCHED_PATIENCE = 10
