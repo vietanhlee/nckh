@@ -1,12 +1,10 @@
 # Danh sách công việc (TODO List)
 
-- [x] Tích hợp WandB (Weights & Biases) để log metric cho từng mô hình khi chạy riêng lẻ.
-- [x] Tích hợp WandB vào `compare_models.py`.
-- [x] Cấu hình đường dẫn thư mục gốc động `ROOT_DIR` cho tất cả các mô hình.
-- [x] **[MỚI]** Cấu hình `hybrid.py` và `stgcn_block_attn.py`:
-  - Đổi vị trí chia dữ liệu Validation và Test:
-    - **Train**: 80% đầu tiên (0 $\rightarrow$ 80%)
-    - **Test**: 10% ở giữa (80% $\rightarrow$ 90%)
-    - **Val**: 10% cuối cùng (90% $\rightarrow$ 100%)
-  - Cấu hình 2 Blocks (`NUM_BLOCKS = 2`).
-- [x] Xuất báo cáo tài liệu kiến trúc ra `architecture_summary.md`.
+- [x] Tích hợp WandB (Weights & Biases) cho các mô hình.
+- [x] Cấu hình đường dẫn thư mục gốc động `ROOT_DIR`.
+- [x] Hoán đổi vị trí tập dữ liệu **Validation** (10% cuối) và **Test** (10% giữa).
+- [x] **[MỚI]** Tạo tệp mô hình kết hợp `stgcn_mixed_blocks.py`:
+  - **Block 1 & Block 2**: Khối STGCN nguyên bản (GLU 1 $\rightarrow$ Spatial ChebNet $\rightarrow$ GLU 2).
+  - **Block 3**: Khối STGCN Attention (Attn 1 $\rightarrow$ Spatial ChebNet $\rightarrow$ Attn 2).
+  - **Final Temporal Attention**: Đặt ở cuối mô hình trước khi chiếu ra Horizon.
+- [x] Cập nhật tài liệu hướng dẫn (`walkthrough.md`).
