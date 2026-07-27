@@ -3,8 +3,10 @@
 - [x] Tích hợp WandB (Weights & Biases) để log metric cho từng mô hình khi chạy riêng lẻ.
 - [x] Tích hợp WandB vào `compare_models.py`.
 - [x] Cấu hình đường dẫn thư mục gốc động `ROOT_DIR` cho tất cả các mô hình.
-- [x] **[MỚI]** Tạo tệp mô hình mới `stgcn_block_attn.py`:
-  - Nhúng **Multi-Head Temporal Self-Attention** trực tiếp vào từng khối `STGCNBlockAttn` (thay thế lớp GLU thứ 2).
-  - Cấu trúc từng block: `Temporal Gated Conv (GLU 1)` -> `Spatial Graph Conv (ChebNet)` -> `Temporal Self-Attention`.
-  - Tăng capacity: `BLOCK_HIDDEN=64`, `NUM_BLOCKS=3`, `CHEB_K=3`, `DROPOUT=0.25`, `ATTN_NUM_HEADS=4`.
-- [x] Tạo tài liệu hướng dẫn và báo cáo cập nhật (`walkthrough.md`).
+- [x] **[MỚI]** Cấu hình `hybrid.py` và `stgcn_block_attn.py`:
+  - Đổi vị trí chia dữ liệu Validation và Test:
+    - **Train**: 80% đầu tiên (0 $\rightarrow$ 80%)
+    - **Test**: 10% ở giữa (80% $\rightarrow$ 90%)
+    - **Val**: 10% cuối cùng (90% $\rightarrow$ 100%)
+  - Cấu hình 2 Blocks (`NUM_BLOCKS = 2`).
+- [x] Xuất báo cáo tài liệu kiến trúc ra `architecture_summary.md`.

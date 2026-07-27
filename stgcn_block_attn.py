@@ -53,7 +53,7 @@ class Config:
 
     # --- MODEL CONFIG ---
     CHEB_K              = 3        # Bậc đa thức Chebyshev
-    NUM_BLOCKS          = 2        # Số lượng STGCN blocks (2 blocks)
+    NUM_BLOCKS          = 3        # Số lượng STGCN blocks (2 blocks)
     BLOCK_HIDDEN        = 64       # Số channels ẩn trong mỗi block
     DROPOUT             = 0.25
     ATTN_NUM_HEADS      = 4        # Số heads trong Multi-Head Temporal Attention
@@ -680,14 +680,14 @@ def run_training():
     idx_train_end = n_train
     idx_val_end   = n_train + n_val
 
-    print(f"\nChia dữ liệu: Total={n_total}")
+    print(f"\nChia dữ liệu (TRAIN -> TEST -> VAL): Total={n_total}")
     print(f" 1. Train: 0 -> {idx_train_end} (80%)")
-    print(f" 2. Val:   {idx_train_end} -> {idx_val_end} (10%)")
-    print(f" 3. Test:  {idx_val_end} -> {n_total} (10%)")
+    print(f" 2. Test:  {idx_train_end} -> {idx_val_end} (10%)")
+    print(f" 3. Val:   {idx_val_end} -> {n_total} (10%)")
 
     df_train = df_all.iloc[:idx_train_end]
-    df_val   = df_all.iloc[idx_train_end:idx_val_end]
-    df_test  = df_all.iloc[idx_val_end:]
+    df_test  = df_all.iloc[idx_train_end:idx_val_end]
+    df_val   = df_all.iloc[idx_val_end:]
 
     train_ds = MultiStepDataset(df_train, nodes, CFG.T_IN, CFG.HORIZON)
     scaler   = {'mean': train_ds.means, 'std': train_ds.stds}
