@@ -32,7 +32,6 @@ class Config:
     ADJ_PATH = os.path.join(ROOT_DIR, "Graph_fix_py_3.xlsx")
     CSV_PATH = os.path.join(ROOT_DIR, "count_7_7_merg_sort_fix_fill.csv")
     SAVE_DIR = "model/"
-    PLOT_DIR = "plots/"
 
 
 
@@ -340,7 +339,7 @@ def evaluate(model, loader, device, scaler_stats, loss_fn=None, verbose=False):
 
     return {'mae': avg_mae, 'mse': avg_mse, 'rmse': avg_rmse, 'loss': avg_loss}
 
-def plot_training_history(train_losses, val_losses, train_maes, val_maes, save_dir="plots", use_wandb=False):
+def plot_training_history(train_losses, val_losses, train_maes, val_maes, use_wandb=False):
 
     epochs = range(1, len(train_losses) + 1)
 
@@ -371,31 +370,17 @@ def plot_training_history(train_losses, val_losses, train_maes, val_maes, save_d
     plt.grid(True, linestyle='--', alpha=0.6)
 
     plt.tight_layout()
-
-    os.makedirs(save_dir, exist_ok=True)
-    save_path = os.path.join(save_dir, "gcn_lstm_training_history.png")
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f"📊 Đã lưu biểu đồ lịch sử huấn luyện vào: {save_path}")
-
     if use_wandb:
         try:
             import wandb
             wandb.log({"training_history_plot": wandb.Image(plt)})
         except:
             pass
-    try:
-        plt.show()
-    except Exception:
-        pass
-    plt.close()
+    plt.show()
 
 
-def visualize_last_step(model, loader, device, scaler, cfg, node_list=None, save_dir=None):
+def visualize_last_step(model, loader, device, scaler, cfg, node_list=None):
     if node_list is None: node_list = [383, 266]
-    if save_dir is None:
-        save_dir = getattr(cfg, 'PLOT_DIR', 'plots')
-    os.makedirs(save_dir, exist_ok=True)
-
     plot_step_idx = cfg.T_OUT - 1
     print(f"\n{'='*20} VISUALIZING STEP {plot_step_idx+1} ({ (plot_step_idx+1)*cfg.TIME_STEP_MINUTES } mins ahead) {'='*20}")
 
@@ -438,16 +423,7 @@ def visualize_last_step(model, loader, device, scaler, cfg, node_list=None, save
         plt.legend()
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
-
-        save_path = os.path.join(save_dir, f"gcn_lstm_node_{node_idx}_pred_{cfg.PRED_MINUTES}m.png")
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"   🖼️ Đã lưu biểu đồ Node {node_idx} vào: {save_path}")
-
-        try:
-            plt.show()
-        except Exception:
-            pass
-        plt.close()
+        plt.show()
 
 
 def run_training():
@@ -602,7 +578,7 @@ def run_training():
     print("PLOTTING TRAINING HISTORY")
     print("="*40)
     plot_training_history(history['train_loss'], history['val_loss'],
-                          history['train_mae'], history['val_mae'], save_dir=CFG.PLOT_DIR, use_wandb=use_wandb)
+                          history['train_mae'], history['val_mae'], use_wandb=use_wandb)
 
     print("\n" + "="*40)
     print("FINAL EVALUATION ON TEST SET")
