@@ -60,7 +60,7 @@ class Config:
     USE_FINAL_ATTENTION = True     # Lớp Temporal Attention ở CUỐI mô hình (Hierarchical Attention)
 
     # --- TRAIN CONFIG ---
-    BATCH_SIZE    = 64
+    BATCH_SIZE    = 32
     EPOCHS        = 500
     LEARNING_RATE = 0.0005
     PATIENCE      = 60
