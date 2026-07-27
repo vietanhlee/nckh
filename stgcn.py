@@ -44,7 +44,7 @@ class Config:
 
     # --- MODEL ---
     CHEB_K       = 2        # Bậc đa thức Chebyshev
-    NUM_BLOCKS   = 2        # Số lượng STGCN blocks
+    NUM_BLOCKS   = 3        # Số lượng STGCN blocks (3 blocks)
     BLOCK_HIDDEN = 32       # Số channels ẩn trong mỗi block
     DROPOUT      = 0.3
 
