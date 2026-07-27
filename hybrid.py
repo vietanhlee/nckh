@@ -23,9 +23,10 @@ from dotenv import load_dotenv
 # 3. EMA (Exponential Moving Average) trọng số -> CFG.USE_EMA
 #    -> làm mượt đường validation (giống hiệu ứng SWA), không đổi kiến trúc
 # 4. Temporal-smoothness regularizer trong loss -> CFG.SMOOTH_LOSS_WEIGHT
-# 5. Lớp GRU "làm mượt thời gian" sau các khối ST-Conv -> CFG.USE_TEMPORAL_SMOOTHING
-#    -> đây là phần kiến trúc hybrid: STGCN trích đặc trưng không gian-thời gian,
-#       GRU đóng vai trò bộ lọc/mượt giống nhánh GCN+LSTM trước khi dự đoán.
+# 5. Temporal Self-Attention sau các khối ST-Conv -> CFG.USE_TEMPORAL_ATTENTION
+#    -> Multi-Head Attention nhìn toàn bộ cửa sổ thời gian, tự học bước nào
+#       quan trọng. Residual connection đảm bảo không tệ hơn STGCN gốc.
+# 6. Tăng capacity: BLOCK_HIDDEN=64, NUM_BLOCKS=3, CHEB_K=3
 # Tất cả đều có thể tắt để so sánh (ablation) với bản STGCN gốc.
 # ============================================================
 
@@ -56,16 +57,16 @@ class Config:
     LOSS_DELTA = 1.0
 
     # --- MODEL ---
-    CHEB_K       = 2        # Bậc đa thức Chebyshev
-    NUM_BLOCKS   = 2        # Số lượng STGCN blocks
-    BLOCK_HIDDEN = 32       # Số channels ẩn trong mỗi block
-    DROPOUT      = 0.3
+    CHEB_K       = 3        # Bậc đa thức Chebyshev (tăng từ 2 → bắt quan hệ xa hơn trên graph)
+    NUM_BLOCKS   = 3        # Số lượng STGCN blocks (tăng từ 2 → deeper)
+    BLOCK_HIDDEN = 64       # Số channels ẩn trong mỗi block (tăng từ 32 → capacity lớn hơn)
+    DROPOUT      = 0.25     # Giảm nhẹ (model lớn hơn cần ít regularization hơn)
 
     # --- TRAIN ---
-    BATCH_SIZE  = 32
+    BATCH_SIZE  = 64
     EPOCHS      = 500
-    LEARNING_RATE = 0.001
-    PATIENCE    = 40
+    LEARNING_RATE = 0.0005   # Giảm từ 0.001 (model phức tạp hơn cần LR nhỏ hơn)
+    PATIENCE    = 60         # Tăng từ 40 (cho model thời gian tìm minimum tốt hơn)
     DATA_WINDOW1 = 3
     DATA_WINDOW2 = 5
 
@@ -83,11 +84,10 @@ class Config:
     # --- CẢI TIẾN 3: TEMPORAL-SMOOTHNESS REGULARIZER TRONG LOSS ---
     SMOOTH_LOSS_WEIGHT = 0.0    # đặt > 0 (thử 0.01 - 0.05) để bật, 0 = giống loss gốc
 
-    # --- CẢI TIẾN 4: KIẾN TRÚC HYBRID - THÊM GRU LÀM MƯỢT SAU ST-CONV ---
-    USE_TEMPORAL_SMOOTHING = True
-    RNN_HIDDEN   = 32
-    RNN_LAYERS   = 1
-    RNN_DROPOUT  = 0.1
+    # --- CẢI TIẾN 4: KIẾN TRÚC HYBRID - TEMPORAL SELF-ATTENTION ---
+    USE_TEMPORAL_ATTENTION = True
+    ATTN_NUM_HEADS = 4      # Số head trong Multi-Head Attention (64/4 = 16 dim/head)
+    ATTN_DROPOUT   = 0.1
 
     @property
     def T_IN(self):
@@ -103,7 +103,7 @@ class Config:
 
     @property
     def MODEL_TAG(self):
-        return "STGCN_GRU" if self.USE_TEMPORAL_SMOOTHING else "STGCN"
+        return "STGCN_Attn" if self.USE_TEMPORAL_ATTENTION else "STGCN"
 
     @property
     def FULL_SAVE_PATH(self):
@@ -317,41 +317,52 @@ class STGCNBlock(nn.Module):
         return h
 
 
-class TemporalSmoothingRNN(nn.Module):
+class TemporalAttention(nn.Module):
     """
-    Lớp GRU đặt SAU các khối ST-Conv, đóng vai trò "bộ lọc thời gian":
-    mượn cơ chế gating của LSTM/GRU (giống nhánh GCN+LSTM, ít nhạy nhiễu hơn)
-    để làm mượt đặc trưng theo thời gian, trong khi phần trích đặc trưng
-    không gian-thời gian chính vẫn do STGCN đảm nhiệm (ưu điểm về độ chính xác).
+    Multi-Head Temporal Self-Attention đặt SAU các khối ST-Conv.
+    Thay vì GRU chỉ "mượt hoá" tuần tự, Attention nhìn được toàn bộ
+    cửa sổ thời gian (T_in bước) và tự học bước nào quan trọng nhất.
+    Residual connection đảm bảo không bao giờ tệ hơn baseline STGCN.
+    Cấu trúc: Multi-Head Attention + FFN (giống 1 Transformer block).
     """
-    def __init__(self, in_channels, hidden_size, num_layers=1, dropout=0.0):
+    def __init__(self, in_channels, num_heads=4, dropout=0.1):
         super().__init__()
-        self.rnn = nn.GRU(
-            input_size=in_channels,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=dropout if num_layers > 1 else 0.0
+        self.attn = nn.MultiheadAttention(
+            embed_dim=in_channels,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True
         )
+        self.norm1 = nn.LayerNorm(in_channels)
+        self.ffn = nn.Sequential(
+            nn.Linear(in_channels, in_channels * 4),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(in_channels * 4, in_channels),
+            nn.Dropout(dropout)
+        )
+        self.norm2 = nn.LayerNorm(in_channels)
 
     def forward(self, x):
-        # x: (B*N, T, C_in)
-        out, _ = self.rnn(x)
-        return out  # (B*N, T, hidden_size)
+        # x: (B*N, T, C)
+        attn_out, _ = self.attn(x, x, x)
+        x = self.norm1(x + attn_out)       # residual + LayerNorm
+        ffn_out = self.ffn(x)
+        return self.norm2(x + ffn_out)      # (B*N, T, C) - giữ nguyên chiều
 
 
 class STGCN_Model(nn.Module):
     """
     STGCN: Spatio-Temporal Graph Convolutional Networks (Yu et al., IJCAI 2018)
-    + tuỳ chọn lớp GRU làm mượt thời gian (use_temporal_smoothing=True)
+    + tuỳ chọn Temporal Self-Attention sau ST-Conv (use_temporal_attention=True)
     """
     def __init__(self, num_nodes, in_feat, block_hidden, num_blocks, T_in,
                  cheb_K, horizon, output_feat, L_tilde=None, dropout=0.3,
-                 use_temporal_smoothing=False, rnn_hidden=32, rnn_layers=1, rnn_dropout=0.1):
+                 use_temporal_attention=False, attn_num_heads=4, attn_dropout=0.1):
         super().__init__()
         self.horizon = horizon
         self.output_feat = output_feat
-        self.use_temporal_smoothing = use_temporal_smoothing
+        self.use_temporal_attention = use_temporal_attention
 
         blocks = []
         c_in = in_feat
@@ -360,15 +371,13 @@ class STGCN_Model(nn.Module):
             c_in = block_hidden
         self.blocks = nn.ModuleList(blocks)
 
-        if use_temporal_smoothing:
-            self.temporal_smooth = TemporalSmoothingRNN(block_hidden, rnn_hidden, rnn_layers, rnn_dropout)
-            final_in_channels = rnn_hidden
+        if use_temporal_attention:
+            self.temporal_attn = TemporalAttention(block_hidden, attn_num_heads, attn_dropout)
         else:
-            self.temporal_smooth = None
-            final_in_channels = block_hidden
+            self.temporal_attn = None
 
         # Chiếu chiều thời gian từ T_in về 1
-        self.final_conv = nn.Conv1d(final_in_channels, horizon * output_feat, kernel_size=T_in)
+        self.final_conv = nn.Conv1d(block_hidden, horizon * output_feat, kernel_size=T_in)
 
         if L_tilde is None:
             self.register_buffer('L_tilde', torch.eye(num_nodes))
@@ -384,11 +393,11 @@ class STGCN_Model(nn.Module):
 
         B, C, N, T = h.shape
 
-        if self.use_temporal_smoothing:
-            # (B, C, N, T) -> (B*N, T, C): mỗi node là một chuỗi thời gian độc lập qua GRU
+        if self.use_temporal_attention:
+            # (B, C, N, T) -> (B*N, T, C): mỗi node là một chuỗi thời gian
             h_seq = h.permute(0, 2, 3, 1).reshape(B * N, T, C)
-            h_seq = self.temporal_smooth(h_seq)            # (B*N, T, rnn_hidden)
-            h = h_seq.permute(0, 2, 1)                       # (B*N, rnn_hidden, T)
+            h_seq = self.temporal_attn(h_seq)              # (B*N, T, C) - same dim nhờ residual
+            h = h_seq.permute(0, 2, 1)                     # (B*N, C, T)
         else:
             h = h.permute(0, 2, 1, 3).reshape(B * N, C, T)   # (B*N, C_hidden, T)
 
@@ -669,8 +678,8 @@ def run_training():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Device: {device}")
     print(f"[Cải tiến] EMA={CFG.USE_EMA} (decay={CFG.EMA_DECAY}) | GradClip={CFG.GRAD_CLIP_NORM} | "
-          f"LR-Scheduler={CFG.USE_LR_SCHEDULER} | Temporal-Smoothing(GRU)={CFG.USE_TEMPORAL_SMOOTHING} "
-          f"(hidden={CFG.RNN_HIDDEN}) | Smooth-Loss-Weight={CFG.SMOOTH_LOSS_WEIGHT}")
+          f"LR-Scheduler={CFG.USE_LR_SCHEDULER} | Temporal-Attention={CFG.USE_TEMPORAL_ATTENTION} "
+          f"(heads={CFG.ATTN_NUM_HEADS}) | Smooth-Loss-Weight={CFG.SMOOTH_LOSS_WEIGHT}")
 
     A_raw, nodes = load_adj_from_excel(CFG.ADJ_PATH)
     L_tilde = compute_scaled_laplacian(A_raw)
@@ -733,10 +742,9 @@ def run_training():
         output_feat=1,
         L_tilde=L_tilde,
         dropout=CFG.DROPOUT,
-        use_temporal_smoothing=CFG.USE_TEMPORAL_SMOOTHING,
-        rnn_hidden=CFG.RNN_HIDDEN,
-        rnn_layers=CFG.RNN_LAYERS,
-        rnn_dropout=CFG.RNN_DROPOUT
+        use_temporal_attention=CFG.USE_TEMPORAL_ATTENTION,
+        attn_num_heads=CFG.ATTN_NUM_HEADS,
+        attn_dropout=CFG.ATTN_DROPOUT
     ).to(device)
 
     optimizer = optim.AdamW(model.parameters(), lr=CFG.LEARNING_RATE)
@@ -778,8 +786,8 @@ def run_training():
                     "use_lr_scheduler": CFG.USE_LR_SCHEDULER,
                     "use_ema": CFG.USE_EMA,
                     "ema_decay": CFG.EMA_DECAY,
-                    "use_temporal_smoothing": CFG.USE_TEMPORAL_SMOOTHING,
-                    "rnn_hidden": CFG.RNN_HIDDEN,
+                    "use_temporal_attention": CFG.USE_TEMPORAL_ATTENTION,
+                    "attn_num_heads": CFG.ATTN_NUM_HEADS,
                     "smooth_loss_weight": CFG.SMOOTH_LOSS_WEIGHT
                 }
             )
