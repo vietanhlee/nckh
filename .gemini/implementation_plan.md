@@ -1,54 +1,50 @@
-# Kế hoạch Thực hiện: So sánh thực nghiệm 7 kiến trúc Spatial-Temporal Graph (NCKH)
+# Kế hoạch Thực hiện: Công cụ Relabel Data Giao thông (traffic_final_windows_order.csv)
 
-Dự án nghiên cứu khoa học tập trung so sánh 7 kiến trúc đồ thị không-thời gian bằng PyTorch thuần để phục vụ dự báo lưu lượng giao thông, sử dụng thư mục checkpoint cục bộ để tăng tính linh hoạt.
-
----
-
-## 🛠️ Thiết kế Kiến trúc các Mô hình
-
-### 1. Các baseline chính
-* **GCN-LSTM** ([gcn_lstm.py](file:///g:/nckh/gcn_lstm.py))
-  * Kết hợp GCN tĩnh và LSTM.
-* **Graph WaveNet** ([wavenet_gcn.py](file:///g:/nckh/wavenet_gcn.py))
-  * GCN tĩnh + ma trận thích ứng động cùng Gated TCN.
-* **STGCN** ([stgcn.py](file:///g:/nckh/stgcn.py))
-  * Tích chập phổ Chebyshev (ChebNet) kết hợp Gated CNN (GLU) 1D.
-
-### 2. Các biến thể học thời gian của DCRNN (Diffusion Graph Conv)
-* **DCRNN-GLU** ([dcrnn_glu.py](file:///g:/nckh/dcrnn_glu.py)) [NEW]
-  * Diffusion Graph Conv kết hợp **Gated CNN (GLU) 1D** học thời gian song song.
-* **DCRNN-BiLSTM** ([dcrnn_bilstm.py](file:///g:/nckh/dcrnn_bilstm.py)) [NEW]
-  * Diffusion Graph Conv kết hợp **Bidirectional LSTM (BiLSTM)** học chuỗi thời gian hai chiều.
-* **DCRNN-TCN** ([dcrnn_tcn.py](file:///g:/nckh/dcrnn_tcn.py)) [NEW]
-  * Diffusion Graph Conv kết hợp **Stacked Dilated Causal TCN** học quan hệ thời gian dài hạn.
-* **DCRNN-Attention** ([dcrnn_attention.py](file:///g:/nckh/dcrnn_attention.py)) [NEW]
-  * Diffusion Graph Conv kết hợp **Multi-Head Temporal Self-Attention** trích xuất ngữ cảnh động toàn cục.
+Xây dựng một công cụ GUI bằng Python Tkinter (`relabel_tool.py`) hỗ trợ xem ảnh, đọc nhãn hiện tại, lọc dữ liệu theo nhãn (1-5) và gán lại nhãn nhanh bằng phím tắt / nút bấm.
 
 ---
 
-## 📅 Các tệp đã thay đổi cụ thể
+## 🛠️ Thiết kế Công cụ `relabel_tool.py`
 
-### [New Models & Checkpoint path updates]
-* #### [NEW] [dcrnn_bilstm.py](file:///g:/nckh/dcrnn_bilstm.py)
-* #### [NEW] [dcrnn_tcn.py](file:///g:/nckh/dcrnn_tcn.py)
-* #### [NEW] [dcrnn_attention.py](file:///g:/nckh/dcrnn_attention.py)
-* #### [MODIFY] Tất cả 7 tệp mô hình
-  Chuyển đổi tham số đường dẫn lưu mô hình `SAVE_DIR` sang thư mục tương đối `"model/"`.
+### 1. Đầu vào & Cấu hình mặc định
+Dựa trên lines 738-739 của `coral_focal.py`:
+- `csv_file`: `/kaggle/input/datasets/huecute/csv-images/traffic_final_windows_order.csv`
+- `image_dir`: `/kaggle/input/datasets/huecute/images/images`
+- Có giao diện điều chỉnh đường dẫn (Browse File CSV, Browse Directory Ảnh) linh hoạt khi chạy cục bộ.
 
-### [Comparison & Documentation]
-* #### [MODIFY] [compare_models.py](file:///g:/nckh/compare_models.py)
-  Tích hợp các mô hình thành **7 mô hình** so sánh tổng thể và tự động tạo thư mục checkpoint `model/` nếu chưa có.
-* #### [MODIFY] [README.md](file:///g:/nckh/README.md)
-  Bổ sung mô tả và cách chạy của 7 mô hình.
+### 2. Các chức năng chính
+- **Bộ lọc nhãn (Label Filter)**:
+  - Chọn xem "Tất cả" hoặc lọc chỉ xem các mẫu thuộc Nhãn 1, Nhãn 2, Nhãn 3, Nhãn 4, Nhãn 5.
+- **Xem ảnh & Thông tin chi tiết**:
+  - Tự động thay đổi kích thước ảnh tỉ lệ chuẩn theo khung giao diện.
+  - Hiển thị tên file (`filename`), nhãn gốc, nhãn hiện tại (`phan_loai`), chỉ số dòng trong CSV.
+  - Thống kê tổng quan số lượng mẫu theo từng nhãn realtime.
+- **Đánh nhãn nhanh (Quick Relabel)**:
+  - Nút bấm trực quan cho 5 mức nhãn (1 -> 5).
+  - **Phím tắt**: Nhấn `1`, `2`, `3`, `4`, `5` để gán nhãn tức thì và tự động chuyển sang ảnh kế tiếp.
+- **Điều hướng linh hoạt**:
+  - Nút `Previous`, `Next` hoặc phím mũi tên `Left`, `Right` / `A`, `D`.
+  - Ô nhập số thứ tự để nhảy nhanh tới một ảnh bất kỳ.
+- **Lưu dữ liệu**:
+  - Ghi đè file CSV (tạo file backup `.bak`).
+  - Cho phép xuất file CSV mới (`Save As...`).
 
 ---
 
-## 🔍 Kế hoạch Xác minh (Verification Plan)
+## 📅 Các tệp sẽ thay đổi/thêm mới
+
+* #### [NEW] [relabel_tool.py](file:///g:/nckh/relabel_tool.py)
+  Script chính chứa giao diện Tkinter + Pandas + PIL.
+* #### [MODIFY] [.gemini/todo.md](file:///g:/nckh/.gemini/todo.md)
+  Bổ sung mục quản lý công việc gán lại nhãn dữ liệu.
+
+---
+
+## 🔍 Kế hoạch Xác minh
 
 ### Kiểm tra tự động
-- Chạy thử `python compare_models.py --mode train --epochs 1` để kiểm tra khả năng chạy tuần tự và tổng hợp kết quả của cả **7 mô hình**.
+- Kiểm tra cú pháp script `relabel_tool.py`.
 
-### Kiểm tra thủ công
-- Xác nhận thư mục `./model/` được tự sinh tự động tại thư mục dự án và lưu trữ các file checkpoint `.pth` tốt nhất.
-- Xác nhận bảng so sánh kết quả in ra terminal hiển thị đầy đủ thông tin của 7 mô hình.
-- Xác nhận báo cáo `comparison_report.md` được ghi nhận chính xác.
+### Kiểm tra thủ công (Thực hiện bởi người dùng)
+- Chạy lệnh: `python relabel_tool.py`
+- Kiểm tra tính năng chọn file, lọc nhãn, phím tắt 1-5, lưu file CSV.

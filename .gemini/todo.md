@@ -12,3 +12,9 @@
 - [x] Cập nhật bảng kết quả trong `benchmark_5seeds.py` và báo cáo `benchmark_5seeds_report.md` xuất đủ 6 cột horizon.
 - [x] Cập nhật hàm `evaluate` và in kết quả chi tiết trong tất cả các script mô hình lẻ (`stgcn.py`, `hybrid.py`, `stgcn_block_attn.py`, `stgcn_mixed_blocks.py`).
 - [x] Xuất báo cáo tài liệu kiến trúc ra `architecture_summary.md`.
+- [x] **[HOÀN THÀNH]** Xây dựng công cụ GUI xem ảnh & đánh lại nhãn dữ liệu (`relabel_tool.py`) từ `coral_focal.py`:
+  - [x] Đọc đường dẫn tệp CSV và thư mục ảnh từ `coral_focal.py` (L738-L739).
+  - [x] Hiển thị hình ảnh, tên tệp và nhãn `phan_loai` (1-5).
+  - [x] Chức năng lọc danh sách theo từng nhãn cụ thể (Tất cả, Nhãn 1..5, Đã chỉnh sửa).
+  - [x] Đánh lại nhãn bằng nút bấm và phím tắt 1-5 (kèm tự động chuyển ảnh tiếp theo & hoàn tác Ctrl+Z).
+  - [x] Lưu kết quả ra file CSV mới hoặc ghi đè file cũ (có tự động tạo file sao lưu `.bak`).
