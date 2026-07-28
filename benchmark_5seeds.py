@@ -121,9 +121,36 @@ def evaluate_detailed(model, loader, device, scaler_stats, loss_fn=None):
     return res
 
 
-def train_single_seed(model_name, model, train_loader, val_loader, test_loader, cfg, device, seed):
-    """Huấn luyện 1 seed ngẫu nhiên cho 1 mô hình và trả về các chỉ số Test chi tiết."""
+def train_single_seed(model_name, model, train_loader, val_loader, test_loader, cfg, device, seed, use_wandb=True, wandb_project="STGCN_NCKH_Benchmark"):
+    """Huấn luyện 1 seed ngẫu nhiên cho 1 mô hình, tự động kết nối WandB và trả về chỉ số Test chi tiết."""
     set_seed(seed)
+
+    # Khởi tạo WandB Run cho từng (Model, Seed)
+    wandb_run = None
+    if use_wandb:
+        try:
+            import wandb
+            project_name = os.getenv('WANDB_PROJECT', wandb_project)
+            wandb_run = wandb.init(
+                project=project_name,
+                name=f"{model_name}_seed_{seed}",
+                config={
+                    'model_name': model_name,
+                    'seed': seed,
+                    'epochs': cfg.EPOCHS,
+                    'batch_size': cfg.BATCH_SIZE,
+                    'learning_rate': cfg.LEARNING_RATE,
+                    'patience': cfg.PATIENCE,
+                    'block_hidden': cfg.BLOCK_HIDDEN,
+                    'num_blocks': getattr(cfg, 'NUM_BLOCKS', None),
+                    'cheb_K': getattr(cfg, 'CHEB_K', None),
+                    'loss_delta': cfg.LOSS_DELTA
+                },
+                reinit=True
+            )
+        except Exception as e:
+            print(f"⚠️ Không thể khởi tạo WandB cho {model_name} (Seed {seed}): {e}")
+            wandb_run = None
 
     optimizer = optim.AdamW(model.parameters(), lr=cfg.LEARNING_RATE)
     
@@ -196,9 +223,26 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
 
         val_mae = val_metrics['mae']
         val_loss = val_metrics['loss']
+        avg_train_loss = total_loss / len(train_loader)
 
         if lr_scheduler is not None:
             lr_scheduler.step(val_loss)
+
+        # Log tiến trình từng epoch sang WandB
+        if wandb_run is not None:
+            try:
+                import wandb
+                wandb.log({
+                    'epoch': ep + 1,
+                    'train_loss': avg_train_loss,
+                    'val_loss': val_loss,
+                    'val_mae': val_mae,
+                    'val_mae_t1': val_metrics['mae_t1'],
+                    'val_mae_t3': val_metrics['mae_t3'],
+                    'val_mae_t6': val_metrics['mae_t6']
+                })
+            except Exception:
+                pass
 
         if val_mae < best_val_mae:
             best_val_mae = val_mae
@@ -213,6 +257,25 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
     # Tải checkpoint tốt nhất và đánh giá chi tiết trên tập Test
     model.load_state_dict(torch.load(checkpoint_path))
     test_metrics = evaluate_detailed(model, test_loader, device, scaler_stats, loss_fn=loss_fn)
+
+    # Log chỉ số Test cuối cùng lên WandB và đóng Run
+    if wandb_run is not None:
+        try:
+            import wandb
+            wandb.log({
+                'test_mae': test_metrics['mae'],
+                'test_rmse': test_metrics['rmse'],
+                'test_mse': test_metrics['mse'],
+                'test_mae_t1': test_metrics['mae_t1'],
+                'test_mae_t2': test_metrics['mae_t2'],
+                'test_mae_t3': test_metrics['mae_t3'],
+                'test_mae_t4': test_metrics['mae_t4'],
+                'test_mae_t5': test_metrics['mae_t5'],
+                'test_mae_t6': test_metrics['mae_t6']
+            })
+            wandb.finish()
+        except Exception:
+            pass
 
     # Xoá file checkpoint tạm
     if os.path.exists(checkpoint_path):
@@ -229,20 +292,27 @@ def run_benchmark():
                         help="Số epochs chạy tối đa cho mỗi seed (mặc định: 500).")
     parser.add_argument('--patience', type=int, default=50,
                         help="Số patience early stopping (mặc định: 50).")
-    parser.add_argument('--batch_size', type=int, default=16,
+    parser.add_argument('--batch_size', type=int, default=64,
                         help="Kích thước batch_size (mặc định: 64).")
-    parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH",
+    parser.add_argument('--root_dir', type=str, default="/content/drive/MyDrive/GRAPH/",
                         help="Thư mục gốc chứa dữ liệu.")
+    parser.add_argument('--use_wandb', action='store_true', default=True,
+                        help="Tự động khởi tạo và ghi log lên WandB (mặc định: True).")
+    parser.add_argument('--no_wandb', dest='use_wandb', action='store_false',
+                        help="Tắt ghi log WandB.")
+    parser.add_argument('--wandb_project', type=str, default="STGCN_NCKH_Benchmark",
+                        help="Tên project trên WandB (mặc định: STGCN_NCKH_Benchmark).")
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"============================================================")
     print(f"🚀 CHẠY BENCHMARK {len(args.seeds)} SEEDS CHO 4 MÔ HÌNH STGCN")
-    print(f"   Device     : {device}")
-    print(f"   Seeds      : {args.seeds}")
-    print(f"   Epochs     : {args.epochs}")
-    print(f"   Patience   : {args.patience}")
-    print(f"   Batch Size : {args.batch_size}")
+    print(f"   Device        : {device}")
+    print(f"   Seeds         : {args.seeds}")
+    print(f"   Epochs        : {args.epochs}")
+    print(f"   Patience      : {args.patience}")
+    print(f"   Batch Size    : {args.batch_size}")
+    print(f"   WandB Logging : {args.use_wandb} (Project: {args.wandb_project})")
     print(f"============================================================")
 
     # Khởi tạo các Config
@@ -359,7 +429,8 @@ def run_benchmark():
 
             model = info['build_fn'](cfg).to(device)
             test_metrics = train_single_seed(
-                model_name, model, train_loader, val_loader, test_loader, cfg, device, seed
+                model_name, model, train_loader, val_loader, test_loader, cfg, device, seed,
+                use_wandb=args.use_wandb, wandb_project=args.wandb_project
             )
 
             results[model_name]['maes'].append(test_metrics['mae'])

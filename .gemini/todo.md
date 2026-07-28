@@ -1,8 +1,11 @@
 # Danh sách công việc (TODO List)
 
-- [x] Tích hợp WandB (Weights & Biases) cho các mô hình.
+- [x] Tích hợp WandB (Weights & Biases) tự động cho `benchmark_5seeds.py`:
+  - Khởi tạo project WandB (`STGCN_NCKH_Benchmark` hoặc lấy từ env `WANDB_PROJECT`).
+  - Đặt tên run theo định dạng `{model_name}_seed_{seed}`.
+  - Tự động ghi nhận console stdout/stderr logs, config, hệ thống, loss từng epoch và metrics test cuối cùng.
 - [x] Cấu hình đường dẫn thư mục gốc động `ROOT_DIR`.
-- [x] **[MỚI]** Thêm chức năng đo đạc MAE đầy đủ cho **CẢ 6 BƯỚC THỜI GIAN ($t+1 \rightarrow t+6$)**:
+- [x] Thêm chức năng đo đạc MAE đầy đủ cho **CẢ 6 BƯỚC THỜI GIAN ($t+1 \rightarrow t+6$)**:
   - `MAE t+1`: Dự báo sau 5 phút
   - `MAE t+2`: Dự báo sau 10 phút
   - `MAE t+3`: Dự báo sau 15 phút
@@ -12,9 +15,3 @@
 - [x] Cập nhật bảng kết quả trong `benchmark_5seeds.py` và báo cáo `benchmark_5seeds_report.md` xuất đủ 6 cột horizon.
 - [x] Cập nhật hàm `evaluate` và in kết quả chi tiết trong tất cả các script mô hình lẻ (`stgcn.py`, `hybrid.py`, `stgcn_block_attn.py`, `stgcn_mixed_blocks.py`).
 - [x] Xuất báo cáo tài liệu kiến trúc ra `architecture_summary.md`.
-- [x] **[HOÀN THÀNH]** Xây dựng công cụ GUI xem ảnh & đánh lại nhãn dữ liệu (`relabel_tool.py`) từ `coral_focal.py`:
-  - [x] Đọc đường dẫn tệp CSV và thư mục ảnh từ `coral_focal.py` (L738-L739).
-  - [x] Hiển thị hình ảnh, tên tệp và nhãn `phan_loai` (1-5).
-  - [x] Chức năng lọc danh sách theo từng nhãn cụ thể (Tất cả, Nhãn 1..5, Đã chỉnh sửa).
-  - [x] Đánh lại nhãn bằng nút bấm và phím tắt 1-5 (kèm tự động chuyển ảnh tiếp theo & hoàn tác Ctrl+Z).
-  - [x] Lưu kết quả ra file CSV mới hoặc ghi đè file cũ (có tự động tạo file sao lưu `.bak`).
