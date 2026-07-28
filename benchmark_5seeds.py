@@ -229,7 +229,7 @@ def run_benchmark():
                         help="Số epochs chạy tối đa cho mỗi seed (mặc định: 500).")
     parser.add_argument('--patience', type=int, default=50,
                         help="Số patience early stopping (mặc định: 50).")
-    parser.add_argument('--batch_size', type=int, default=64,
+    parser.add_argument('--batch_size', type=int, default=16,
                         help="Kích thước batch_size (mặc định: 64).")
     parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH",
                         help="Thư mục gốc chứa dữ liệu.")

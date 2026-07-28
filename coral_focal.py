@@ -430,7 +430,7 @@ def train_epoch(epoch, model, loader, loss_func, optimizer, scheduler, device, s
 
         optimizer.zero_grad()
 
-        with torch.cuda.amp.autocast(enabled=scaler.is_enabled()):
+        with torch.amp.autocast('cuda', enabled=scaler.is_enabled()):
             output = model(images)
             logits = output['logits']
             targets = labels_to_ordinal_targets(labels)
@@ -786,10 +786,12 @@ def main():
     train_loader = DataLoader(
         train_subset, batch_size=BATCH_SIZE, shuffle=True,
         num_workers=NUM_WORKERS, pin_memory=pin_mem, drop_last=True,
+        persistent_workers=(NUM_WORKERS > 0),
     )
     val_loader = DataLoader(
         val_subset, batch_size=BATCH_SIZE, shuffle=False,
         num_workers=NUM_WORKERS, pin_memory=pin_mem,
+        persistent_workers=(NUM_WORKERS > 0),
     )
 
     # ── 5. Model ──────────────────────────────────────────
@@ -827,7 +829,10 @@ def main():
 
     # AMP (Mixed Precision)
     amp_enabled = device.type == 'cuda'
-    scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled)
+    try:
+        scaler = torch.amp.GradScaler('cuda', enabled=amp_enabled)
+    except (AttributeError, TypeError):
+        scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled)
 
     early_stopping = EarlyStopping(patience=PATIENCE, verbose=True)
 
