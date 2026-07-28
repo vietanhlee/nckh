@@ -1,4 +1,7 @@
 import os
+# Cấu hình PyTorch Allocator tránh phân mảnh bộ nhớ CUDA OOM
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 import gc
 import copy
 import time
@@ -97,6 +100,9 @@ def evaluate_detailed(model, loader, device, scaler_stats, loss_fn=None):
             total_mse += sq_err.mean().item()
 
             count_batches += 1
+
+            # Dọn dẹp GPU Memory tức thì cho batch vừa tính
+            del X, Y, pred, y_true, y_pred, err, abs_err
 
     if count_batches == 0:
         res = {'mae': 9999.0, 'mse': 9999.0, 'rmse': 9999.0, 'loss': 9999.0}
@@ -211,6 +217,7 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
                 ema.update(model)
 
             total_loss += loss.item()
+            del X, Y, pred, loss
 
         # Đánh giá trên tập Validation
         if ema is not None:
@@ -277,9 +284,15 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
         except Exception:
             pass
 
-    # Xoá file checkpoint tạm
+    # Xoá file checkpoint tạm và giải phóng bộ nhớ GPU
     if os.path.exists(checkpoint_path):
         os.remove(checkpoint_path)
+
+    del optimizer, grad_scaler
+    if ema is not None:
+        del ema
+    torch.cuda.empty_cache()
+    gc.collect()
 
     return test_metrics
 
@@ -292,8 +305,8 @@ def run_benchmark():
                         help="Số epochs chạy tối đa cho mỗi seed (mặc định: 500).")
     parser.add_argument('--patience', type=int, default=50,
                         help="Số patience early stopping (mặc định: 50).")
-    parser.add_argument('--batch_size', type=int, default=64,
-                        help="Kích thước batch_size (mặc định: 64).")
+    parser.add_argument('--batch_size', type=int, default=16,
+                        help="Kích thước batch_size (mặc định: 32 tránh CUDA OOM).")
     parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH",
                         help="Thư mục gốc chứa dữ liệu.")
     parser.add_argument('--use_wandb', action='store_true', default=True,
@@ -423,9 +436,10 @@ def run_benchmark():
             val_ds   = MultiStepDataset(df_val, nodes, cfg.T_IN, cfg.HORIZON, scaler)
             test_ds  = MultiStepDataset(df_test, nodes, cfg.T_IN, cfg.HORIZON, scaler)
 
+            eval_batch_size = min(cfg.BATCH_SIZE, 32)
             train_loader = DataLoader(train_ds, batch_size=cfg.BATCH_SIZE, shuffle=True)
-            val_loader   = DataLoader(val_ds, batch_size=cfg.BATCH_SIZE)
-            test_loader  = DataLoader(test_ds, batch_size=cfg.BATCH_SIZE)
+            val_loader   = DataLoader(val_ds, batch_size=eval_batch_size)
+            test_loader  = DataLoader(test_ds, batch_size=eval_batch_size)
 
             model = info['build_fn'](cfg).to(device)
             test_metrics = train_single_seed(
@@ -442,6 +456,11 @@ def run_benchmark():
 
             print(f"   ▶ Seed {seed:>4} | {model_name:<18} -> "
                   f"MAE: {test_metrics['mae']:.4f} (t+1: {test_metrics['mae_t1']:.4f}, t+3: {test_metrics['mae_t3']:.4f}, t+6: {test_metrics['mae_t6']:.4f})")
+
+            # Xoá mô hình khỏi GPU RAM sau mỗi lượt
+            del model
+            torch.cuda.empty_cache()
+            gc.collect()
 
     # Tổng hợp báo cáo Markdown
     print(f"\n{'='*90}")

@@ -1,17 +1,12 @@
 # Danh sách công việc (TODO List)
 
-- [x] Tích hợp WandB (Weights & Biases) tự động cho `benchmark_5seeds.py`:
-  - Khởi tạo project WandB (`STGCN_NCKH_Benchmark` hoặc lấy từ env `WANDB_PROJECT`).
-  - Đặt tên run theo định dạng `{model_name}_seed_{seed}`.
-  - Tự động ghi nhận console stdout/stderr logs, config, hệ thống, loss từng epoch và metrics test cuối cùng.
+- [x] Khắc phục lỗi **CUDA Out of Memory (OOM)** trong `benchmark_5seeds.py`:
+  - Thêm cấu hình PyTorch Allocator: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.
+  - Tự động xóa giải phóng các Tensor rác (`del X, Y, pred, y_true, y_pred, err, abs_err`) ngay trong vòng lặp batch.
+  - Xóa mô hình, optimizer và thu gom rác bộ nhớ (`del model, optimizer; torch.cuda.empty_cache(); gc.collect()`) sau mỗi seed/mô hình.
+  - Đổi `batch_size` mặc định về `32` (giảm tải memory GPU gấp 2 lần).
+- [x] Tích hợp WandB (Weights & Biases) tự động cho `benchmark_5seeds.py`.
 - [x] Cấu hình đường dẫn thư mục gốc động `ROOT_DIR`.
-- [x] Thêm chức năng đo đạc MAE đầy đủ cho **CẢ 6 BƯỚC THỜI GIAN ($t+1 \rightarrow t+6$)**:
-  - `MAE t+1`: Dự báo sau 5 phút
-  - `MAE t+2`: Dự báo sau 10 phút
-  - `MAE t+3`: Dự báo sau 15 phút
-  - `MAE t+4`: Dự báo sau 20 phút
-  - `MAE t+5`: Dự báo sau 25 phút
-  - `MAE t+6`: Dự báo sau 30 phút
-- [x] Cập nhật bảng kết quả trong `benchmark_5seeds.py` và báo cáo `benchmark_5seeds_report.md` xuất đủ 6 cột horizon.
-- [x] Cập nhật hàm `evaluate` và in kết quả chi tiết trong tất cả các script mô hình lẻ (`stgcn.py`, `hybrid.py`, `stgcn_block_attn.py`, `stgcn_mixed_blocks.py`).
+- [x] Thêm chức năng đo đạc MAE đầy đủ cho **CẢ 6 BƯỚC THỜI GIAN ($t+1 \rightarrow t+6$)**.
+- [x] Cập nhật bảng kết quả trong `benchmark_5seeds.py` và báo cáo `benchmark_5seeds_report.md`.
 - [x] Xuất báo cáo tài liệu kiến trúc ra `architecture_summary.md`.
