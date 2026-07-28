@@ -294,7 +294,7 @@ def run_benchmark():
                         help="Số patience early stopping (mặc định: 50).")
     parser.add_argument('--batch_size', type=int, default=64,
                         help="Kích thước batch_size (mặc định: 64).")
-    parser.add_argument('--root_dir', type=str, default="/content/drive/MyDrive/GRAPH/",
+    parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH",
                         help="Thư mục gốc chứa dữ liệu.")
     parser.add_argument('--use_wandb', action='store_true', default=True,
                         help="Tự động khởi tạo và ghi log lên WandB (mặc định: True).")
