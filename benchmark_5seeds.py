@@ -17,10 +17,9 @@ import torch.amp
 from tqdm.auto import tqdm
 from dotenv import load_dotenv
 
-# Import 4 mô hình và cấu hình tương ứng
+# Import các mô hình và cấu hình tương ứng
 from stgcn import STGCN_Model as Baseline_STGCN_Model, Config as BaselineConfig
 from hybrid import STGCN_Model as Hybrid_STGCN_Model, Config as HybridConfig, HuberSmoothLoss
-from stgcn_block_attn import STGCN_BlockAttn_Model, Config as BlockAttnConfig
 from stgcn_mixed_blocks import STGCN_Mixed_Model, Config as MixedConfig
 
 # Import tiện ích nạp dữ liệu từ stgcn.py
@@ -319,7 +318,7 @@ def run_benchmark():
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"============================================================")
-    print(f"🚀 CHẠY BENCHMARK {len(args.seeds)} SEEDS CHO 4 MÔ HÌNH STGCN")
+    print(f"🚀 CHẠY BENCHMARK {len(args.seeds)} SEEDS CHO CÁC MÔ HÌNH STGCN")
     print(f"   Device        : {device}")
     print(f"   Seeds         : {args.seeds}")
     print(f"   Epochs        : {args.epochs}")
@@ -331,10 +330,9 @@ def run_benchmark():
     # Khởi tạo các Config
     stgcn_cfg = BaselineConfig()
     hybrid_cfg = HybridConfig()
-    block_attn_cfg = BlockAttnConfig()
     mixed_cfg = MixedConfig()
 
-    for cfg_inst in [stgcn_cfg, hybrid_cfg, block_attn_cfg, mixed_cfg]:
+    for cfg_inst in [stgcn_cfg, hybrid_cfg, mixed_cfg]:
         cfg_inst.ROOT_DIR = args.root_dir
         cfg_inst.ADJ_PATH = os.path.join(args.root_dir, "Graph_fix_py_3.xlsx")
         cfg_inst.CSV_PATH = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
@@ -366,7 +364,7 @@ def run_benchmark():
 
     print(f"   - Dataset size: Train={len(df_train)}, Val={len(df_val)}, Test={len(df_test)}")
 
-    # 4 Mô hình đăng ký thử nghiệm
+    # Đăng ký thử nghiệm các mô hình
     models_registry = {
         'STGCN (Baseline)': {
             'class': Baseline_STGCN_Model,
@@ -386,17 +384,6 @@ def run_benchmark():
                 horizon=cfg.HORIZON, output_feat=1, L_tilde=L_tilde, dropout=cfg.DROPOUT,
                 use_temporal_attention=cfg.USE_TEMPORAL_ATTENTION,
                 attn_num_heads=cfg.ATTN_NUM_HEADS, attn_dropout=cfg.ATTN_DROPOUT
-            )
-        },
-        'STGCN_BlockAttn': {
-            'class': STGCN_BlockAttn_Model,
-            'config': block_attn_cfg,
-            'build_fn': lambda cfg: STGCN_BlockAttn_Model(
-                num_nodes=len(nodes), in_feat=4, block_hidden=cfg.BLOCK_HIDDEN,
-                num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
-                horizon=cfg.HORIZON, output_feat=1, L_tilde=L_tilde,
-                num_heads=cfg.ATTN_NUM_HEADS, dropout=cfg.DROPOUT,
-                use_final_attention=cfg.USE_FINAL_ATTENTION
             )
         },
         'STGCN_MixedBlocks': {
