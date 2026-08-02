@@ -1,0 +1,41 @@
+\section{Representation Analysis and Interpretability}
+
+\subsection{Embedding Visualization}
+Chúng tôi dùng t-SNE \cite{tsne} để khảo sát các embedding của nhóm \textit{Afzelia}, gồm \textit{A. africana}, \textit{A. bella}, \textit{A. pachyloba} và \textit{A. quanzensis}. Nhóm này được chọn vì kết quả phân loại cho thấy hiệu năng không đồng đều và vì các loài có quan hệ phân loại gần. Hình \ref{fig:tsne_comparison} so sánh không gian embedding của mô hình cơ sở với mô hình học biểu diễn.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{fig/tsne_comparison.png}
+\caption{t-SNE visualization of embeddings for the \textit{Afzelia} genus under the baseline and representation-learning models.}
+\label{fig:tsne_comparison}
+\end{figure}
+
+t-SNE chỉ là phép chiếu phục vụ khám phá; khoảng cách và mật độ trong mặt phẳng hai chiều phụ thuộc vào siêu tham số và không bảo toàn đầy đủ hình học ở không gian gốc. Vì vậy, các cụm nhìn thấy trong hình không được dùng để lựa chọn split, chọn checkpoint hoặc kết luận về khả năng phân tách. Những kết luận định lượng được dựa trên retrieval, NMI và các chỉ số phân cụm tính ở không gian embedding gốc trên tập dữ liệu đã khóa.
+
+\subsection{Distance Distribution}
+Hình \ref{fig:distance_distribution} biểu diễn phân bố khoảng cách Euclid giữa các cặp cùng loài và khác loài. Với embedding được chuẩn hóa $L_2$, khoảng cách này liên hệ trực tiếp với cosine similarity:
+\begin{equation}
+\|v_i-v_j\|_2=\sqrt{2(1-v_i^\top v_j)}.
+\end{equation}
+Một mô hình hữu ích thường có xu hướng làm giảm khoảng cách cùng loài và tăng khoảng cách khác loài, nhưng hai phân bố vẫn có thể chồng lấn ở các loài gần nhau hoặc ở mẫu vật có điều kiện thu nhận khác biệt. Do đó, biểu đồ được dùng để phát hiện vùng chồng lấn và các cặp cần xem xét, không phải để khẳng định một biên phân loại tuyệt đối.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{fig/distance_distribution.png}
+\caption{Distribution of Euclidean distances between same-species and different-species pairs in embedding space.}
+\label{fig:distance_distribution}
+\end{figure}
+
+\subsection{Attention Maps and Shortcut Checks}
+Grad-CAM và Finer-CAM được sử dụng để kiểm tra định tính và đánh giá các vùng ảnh đóng góp vào quyết định dự đoán của mô hình \cite{gradcam}. Hình \ref{fig:grad_cam} minh họa kết quả đối chiếu heatmap giữa mô hình baseline phân loại và mô hình được tối ưu hóa bằng các phương pháp học biểu diễn (như Triplet Loss hoặc Supervised Contrastive).
+
+Kết quả trực quan hóa cho thấy sự khác biệt rõ rệt về mặt bản chất sinh học. Đối với mô hình baseline phân loại (Classification Baseline), attention maps đôi khi bị phân tán hoặc tập trung bất thường vào các vùng biên ảnh, vết xước hoặc vết cưa do quá trình gia công mẫu gỗ (đây là các đặc trưng shortcut không có giá trị phân loại học). Ngược lại, khi được huấn luyện bằng các thuật toán Deep Metric Learning (như Triplet Loss, SupCon) hoặc các thuật toán SSL (như Barlow Twins, BYOL), không gian biểu diễn được cải thiện giúp attention maps tập trung cô đọng và chính xác vào các cấu trúc giải phẫu gỗ quan trọng nhất được công nhận bởi các chuyên gia lâm sản: các lỗ mạch (vessel pores), dải nhu mô (parenchyma) và hướng đi của các tia gỗ (wood rays). Việc mô hình học được các đặc trưng cấu trúc sinh học bền vững này thay vì các nhiễu ngoại cảnh chứng minh tính đúng đắn và khả năng tổng quát hóa thực tế của không gian embedding được phát triển theo protocol SCDP.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{fig/grad-cam.png}
+\caption{Example Grad-CAM and Finer-CAM maps for qualitative inspection of the image regions driving predictions.}
+\label{fig:grad_cam}
+\end{figure}
+
+Bản đồ chú ý không phải bằng chứng nhân quả tuyệt đối chứng minh mô hình sử dụng một đặc trưng giải phẫu cụ thể, và không thay thế giám định của chuyên gia gỗ. Tuy nhiên, giá trị của chúng trong SCDP là hỗ trợ data audit: kết hợp với manifest, các bản đồ này giúp phát hiện và loại bỏ khả năng mô hình dựa vào lối tắt (shortcut learning) do thiết bị, điều kiện chụp hoặc tiền xử lý. Một đánh giá mạnh hơn cần các thí nghiệm che vùng (occlusion experiments), phản thực tế và đánh giá chéo theo thiết bị hoặc nguồn mẫu.

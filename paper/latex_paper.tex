@@ -1,0 +1,42 @@
+\documentclass[journal,twocolumn]{IEEEtran}
+\usepackage[utf8]{inputenc}
+\usepackage[T5]{fontenc}
+\usepackage[vietnamese,english]{babel}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{float}
+
+\begin{document}
+
+\title{Class-wise Embedding-Guided Specimen Splitting for Leakage-Free Fine-Grained Wood Species Identification}
+
+\author{Viet-Anh Le, and Collaborators}
+
+\maketitle
+
+\begin{abstract}
+Nhận diện loài gỗ từ ảnh là một bài toán phân loại thị giác chi tiết có ý nghĩa đối với giám định lâm sản và kiểm soát thương mại gỗ. Trong các bộ dữ liệu thực địa, một mẫu vật thường sinh ra nhiều ảnh thông qua các lần chụp, vị trí quan sát hoặc lát cắt khác nhau. Nếu các ảnh này được chia ngẫu nhiên ở cấp ảnh, tập huấn luyện và tập kiểm thử có thể cùng chứa thông tin đặc thù của một mẫu vật, một phiên chụp hoặc một bề mặt gỗ. Khi đó, chỉ số đánh giá có thể phản ánh khả năng nhận lại nguồn ảnh thay vì khả năng nhận diện mẫu vật mới. Vấn đề vì vậy không chỉ nằm ở kiến trúc nhận diện mà còn ở cách dữ liệu được thu thập, lưu trữ, tổ chức và kiểm thử.
+
+Nghiên cứu này đề xuất \emph{Specimen-Centric Data Protocol} (SCDP), một khung phương pháp tổng quát cho các bài toán ảnh có nhiều quan sát trên cùng một thực thể vật lý. SCDP quy định đơn vị mẫu vật, siêu dữ liệu truy vết, cấu trúc lưu trữ phân cấp, kiểm tra chất lượng và phân chia dữ liệu theo nhóm nguồn. Trên nền tảng đó, chúng tôi xây dựng \emph{Class-wise Embedding-Guided Specimen Split} (CEGS-Split). CEGS-Split bảo toàn tính rời nhau ở cấp mẫu vật, cân bằng nhãn theo loài và sử dụng embedding từ bộ trích xuất đặc trưng đóng băng để kiểm tra các cặp liên tập có độ gần bất thường. Độ gần trong embedding được xem là tín hiệu kiểm toán cần truy vết, không phải bằng chứng thay thế cho thông tin nguồn gốc. Khung này được áp dụng cho bộ dữ liệu S3 gồm 19 loài thuộc 6 chi. Kết quả đối chiếu giữa phép chia theo ảnh và phép chia theo mẫu vật cho thấy chỉ số KNN giảm khi thay đổi đơn vị phân chia, cho thấy kết quả đánh giá nhạy cảm đáng kể với giả định về tính độc lập của dữ liệu. SCDP tạo ra một giao thức tái lập được để phát triển và đánh giá các mô hình phân loại hoặc học biểu diễn trên mẫu vật chưa quan sát.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Fine-grained visual classification, Wood species identification, Metric learning, Data leakage, Deep learning, Self-supervised learning, CITES.
+\end{IEEEkeywords}
+
+\input{sections/introduction}
+\input{sections/methodology}
+\input{sections/baselines}
+\input{sections/experiments}
+\input{sections/results}
+\input{sections/explainability}
+\input{sections/conclusion}
+\input{sections/references}
+
+\end{document}

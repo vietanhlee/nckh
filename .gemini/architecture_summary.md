@@ -1,24 +1,24 @@
-# 📑 Báo cáo Chi tiết Kiến trúc 3 Mô hình Dự báo Lưu lượng Giao thông
+# 📑 Báo cáo Chi tiết Kiến trúc 5 Mô hình Dự báo Lưu lượng Giao thông trong Benchmark 5 Seeds
 
-Báo cáo này mô tả sơ đồ kiến trúc, luồng dữ liệu và cấu hình của **3 mô hình** trong dự án Nghiên cứu Khoa học:
-1. **GCN-LSTM** ([gcn_lstm.py](file:///g:/nckh/gcn_lstm.py))
-2. **STGCN GLU-ATTN (Hybrid)** ([hybrid.py](file:///g:/nckh/hybrid.py))
-3. **STGCN Pure Attn (Block-Attn)** ([stgcn_block_attn.py](file:///g:/nckh/stgcn_block_attn.py))
+Báo cáo này mô tả sơ đồ kiến trúc, luồng dữ liệu và cấu hình của **5 mô hình** trong benchmark đánh giá thử nghiệm:
+1. **GCN-LSTM** ([gcn_lstm.py](file:///g:/nckh/gcn_lstm.py)) — *Mô hình chạy thử nghiệm đầu tiên*
+2. **STGCN Baseline** ([stgcn.py](file:///g:/nckh/stgcn.py))
+3. **STGCN GLU-ATTN (Hybrid)** ([hybrid.py](file:///g:/nckh/hybrid.py))
+4. **STGCN Pure Attn (Block-Attn)** ([stgcn_block_attn.py](file:///g:/nckh/stgcn_block_attn.py))
+5. **STGCN MixedBlocks** ([stgcn_mixed_blocks.py](file:///g:/nckh/stgcn_mixed_blocks.py))
 
 ---
 
-## 📊 1. Bảng So sánh Tổng quan 3 Mô hình
+## 📊 1. Bảng So sánh Tổng quan 5 Mô hình Benchmark
 
-| Tiêu chí | GCN-LSTM | STGCN GLU-ATTN (Hybrid) | STGCN Pure Attn (Block-Attn) |
-| :--- | :--- | :--- | :--- |
-| **Mã nguồn** | [gcn_lstm.py](file:///g:/nckh/gcn_lstm.py) | [hybrid.py](file:///g:/nckh/hybrid.py) | [stgcn_block_attn.py](file:///g:/nckh/stgcn_block_attn.py) |
-| **Học Không gian (Spatial)** | GCN 2 tầng tĩnh | ChebNet Phổ ($K=3$) | ChebNet Phổ ($K=3$) |
-| **Học Thời gian (Temporal)** | LSTM | Gated 1D Conv (GLU) | Multi-Head Temporal Self-Attention |
-| **Cấu trúc trong Block** | GCN -> LSTM | GLU -> ChebNet -> GLU | Attn1 -> ChebNet -> Attn2 |
-| **Vị trí Attention** | Không có | Cuối mô hình (Model-Level) | Trong từng Block & Cuối mô hình |
-| **Số lớp Attention** | 0 | 1 lớp | **5 lớp** (2/block × 2 blocks + 1 final) |
-| **Số Blocks (`NUM_BLOCKS`)** | N/A | **2 Blocks** | **2 Blocks** |
-| **Số Channels (`Hidden`)** | GCN=32, LSTM=64 | Block=64 | Block=64 (Heads=4) |
+| Tiêu chí | GCN-LSTM | STGCN (Baseline) | STGCN Hybrid | STGCN Block-Attn | STGCN MixedBlocks |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Mã nguồn** | [gcn_lstm.py](file:///g:/nckh/gcn_lstm.py) | [stgcn.py](file:///g:/nckh/stgcn.py) | [hybrid.py](file:///g:/nckh/hybrid.py) | [stgcn_block_attn.py](file:///g:/nckh/stgcn_block_attn.py) | [stgcn_mixed_blocks.py](file:///g:/nckh/stgcn_mixed_blocks.py) |
+| **Học Không gian** | GCN 2 tầng tĩnh | ChebNet Phổ ($K=3$) | ChebNet Phổ ($K=3$) | ChebNet Phổ ($K=3$) | ChebNet Phổ ($K=3$) |
+| **Học Thời gian** | LSTM | GLU 1D Conv | GLU 1D Conv | Multi-Head Self-Attn | 2 GLU Blocks + 1 Attn Block |
+| **Số Lớp Attention** | 0 | 0 | 1 lớp (Cuối) | 5 lớp (Block & Cuối) | 3 lớp (Block 3 & Cuối) |
+| **Số Blocks** | N/A | 3 Blocks | 2 Blocks | 2 Blocks | 3 Blocks |
+| **Hidden Channels** | GCN=32, LSTM=64 | 64 | 64 | 64 (Heads=4) | 64 (Heads=4) |
 
 ---
 

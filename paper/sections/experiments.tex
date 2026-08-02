@@ -1,0 +1,39 @@
+\section{Experimental Configuration}
+
+\subsection{S3 Dataset and Analysis Unit}
+Dataset S3 gồm ảnh mặt cắt ngang ở mức vĩ mô của 19 loài thuộc 6 chi: \textit{Afzelia}, \textit{Dalbergia}, \textit{Guibourtia}, \textit{Peltogyne}, \textit{Pterocarpus} và \textit{Sindora}. Mỗi loài có nhiều thư mục con; trong phiên bản dữ liệu được sử dụng, một thư mục con biểu diễn tập hợp ảnh của cùng một mẫu vật (specimen). Các bản ghi chỉ xác định tới cấp chi bị loại khỏi tập giám sát theo loài. Trước khi áp dụng SCDP cho một phiên bản mới của S3, mối quan hệ giữa thư mục con và mẫu vật phải được xác nhận trong manifest thay vì chỉ được giả định từ tên thư mục.
+
+Hình \ref{fig:eda_split} trình bày phân bố số ảnh và số specimen theo loài sau khi áp dụng CEGS-Split. Báo cáo cả hai đại lượng là cần thiết: nhiều ảnh của một mẫu vật cải thiện độ phủ bề mặt, nhưng không làm tăng số đơn vị độc lập để đánh giá khả năng tổng quát hóa.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{fig/eda_split_end_version.png}
+\caption{Class-wise image and specimen distribution in S3 after CEGS-Split allocation.}
+\label{fig:eda_split}
+\end{figure}
+
+\subsection{Split Protocol and Comparison}
+Chúng tôi so sánh hai cấu hình đánh giá. Cấu hình \emph{Random Image Split} chia ảnh có phân tầng theo nhãn loài nhưng không ràng buộc ảnh cùng nguồn ở cùng một tập. Cấu hình \emph{CEGS-Split} sử dụng \texttt{specimen\_id} để split toàn bộ ảnh của một nhóm nguồn vào duy nhất tập train, validation hoặc test, đồng thời thực hiện data audit nhằm kiểm tra cân bằng lớp và các cặp cross-split có độ tương đồng cosine cao. Cả hai cấu hình dùng cùng một feature extractor và thủ tục KNN trong phép đối chiếu về split; do đó, chênh lệch quan sát được quy cho đơn vị split dữ liệu, không phải kiến trúc mạng.
+
+Random Image Split được thực hiện với ba seed $(42,123,456)$. CEGS-Split hiện được báo cáo như một split đã khóa nhằm phục vụ benchmark tái lập. Vì chỉ có một phiên bản CEGS-Split trong kết quả hiện tại, mọi so sánh định lượng với random split được hiểu là mô tả độ nhạy của benchmark, không phải kiểm định ý nghĩa thống kê. Các nghiên cứu tiếp theo nên phát hành nhiều split group-disjoint hoặc dùng group cross-validation khi số mẫu vật cho phép.
+
+\subsection{Classification Baseline Model Training}
+Mô hình phân loại baseline sử dụng ConvNeXt-Tiny \cite{convnext} làm backbone, được khởi tạo từ trọng số pre-trained trên ImageNet. Đặc trưng trích xuất đi qua classifier head phi tuyến và được tối ưu hóa bằng Focal Loss ($\gamma = 2.0$, $\alpha = 0.25$) để cân bằng độ khó và tần suất của các loài gỗ. Trong cấu hình huấn luyện, khoảng $90\%$ số lượng lớp của backbone được freeze nhằm hạn chế hiện tượng overfitting trên bộ dữ liệu có ít specimen cho từng lớp. Mô hình sử dụng bộ tối ưu hóa AdamW với learning rate khởi tạo là $10^{-4}$, weight decay $10^{-2}$, học tập với Cosine Annealing scheduler trong tối đa 100 epoch và áp dụng early stopping dựa trên validation loss với patience 50.
+
+Data augmentation chỉ áp dụng cho tập train, bao gồm các phép biến đổi: rotation, \emph{random resized crop}, color jitter ở mức nhẹ, Gaussian blur và \emph{random erasing}. Các biến đổi này được lựa chọn để mô phỏng thay đổi điều kiện chụp macro nhưng không che lấp cấu trúc mạch hoặc tia gỗ. Tất cả các quá trình chuẩn hóa thống kê, lựa chọn checkpoint và chọn siêu tham số được thực hiện hoàn toàn trên tập train và validation; tập test không được sử dụng cho các bước này.
+
+\subsection{Representation Learning Methods}
+Trên cùng manifest và split khóa, benchmark bao gồm các họ hàm loss học biểu diễn khoảng cách (pairwise/triplet: Contrastive, Hard Contrastive, Triplet, Semi-hard Triplet, Soft-Margin Triplet và Lifted Structured; pair weighting/angular/proxy: Multi-Similarity, Circle, Angular, Proxy Anchor, ArcFace, SubCenter ArcFace và SoftTriple; cùng Supervised Contrastive). Bốn phương pháp tự giám sát (SSL) được khảo sát gồm SimCLR, BYOL, SimSiam và Barlow Twins. Mục tiêu của benchmark không phải tìm một loss function mặc định cho mọi bộ dữ liệu; nó kiểm tra liệu kết luận về mô hình có còn giữ được khi điều kiện dữ liệu đã được cố định và audit nghiêm ngặt.
+
+\subsection{Evaluation Metrics}
+Với bài toán phân loại đóng (closed-set classification), chúng tôi báo cáo accuracy, precision, recall, F1 theo loài, macro-F1 và weighted-F1. Macro-F1 được ưu tiên khi số ảnh giữa các loài không đồng đều. Với embedding, các chỉ số retrieval gồm Recall@k, Precision@k và mAP; giá trị macro và harmonic mean được báo cáo để tránh các lớp dễ chi phối kết quả. Harmonic mean với hằng số ổn định $\epsilon=0.01$ được tính:
+\begin{equation}
+\mathrm{HM}=\frac{C}{\sum_{c=1}^{C}\frac{1}{m_c+\epsilon}},
+\end{equation}
+trong đó $m_c$ là chỉ số của loài $c$ và $C$ là số loài.
+
+Chất lượng cấu trúc embedding được bổ sung bằng Silhouette, Davies--Bouldin, Calinski--Harabasz, Dunn và NMI. Các chỉ số này không thay thế hiệu năng nhận diện, nhưng giúp đánh giá chất lượng của biểu diễn đặc trưng dưới góc độ phân cụm không giám sát (unsupervised clustering).
+
+\subsection{Split Audit Metrics}
+Ngoài hiệu năng nhận diện, chúng tôi ghi nhận số specimen trong mỗi tập, số \texttt{specimen\_id} giao nhau giữa các tập, và độ tương đồng cosine cross-split từ bộ trích xuất tham chiếu. Với phép đối chiếu trong Bảng \ref{tab:split_ablation}, các giá trị cosine là trung bình và cực đại của các cặp ảnh train--test; chúng là chỉ số chẩn đoán về mức độ gần của ảnh, không phải thước đo trực tiếp của rò rỉ. Mọi ảnh bị gắn cờ bởi embedding audit phải được đối chiếu lại với manifest trước khi đưa ra kết luận cuối cùng.
+

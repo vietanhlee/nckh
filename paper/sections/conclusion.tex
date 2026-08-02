@@ -1,0 +1,6 @@
+\section{Conclusion}
+Nghiên cứu này đặt nhận diện loài gỗ trong một framing dữ liệu lấy mẫu vật làm trung tâm. Thay vì xem phân chia dữ liệu là một thao tác phụ sau khi thu thập, SCDP xem truy vết nguồn, cấu trúc lưu trữ, manifest, kiểm toán và phân bổ group-disjoint là các thành phần của phương pháp. CEGS-Split hiện thực hóa pha phân bổ bằng cách giữ toàn bộ ảnh của một mẫu vật trong một tập, cân bằng theo loài và dùng embedding đóng băng để phát hiện các trường hợp cần kiểm tra lại nguồn gốc.
+
+Thực nghiệm trên S3 cho thấy cùng một pipeline KNN có kết quả khác biệt đáng kể giữa random image split và CEGS-Split. Kết quả này không chứng minh mọi benchmark chia theo ảnh đều có rò rỉ, nhưng cho thấy đơn vị phân chia là một giả định có ảnh hưởng trực tiếp đến kết luận về mô hình. Do đó, các kết quả nhận diện, metric learning và self-supervised learning nên luôn được báo cáo cùng định nghĩa đơn vị nguồn, manifest split và quy tắc chọn mô hình.
+
+Các bước tiếp theo gồm xác minh và phát hành manifest phiên bản hóa, tạo nhiều group-disjoint split hoặc group cross-validation, và xây dựng tập kiểm thử ngoài nguồn với thiết bị và mẫu vật độc lập. Việc kết hợp kiểm toán dữ liệu với chuyên gia giải phẫu gỗ cũng cần thiết để phân biệt tín hiệu sinh học thực sự với tín hiệu do quy trình thu nhận ảnh.

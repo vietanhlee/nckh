@@ -18,6 +18,7 @@ from tqdm.auto import tqdm
 from dotenv import load_dotenv
 
 # Import các mô hình và cấu hình tương ứng
+from gcn_lstm import ImprovedGNN_LSTM, Config as GCNLSTMConfig, normalize_adj_sym
 from stgcn import STGCN_Model as Baseline_STGCN_Model, Config as BaselineConfig
 from hybrid import STGCN_Model as Hybrid_STGCN_Model, Config as HybridConfig, HuberSmoothLoss
 from stgcn_block_attn import STGCN_BlockAttn_Model, Config as BlockAttnConfig
@@ -298,7 +299,7 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
 
 
 def run_benchmark():
-    parser = argparse.ArgumentParser(description="Script huấn luyện 5 Seeds ngẫu nhiên cho 4 mô hình STGCN.")
+    parser = argparse.ArgumentParser(description="Script huấn luyện 5 Seeds ngẫu nhiên cho 5 mô hình (GCN-LSTM & STGCN).")
     parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 777, 999],
                         help="Danh sách các seeds ngẫu nhiên (mặc định: 42 100 2024 777 999).")
     parser.add_argument('--epochs', type=int, default=500,
@@ -319,7 +320,7 @@ def run_benchmark():
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"============================================================")
-    print(f"🚀 CHẠY BENCHMARK {len(args.seeds)} SEEDS CHO CÁC MÔ HÌNH STGCN")
+    print(f"🚀 CHẠY BENCHMARK {len(args.seeds)} SEEDS CHO 5 MÔ HÌNH (GCN-LSTM + 4 STGCN)")
     print(f"   Device        : {device}")
     print(f"   Seeds         : {args.seeds}")
     print(f"   Epochs        : {args.epochs}")
@@ -329,12 +330,13 @@ def run_benchmark():
     print(f"============================================================")
 
     # Khởi tạo các Config
+    gcn_lstm_cfg = GCNLSTMConfig()
     stgcn_cfg = BaselineConfig()
     hybrid_cfg = HybridConfig()
     block_attn_cfg = BlockAttnConfig()
     mixed_cfg = MixedConfig()
 
-    for cfg_inst in [stgcn_cfg, hybrid_cfg, block_attn_cfg, mixed_cfg]:
+    for cfg_inst in [gcn_lstm_cfg, stgcn_cfg, hybrid_cfg, block_attn_cfg, mixed_cfg]:
         cfg_inst.ROOT_DIR = args.root_dir
         cfg_inst.ADJ_PATH = os.path.join(args.root_dir, "Graph_fix_py_3.xlsx")
         cfg_inst.CSV_PATH = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
@@ -348,6 +350,7 @@ def run_benchmark():
     print("\n[1] Nạp đồ thị và tiền xử lý dữ liệu...")
     A_raw, nodes = load_adj_from_excel(stgcn_cfg.ADJ_PATH)
     L_tilde = compute_scaled_laplacian(A_raw)
+    A_norm = normalize_adj_sym(A_raw)
     df_all = load_timeseries_double_rolling(
         stgcn_cfg.CSV_PATH, nodes, stgcn_cfg.DATA_WINDOW1, stgcn_cfg.DATA_WINDOW2, stgcn_cfg.TIME_STEP_MINUTES
     )
@@ -366,8 +369,17 @@ def run_benchmark():
 
     print(f"   - Dataset size: Train={len(df_train)}, Val={len(df_val)}, Test={len(df_test)}")
 
-    # Đăng ký thử nghiệm các mô hình
+    # Đăng ký thử nghiệm các mô hình (GCN_LSTM chạy đầu tiên)
     models_registry = {
+        'GCN_LSTM': {
+            'class': ImprovedGNN_LSTM,
+            'config': gcn_lstm_cfg,
+            'build_fn': lambda cfg: ImprovedGNN_LSTM(
+                num_nodes=len(nodes), in_feat=4, gcn_hidden=cfg.GCN_HIDDEN,
+                lstm_hidden=cfg.LSTM_HIDDEN, lstm_layers=cfg.LSTM_LAYERS,
+                horizon=cfg.HORIZON, output_feat=1, A_norm=A_norm, dropout=cfg.DROPOUT
+            )
+        },
         'STGCN (Baseline)': {
             'class': Baseline_STGCN_Model,
             'config': stgcn_cfg,

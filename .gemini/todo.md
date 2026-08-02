@@ -11,4 +11,5 @@
 - [x] Cập nhật bảng kết quả trong `benchmark_5seeds.py` và báo cáo `benchmark_5seeds_report.md`.
 - [x] Xuất báo cáo tài liệu kiến trúc ra `architecture_summary.md`.
 - [x] Tích hợp lại mô hình `STGCN_BlockAttn` vào `benchmark_5seeds.py` và tối ưu hóa bộ nhớ CUDA (Chunking Multi-Head Attention & 2 Blocks) chống lỗi OOM trên GPU Nvidia T4.
+- [x] Tích hợp mô hình `GCN_LSTM` (`ImprovedGNN_LSTM`) vào `benchmark_5seeds.py` và xếp vị trí chạy đầu tiên trong danh sách 5 mô hình thử nghiệm.
 

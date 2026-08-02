@@ -1,0 +1,47 @@
+\section{Introduction}
+
+\subsection{Background and Motivation}
+Nhận diện loài gỗ hỗ trợ giám định lâm sản, truy xuất nguồn gốc và thực thi các quy định về thương mại các loài được bảo vệ \cite{cites}. Các phương pháp thị giác máy tính có thể khai thác trực tiếp cấu trúc mạch, tia gỗ, nhu mô và hướng thớ từ ảnh mặt cắt. Tuy nhiên, các đặc trưng này thường khác biệt rất nhỏ giữa các loài gần nhau về phân loại, trong khi cùng một loài có thể biến thiên theo cá thể, vị trí lấy mẫu, tuổi cây, mặt cắt và điều kiện thu nhận ảnh. Những đặc điểm này khiến nhận diện gỗ là một bài toán phân loại thị giác chi tiết (fine-grained visual classification), không đơn thuần là tối ưu một bộ phân loại nhiều lớp \cite{woodreview,wu2021}.
+
+Một khó khăn ít được mô tả đầy đủ là cấu trúc sinh dữ liệu. Một mẫu vật gỗ có thể được chụp nhiều lần, ở nhiều vị trí hoặc sau nhiều phép cắt; các ảnh kết quả thường dùng chung bề mặt, điều kiện chiếu sáng, thiết bị và dấu vết gia công. Vì vậy, số ảnh không phải là số quan sát độc lập. Nếu chia dữ liệu ngẫu nhiên theo ảnh, các ảnh có cùng nguồn có thể đồng thời xuất hiện ở các tập train, validation và test. Mô hình khi đó có thể tận dụng các tín hiệu không có giá trị phân loại học, chẳng hạn màu nền, vết xước, bố cục hoặc nhiễu cảm biến, thay vì học đặc trưng giải phẫu có thể chuyển giao sang mẫu vật mới. Đây là một dạng rò rỉ thông tin theo nguồn (source-level leakage), một vấn đề đã được ghi nhận rộng rãi trong các quy trình học máy \cite{kaufman2012,roberts2021}.
+
+\subsection{Problem Statement}
+Xét tập ảnh $\mathcal{X}=\{x_i\}_{i=1}^{M}$ và tập mẫu vật $\mathcal{S}=\{S_j\}_{j=1}^{N}$. Mỗi ảnh $x_i$ có nhãn loài $y_i$ và được ánh xạ tới một mẫu vật nguồn $s(x_i)\in\mathcal{S}$. Trong triển khai thực tế, mục tiêu là dự đoán đúng loài của ảnh đến từ một mẫu vật chưa từng được dùng trong quá trình phát triển model. Do đó, đơn vị độc lập cần được xác định là mẫu vật, không phải ảnh:
+\begin{equation}
+\mathcal{S}_{\mathrm{train}}\cap\mathcal{S}_{\mathrm{val}} =
+\mathcal{S}_{\mathrm{train}}\cap\mathcal{S}_{\mathrm{test}} =
+\mathcal{S}_{\mathrm{val}}\cap\mathcal{S}_{\mathrm{test}} = \varnothing.
+\label{eq:group_disjoint}
+\end{equation}
+Các tập ảnh được suy ra từ phép split này, ví dụ
+\begin{equation}
+\mathcal{D}_{\mathrm{train}}=\{x_i\in\mathcal{X}:s(x_i)\in\mathcal{S}_{\mathrm{train}}\}.
+\label{eq:train_from_specimen}
+\end{equation}
+
+Điều kiện (\ref{eq:group_disjoint}) ngăn rò rỉ do cùng mẫu vật khi định danh nguồn là đúng và đầy đủ. Nó không đồng nghĩa với việc mọi ảnh ở hai tập khác nhau đều phải xa nhau trong không gian biểu diễn: hai mẫu vật khác nhau của cùng loài có thể giống nhau về mặt sinh học. Ngược lại, độ tương đồng embedding cao chỉ là tín hiệu cho thấy cần kiểm tra lại nguồn gốc hoặc ảnh gần trùng lặp, chứ không tự nó chứng minh rò rỉ. Sự phân biệt này quan trọng để tránh diễn giải sai cả hiệu năng model lẫn kết quả data audit.
+
+\subsection{Methodological Gap}
+Phần lớn công trình nhận diện gỗ tập trung vào feature của ảnh, kiến trúc mạng hoặc loss function \cite{fabijanska2021,wu2021}. Các hướng này là cần thiết, nhưng chỉ giải quyết một phần của quy trình. Khi thông tin về mẫu vật, phiên chụp và quan hệ giữa các ảnh không được ghi nhận ngay từ khâu thu thập, việc tái lập data split và kiểm tra tính độc lập giữa các tập trở nên khó khăn. Tương tự, một split theo nhóm (group-disjoint split) chỉ đáng tin cậy khi định nghĩa nhóm được truy vết (tracked) và có thể audit.
+
+Vì thế, nghiên cứu này chuyển trọng tâm từ tối ưu điểm số sang xây dựng một data pipeline có thể audit (auditable data pipeline) cho việc nhận diện trên mẫu vật mới. Phương pháp được đề xuất bao phủ vòng đời dữ liệu (data lifecycle): xác định đơn vị mẫu vật; thu thập và lưu provenance metadata; tổ chức dữ liệu bằng tệp manifest; kiểm tra nhãn, trùng lặp và group integrity; sau đó mới thực hiện split, train và evaluate model. CEGS-Split là thành phần data split của quy trình này, thay vì là toàn bộ đóng góp phương pháp.
+
+\subsection{Contributions}
+Các đóng góp chính gồm:
+\begin{itemize}
+    \item Đề xuất \emph{Specimen-Centric Data Protocol} (SCDP), một khung tổng quát cho dữ liệu ảnh có nhiều quan sát trên cùng thực thể vật lý, bao gồm quy ước thu thập, lưu trữ, manifest truy vết, data audit và evaluation.
+    \item Xây dựng CEGS-Split, một cơ chế group-disjoint split theo nhóm nguồn, có phân tầng (stratified) theo loài và kiểm tra embedding để phát hiện các cặp cross-split có độ tương đồng cao cần được rà soát. Cơ chế này giữ nguyên toàn bộ ảnh của một mẫu vật trong duy nhất một tập (train, val hoặc test).
+    \item Tích hợp giao thức dữ liệu với bài toán nhận diện và representation learning: mọi lựa chọn model và siêu tham số được phát triển trên train--validation; tập test chỉ dùng để báo cáo cuối cùng trên các mẫu vật chưa từng xuất hiện (held-out specimens).
+    \item Thực nghiệm trên bộ dữ liệu S3 gồm 19 loài thuộc 6 chi, đồng thời định lượng độ nhạy của kết quả đối với đơn vị split dữ liệu và cung cấp benchmark cho các phương pháp phân loại, metric learning và self-supervised learning.
+\end{itemize}
+
+\section{Related Work}
+
+\subsection{Wood Species Identification with Computer Vision}
+Các hệ thống nhận diện gỗ truyền thống dựa vào mô tả giải phẫu hoặc đặc trưng thiết kế thủ công (handcrafted features). Các nghiên cứu gần đây chuyển sang CNN và transfer learning để trích xuất feature trực tiếp từ ảnh mặt cắt, ảnh lõi hoặc ảnh theo các mặt giải phẫu khác nhau \cite{fabijanska2021,wu2021,woodreview}. Kết quả của các nghiên cứu này cho thấy tiềm năng của deep learning, đồng thời chỉ ra sự phụ thuộc mạnh vào loại ảnh, độ phóng đại, chuẩn bị bề mặt và thành phần bộ dữ liệu. SCDP không thay thế các model đó; nó tạo điều kiện để so sánh chúng trong một bối cảnh dữ liệu được kiểm soát.
+
+\subsection{Data Governance and Leakage-Free Evaluation}
+Rò rỉ xảy ra khi quy trình training hoặc evaluation sử dụng thông tin không hợp lệ tại thời điểm dự đoán \cite{kaufman2012}. Với dữ liệu có phép đo lặp lại, việc để cùng một nguồn xuất hiện ở nhiều tập làm vi phạm giả định độc lập của evaluation. Kinh nghiệm từ ảnh y sinh cho thấy các sai sót về thiết kế dataset, patient-level split và kiểm soát nguồn có thể dẫn đến các kết luận quá lạc quan \cite{roberts2021}. Các nguyên tắc này có thể khái quát cho ảnh gỗ: nguồn cần cô lập là mẫu vật vật lý độc lập (specimen) hoặc, nếu phù hợp với mục tiêu triển khai, một cấp nguồn rộng hơn liên quan đến lô thu thập hoặc phiên chụp.
+
+\subsection{Representation Learning for Fine-Grained Classification}
+Deep Metric Learning tổ chức embedding sao cho các quan sát cùng lớp gần nhau và khác lớp tách biệt hơn; các loss function như ArcFace, Multi-Similarity, Circle Loss và supervised contrastive learning là những đại diện phổ biến \cite{arcface,multisimilarity,circleloss,supcon}. Self-Supervised Learning (SSL) như SimCLR, BYOL, SimSiam và Barlow Twins cũng hữu ích khi dữ liệu nhãn hạn chế \cite{simclr,byol,simsiam,barlow}. Tuy nhiên, một embedding tốt chỉ có ý nghĩa khi được đánh giá trên các nguồn chưa quan sát. Trong nghiên cứu này, representation learning là downstream model đặt sau, và tuân thủ, data governance protocol.
