@@ -10,5 +10,5 @@
 - [x] Thêm chức năng đo đạc MAE đầy đủ cho **CẢ 6 BƯỚC THỜI GIAN ($t+1 \rightarrow t+6$)**.
 - [x] Cập nhật bảng kết quả trong `benchmark_5seeds.py` và báo cáo `benchmark_5seeds_report.md`.
 - [x] Xuất báo cáo tài liệu kiến trúc ra `architecture_summary.md`.
-- [x] Loại bỏ mô hình `STGCN_BlockAttn` khỏi danh sách chạy thử nghiệm của `benchmark_5seeds.py`.
+- [x] Tích hợp lại mô hình `STGCN_BlockAttn` vào `benchmark_5seeds.py` và tối ưu hóa bộ nhớ CUDA (Chunking Multi-Head Attention & 2 Blocks) chống lỗi OOM trên GPU Nvidia T4.
 

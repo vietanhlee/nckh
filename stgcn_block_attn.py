@@ -53,7 +53,7 @@ class Config:
 
     # --- MODEL CONFIG ---
     CHEB_K              = 3        # Bậc đa thức Chebyshev
-    NUM_BLOCKS          = 3        # Số lượng STGCN blocks (2 blocks)
+    NUM_BLOCKS          = 2        # Số lượng STGCN blocks (2 blocks)
     BLOCK_HIDDEN        = 64       # Số channels ẩn trong mỗi block
     DROPOUT             = 0.25
     ATTN_NUM_HEADS      = 4        # Số heads trong Multi-Head Temporal Attention
@@ -274,7 +274,7 @@ class ChebConvLayer(nn.Module):
 
 class TemporalAttention(nn.Module):
     """
-    Multi-Head Temporal Self-Attention Module
+    Multi-Head Temporal Self-Attention Module (Tối ưu hóa bộ nhớ CUDA cho GPU T4)
     Bao gồm Multi-Head Attention + Feed-Forward Network + Residual Connections & LayerNorm.
     """
     def __init__(self, in_channels, num_heads=4, dropout=0.1):
@@ -297,10 +297,23 @@ class TemporalAttention(nn.Module):
 
     def forward(self, x):
         # x: (B*N, T, C)
-        attn_out, _ = self.attn(x, x, x)
-        x = self.norm1(x + attn_out)
-        ffn_out = self.ffn(x)
-        return self.norm2(x + ffn_out)
+        total_seqs = x.shape[0]
+        chunk_size = 2048
+        if total_seqs > chunk_size and self.training:
+            outputs = []
+            for i in range(0, total_seqs, chunk_size):
+                chunk_x = x[i:i + chunk_size]
+                attn_out, _ = self.attn(chunk_x, chunk_x, chunk_x)
+                chunk_x = self.norm1(chunk_x + attn_out)
+                ffn_out = self.ffn(chunk_x)
+                chunk_out = self.norm2(chunk_x + ffn_out)
+                outputs.append(chunk_out)
+            return torch.cat(outputs, dim=0)
+        else:
+            attn_out, _ = self.attn(x, x, x)
+            x = self.norm1(x + attn_out)
+            ffn_out = self.ffn(x)
+            return self.norm2(x + ffn_out)
 
 
 class STGCNBlockAttn(nn.Module):
