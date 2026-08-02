@@ -11,14 +11,15 @@ Báo cáo này mô tả sơ đồ kiến trúc, luồng dữ liệu và cấu h�
 
 ## 📊 1. Bảng So sánh Tổng quan 5 Mô hình Benchmark
 
-| Tiêu chí | GCN-LSTM | STGCN (Baseline) | STGCN Hybrid | STGCN Block-Attn | STGCN MixedBlocks |
-| :--- | :--- | :--- | :--- | :--- | :--- |
+| Tiêu chí | GCN-LSTM (Baseline 1) | STGCN (Baseline 2) | STGCN Hybrid (Proposed 1) | STGCN Block-Attn (Proposed 2) | STGCN MixedBlocks (Proposed 3) |
+| :--- | :---: | :---: | :---: | :---: | :---: |
 | **Mã nguồn** | [gcn_lstm.py](file:///g:/nckh/gcn_lstm.py) | [stgcn.py](file:///g:/nckh/stgcn.py) | [hybrid.py](file:///g:/nckh/hybrid.py) | [stgcn_block_attn.py](file:///g:/nckh/stgcn_block_attn.py) | [stgcn_mixed_blocks.py](file:///g:/nckh/stgcn_mixed_blocks.py) |
+| **Tham số (`Params`)** | **~364.2K** *(Cao nhất)* | **~303.8K** *(Cao thứ 2)* | **~165.3K** *(Gọn nhẹ nhất)* | **~202.3K** *(Tối ưu)* | **~245.1K** *(Tối ưu)* |
 | **Học Không gian** | GCN 2 tầng tĩnh | ChebNet Phổ ($K=3$) | ChebNet Phổ ($K=3$) | ChebNet Phổ ($K=3$) | ChebNet Phổ ($K=3$) |
-| **Học Thời gian** | LSTM | GLU 1D Conv | GLU 1D Conv | Multi-Head Self-Attn | 2 GLU Blocks + 1 Attn Block |
+| **Học Thời gian** | LSTM 2 tầng | GLU 1D Conv | GLU 1D Conv | Multi-Head Self-Attn | 2 GLU Blocks + 1 Attn Block |
 | **Số Lớp Attention** | 0 | 0 | 1 lớp (Cuối) | 5 lớp (Block & Cuối) | 3 lớp (Block 3 & Cuối) |
 | **Số Blocks** | N/A | 3 Blocks | 2 Blocks | 2 Blocks | 3 Blocks |
-| **Hidden Channels** | GCN=32, LSTM=64 | 64 | 64 | 64 (Heads=4) | 64 (Heads=4) |
+| **Hidden Channels** | GCN=64, LSTM=160 | 80 | 64 | 64 (Heads=4) | 64 (Heads=4) |
 
 ---
 

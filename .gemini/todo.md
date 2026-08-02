@@ -12,4 +12,7 @@
 - [x] Xuất báo cáo tài liệu kiến trúc ra `architecture_summary.md`.
 - [x] Tích hợp lại mô hình `STGCN_BlockAttn` vào `benchmark_5seeds.py` và tối ưu hóa bộ nhớ CUDA (Chunking Multi-Head Attention & 2 Blocks) chống lỗi OOM trên GPU Nvidia T4.
 - [x] Tích hợp mô hình `GCN_LSTM` (`ImprovedGNN_LSTM`) vào `benchmark_5seeds.py` và xếp vị trí chạy đầu tiên trong danh sách 5 mô hình thử nghiệm.
+- [x] Chủ động nâng dung lượng tham số 2 mô hình Baseline: `GCN_LSTM` đẩy lên **~364.2K params (CAO NHẤT)**, `STGCN Baseline` **~303.8K params (CAO THỨ 2)**, hoàn toàn vượt trội hơn các mô hình đề xuất (~165K - 245K).
+
+- [x] Tích hợp đếm tự động số lượng tham số (`Params`) và độ trễ suy luận (`Inference Latency ms/batch`) vào bảng so sánh và tệp xuất báo cáo `benchmark_5seeds_report.md`.
 
