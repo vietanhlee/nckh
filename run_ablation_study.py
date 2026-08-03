@@ -88,6 +88,7 @@ def measure_inference_latency(model, loader, device, max_batches=20):
 
 def train_single_ablation_variant(variant_name, model, train_loader, val_loader, test_loader, cfg, device, seed):
     """Huấn luyện và đánh giá 1 biến thể Ablation Study."""
+    criterion = PureHuberLoss(delta=1.0)
     weight_decay = getattr(cfg, 'WEIGHT_DECAY', 1e-4)
     optimizer = optim.Adam(model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=weight_decay)
     
