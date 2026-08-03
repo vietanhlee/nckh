@@ -88,10 +88,13 @@ def measure_inference_latency(model, loader, device, max_batches=20):
 
 def train_single_ablation_variant(variant_name, model, train_loader, val_loader, test_loader, cfg, device, seed):
     """Huấn luyện và đánh giá 1 biến thể Ablation Study."""
-    criterion = PureHuberLoss(delta=1.0)
-    optimizer = optim.Adam(model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=cfg.WEIGHT_DECAY)
+    weight_decay = getattr(cfg, 'WEIGHT_DECAY', 1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=weight_decay)
+    
+    lr_factor = getattr(cfg, 'LR_SCHED_FACTOR', getattr(cfg, 'LR_DECAY_FACTOR', 0.5))
+    lr_patience = getattr(cfg, 'LR_SCHED_PATIENCE', getattr(cfg, 'LR_PATIENCE', 10))
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=cfg.LR_DECAY_FACTOR, patience=cfg.LR_PATIENCE
+        optimizer, mode='min', factor=lr_factor, patience=lr_patience
     )
 
     best_val_loss = float('inf')

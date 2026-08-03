@@ -52,7 +52,6 @@ The architectural choices in Table~\ref{tab:model_comparison} highlight three ke
 \toprule
 \textbf{Architectural Attribute} & \textbf{GCN-LSTM (Baseline 1)} & \textbf{STGCN (Baseline 2)} & \textbf{TA-STGCN (Proposed / Ours)} \\
 \midrule
-\textbf{Source Script File} & \texttt{gcn\_lstm.py} & \texttt{stgcn.py} & \texttt{hybrid.py} \\
 \textbf{Trainable Parameter Count} & \textbf{364,198} (Highest Capacity) & \textbf{303,846} (2nd Largest) & \textbf{165,318} (\textbf{Most Lightweight}) \\
 \textbf{Spatial Feature Extraction} & Static GCN (2 Layers) \cite{gcn, tgcn} & ChebNet ($K=3$) \cite{chebnet} & ChebNet ($K=3$) \cite{chebnet} \\
 \textbf{Temporal Sequence Modeling} & Sequential LSTM (2 Layers) \cite{tgcn, gclstm} & 1D Gated Conv (GLU) \cite{stgcn} & 1D GLU + \textbf{Model-Level Temporal Attention} \cite{attention} \\

@@ -86,14 +86,12 @@ Outputs from Sub-problem 1 are aggregated at 5-minute intervals. Each node $i$ c
 
 Given historical time series over $T_{\text{in}} = 24$ steps (120 minutes of history), the historical input tensor is $X \in \mathbb{R}^{B \times T_{\text{in}} \times N \times F}$ ($F=4$). The target is forecasting future traffic volume across horizon $H = 6$ steps (30 minutes ahead): $Y \in \mathbb{R}^{B \times H \times N \times 1}$.
 
-\subsection{Sub-Problem 2: TA-STGCN Network Architecture}
-
-TA-STGCN couples Chebyshev Spectral Graph Convolutions \cite{chebnet}, 1D Gated Temporal Convolutions (GLU) \cite{stgcn}, and Model-Level Multi-Head Temporal Self-Attention \cite{attention}. Figure~\ref{fig:stgcn_architecture} illustrates the structural diagram of the TA-STGCN architecture.
+TA-STGCN couples Chebyshev Spectral Graph Convolutions \cite{chebnet}, 1D Gated Temporal Convolutions (GLU) \cite{stgcn}, and Model-Level Multi-Head Temporal Self-Attention \cite{attention}. Figure~\ref{fig:stgcn_architecture} illustrates the structural diagram of the standard STGCN baseline architecture \cite{stgcn}.
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\columnwidth]{fig/stgcn_architecture.png}
-\caption{Architectural overview of TA-STGCN, integrating Chebyshev Spectral Graph Convolutions, 1D Temporal GLU blocks, and Model-Level Multi-Head Temporal Self-Attention.}
+\caption{Architectural overview of the standard STGCN baseline model \cite{stgcn}, combining Chebyshev Spectral Graph Convolutions and 1D Temporal GLU blocks. Our proposed TA-STGCN augments this framework with a Model-Level Multi-Head Temporal Self-Attention module post-ST-Conv blocks.}
 \label{fig:stgcn_architecture}
 \end{figure}
 
