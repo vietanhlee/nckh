@@ -26,6 +26,15 @@ ConvNeXt-Tiny extracts a compact, high-level visual representation $\mathbf{f}_{
 \mathbf{f}_{\text{visual}} = \text{GAP}\left(\mathcal{F}_{\text{ConvNeXt}}(I)\right) \in \mathbb{R}^{768}.
 \end{equation}
 
+Figure~\ref{fig:convnext_counting_arch} illustrates the architectural pipeline of the proposed ConvNeXt-Tiny vehicle count estimation model, showcasing the patchify stem, 4 ConvNeXt feature stages with $7 \times 7$ depthwise convolutions, Global Average Pooling, and the custom MLP regression head.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{fig/ConvNext_tiny_coutin.png}
+\caption{Architectural pipeline of the proposed ConvNeXt-Tiny vehicle count estimation model, featuring a Patchify stem, 4 ConvNeXt blocks with $7 \times 7$ depthwise convolutions, Global Average Pooling, and a custom MLP regression head for continuous car and motorbike count estimation.}
+\label{fig:convnext_counting_arch}
+\end{figure}
+
 \subsubsection{Custom MLP Regression Head}
 For both backbones, the ImageNet classification layer is removed and replaced by a custom Multi-Layer Perceptron (MLP) regression head:
 \begin{equation}
