@@ -1,0 +1,44 @@
+\documentclass[journal,twocolumn]{IEEEtran}
+\usepackage[utf8]{inputenc}
+\usepackage[T5]{fontenc}
+\usepackage[vietnamese,english]{babel}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{float}
+\usepackage{makecell}
+\usepackage{tabularx}
+
+\begin{document}
+
+\title{A Two-Stage Framework for Urban Traffic Management: From Camera-Level Vehicle Estimation to Temporal Attention-Guided Spatio-Temporal Graph Forecasting}
+
+\author{Viet-Anh~Le
+\thanks{Viet-Anh Le is with the Posts and Telecommunications Institute of Technology (PTIT), Vietnam (e-mail: anhlv.b23kh002@stu.ptit.edu.vn).}%
+}
+
+\maketitle
+
+\begin{abstract}
+Urban traffic congestion presents major operational and socio-economic challenges in modern metropolises. While surveillance camera networks offer accessible, high-coverage visual feeds, transforming raw video streams into reliable network-wide traffic forecasts requires solving two coupled sub-problems: (1) camera-level visual vehicle count estimation, and (2) network-wide multi-horizon traffic flow forecasting. In this paper, we present a unified framework integrating visual perception and spatio-temporal graph modeling over a real-world urban road network in Ho Chi Minh City, Vietnam. For Sub-problem 1, a ConvNeXt-Tiny backbone with a direct regression head estimates continuous counts of cars and motorbikes directly from camera feeds (trained on 4,000 images, validated on 1,000, and tested on 1,000 images). For Sub-problem 2, we construct a 608-node directed traffic graph $\mathcal{G}=(\mathcal{V}, \mathcal{E}, W)$ built from Ho Chi Minh City Traffic Portal cameras with RBF-weighted road distances. Addressing the fundamental flaws of single-node independent forecasting—which ignores dynamic traffic spillover—we introduce \emph{TA-STGCN} (Temporal Attention-Guided Spatio-Temporal Graph Convolutional Network), an architecture coupling Chebyshev Spectral Graph Convolutions ($K=3$), 1D Gated Temporal Convolutions (GLU), and Model-Level Multi-Head Temporal Self-Attention. Comprehensive evaluations across 5 independent random seeds ($42, 100, 2024, 777, 999$) demonstrate that TA-STGCN achieves superior multi-step forecasting accuracy ($\text{MAE} = 3.1923 \pm 0.0112$, $\text{RMSE} = 4.3435 \pm 0.0142$) across 6 forecast horizons ($t+1$ to $t+6$, 5-to-30 minutes ahead), outperforming traditional GCN-LSTM and standard STGCN baselines while maintaining a significantly lower parameter footprint (165,318 parameters vs. 364,198 for GCN-LSTM and 303,846 for STGCN).
+\end{abstract}
+
+\begin{IEEEkeywords}
+Intelligent Transportation Systems, Urban Traffic Forecasting, ConvNeXt-Tiny Direct Regression, TA-STGCN, Temporal Attention, Spatio-Temporal Graph Neural Networks.
+\end{IEEEkeywords}
+
+\input{sections/introduction}
+\input{sections/methodology}
+\input{sections/baselines}
+\input{sections/experiments}
+\input{sections/results}
+\input{sections/explainability}
+\input{sections/conclusion}
+\input{sections/references}
+
+\end{document}

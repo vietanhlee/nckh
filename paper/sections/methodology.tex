@@ -1,175 +1,167 @@
-\section{Proposed Specimen-Centric Data Protocol (SCDP)}
+\section{Methodology}
 
-\subsection{Overall Framework}
-SCDP là một protocol cho các bài toán mà một thực thể vật lý sinh ra nhiều quan sát ảnh tương quan. Protocol gồm năm pha theo thứ tự: (i) xác định đơn vị nguồn và kế hoạch thu thập; (ii) lưu trữ có truy vết; (iii) thực hiện data audit; (iv) thực hiện group-disjoint split và đóng băng (freeze) tập test; và (v) training, model selection và reporting. Thứ tự này có ý nghĩa phương pháp luận: thông tin nguồn gốc phải tồn tại trước khi dữ liệu được split, và không được suy diễn ngược từ kết quả mô hình.
+This section details the mathematical formulations and system components for both sub-problems: Sub-problem 1 (Camera-Level Vehicle Count Estimation via ConvNeXt-Tiny \cite{convnext} vs. ResNet-50 \cite{resnet}) and Sub-problem 2 (Network-Wide Spatio-Temporal Graph Forecasting via TA-STGCN \cite{stgcn, attention}).
 
-Trong bài toán nhận diện loài gỗ, dữ liệu hình ảnh thường được thu thập và tổ chức theo cấu trúc thư mục phân cấp vật lý: thư mục gốc đại diện cho các loài gỗ khác nhau, và bên dưới mỗi loài chứa các thư mục con (subfolders) chứa hình ảnh chụp macro từ các mẫu gỗ khác nhau. Thông thường, mỗi thư mục con này tương ứng với một mẫu vật vật lý độc lập (specimen) — đơn vị nguồn tối thiểu cần được cô lập hoàn toàn giữa các split để ngăn ngừa rò rỉ thông tin (data leakage). Tuy nhiên, protocol SCDP không mặc nhiên giả định mối tương đương này; sự tương ứng giữa các thư mục con và định danh mẫu vật độc lập (\texttt{specimen\_id}) phải được đối chiếu và xác nhận chính thức trong tệp manifest.
+\subsection{Sub-Problem 1: Camera-Level Vehicle Count Estimation}
 
-\subsection{Collection, Storage, and Traceability}
-\subsubsection{Data Units and Required Metadata}
-Mỗi mẫu vật được cấp một \texttt{specimen\_id} bất biến. Mỗi lần thu nhận được cấp \texttt{session\_id}, và mỗi tệp ảnh có \texttt{image\_id} cùng đường dẫn hoặc mã băm nội dung. Nhãn loài cần kèm nguồn định danh và mức độ chắc chắn; các mẫu chỉ xác định tới cấp chi không được gộp ngầm vào nhãn loài. Bảng \ref{tab:manifest} mô tả bộ trường tối thiểu. Các trường này cho phép tái tạo split mà không phụ thuộc vào tên tệp hay cấu trúc thư mục cục bộ.
+Sub-problem 1 maps individual camera images to continuous vehicle counts per category $[\hat{c}_{\text{car}}, \hat{c}_{\text{bike}}]^T$. We compare two deep convolutional feature backbones: the baseline ResNet-50 \cite{resnet} and the proposed ConvNeXt-Tiny \cite{convnext}.
 
-\begin{table}[htbp]
+\subsubsection{ResNet-50 Baseline Backbone}
+ResNet-50 \cite{resnet} employs standard residual bottleneck blocks with $3 \times 3$ convolutions, Batch Normalization (BN), and ReLU activation functions. Downsampling is performed via max pooling and strided convolutions, projecting input image $I \in \mathbb{R}^{3 \times 224 \times 224}$ into a 2048-dimensional feature representation:
+\begin{equation}
+\mathbf{f}_{\text{resnet}} = \text{GAP}\left(\mathcal{F}_{\text{ResNet50}}(I)\right) \in \mathbb{R}^{2048}.
+\end{equation}
+
+\subsubsection{ConvNeXt-Tiny Feature Backbone (Proposed)}
+ConvNeXt \cite{convnext} modernizes traditional ConvNets by incorporating Vision Transformer (ViT) \cite{attention} design choices into a pure convolutional architecture:
+\begin{enumerate}
+    \item \textbf{Patchify Stem:} Input image $I \in \mathbb{R}^{3 \times 224 \times 224}$ is processed by a $4 \times 4$ non-overlapping convolution with stride 4, mimicking ViT patch embedding.
+    \item \textbf{Large $7 \times 7$ Depthwise Convolutions:} Replaces standard $3 \times 3$ convolutions with $7 \times 7$ depthwise separable convolutions to significantly expand the spatial receptive field per layer.
+    \item \textbf{Inverted Bottleneck Design:} Channel capacity expands in the middle layer (expansion ratio 4: $768 \to 3072 \to 768$), matching Transformer Feed-Forward Networks.
+    \item \textbf{LayerNorm and GELU Activations:} Replaces Batch Normalization with LayerNorm to stabilize training statistics under fluctuating batch distributions, and replaces ReLU with Gaussian Error Linear Units (GELU).
+\end{enumerate}
+
+ConvNeXt-Tiny extracts a compact, high-level visual representation $\mathbf{f}_{\text{visual}} \in \mathbb{R}^{768}$:
+\begin{equation}
+\mathbf{f}_{\text{visual}} = \text{GAP}\left(\mathcal{F}_{\text{ConvNeXt}}(I)\right) \in \mathbb{R}^{768}.
+\end{equation}
+
+\subsubsection{Custom MLP Regression Head}
+For both backbones, the ImageNet classification layer is removed and replaced by a custom Multi-Layer Perceptron (MLP) regression head:
+\begin{equation}
+\mathbf{h}_1 = \text{LayerNorm}\left( \mathbf{W}_1 \mathbf{f}_{\text{visual}} + \mathbf{b}_1 \right), \quad \mathbf{W}_1 \in \mathbb{R}^{128 \times 768},
+\end{equation}
+\begin{equation}
+\hat{\mathbf{c}} = \mathbf{W}_2 \cdot \text{ReLU}(\mathbf{h}_1) + \mathbf{b}_2, \quad \mathbf{W}_2 \in \mathbb{R}^{2 \times 128},
+\end{equation}
+where $\hat{\mathbf{c}} = [\hat{c}_{\text{car}}, \hat{c}_{\text{bike}}]^T \in \mathbb{R}^2$ represents the estimated continuous counts of passenger cars and motorbikes in image $I$.
+
+\subsubsection{Objective Function}
+Sub-problem 1 is trained end-to-end using the Smooth $L_1$ (Huber) Loss \cite{huber} to provide robustness against annotation noise in dense traffic scenes:
+\begin{equation}
+\mathcal{L}_{\text{vision}}(\mathbf{c}, \hat{\mathbf{c}}) = \frac{1}{2} \sum_{m \in \{\text{car}, \text{bike}\}} \text{Smooth}_{L_1}\left(c_m - \hat{c}_m\right),
+\end{equation}
+where
+\begin{equation}
+\text{Smooth}_{L_1}(x) = \begin{cases} 0.5 x^2, & \text{if } |x| < 1 \\ |x| - 0.5, & \text{otherwise.} \end{cases}
+\end{equation}
+
+\subsection{Sub-Problem 2: Urban Traffic Graph Construction}
+
+To capture spatial traffic spillover across the city, estimated vehicle counts across camera locations are integrated into an urban road network graph $\mathcal{G} = (\mathcal{V}, \mathcal{E}, W)$.
+
+\subsubsection{Camera Harvesting and Graph Nodes}
+We harvest surveillance camera feeds from the Ho Chi Minh City Traffic Portal. Initially, 657 camera feeds are acquired along with Camera IDs, location names, and spatial coordinates (Latitude, Longitude). After filtering out faulty, offline, or misaligned feeds, \textbf{608 active camera stations} are established as the graph node set $\mathcal{V}$ ($N = |\mathcal{V}| = 608$).
+
+An automated multi-threaded API downloader with HTTP session pooling scans all 608 cameras every 60 seconds, building a synchronized, time-aligned sequence of traffic images. Figure~\ref{fig:api_samples} shows representative traffic camera feeds collected from the Ho Chi Minh City Traffic Portal API across major urban intersections.
+
+\begin{figure}[htbp]
 \centering
-\caption{Minimum fields of the traceable manifest.}
-\label{tab:manifest}
-\resizebox{\columnwidth}{!}{%
-\begin{tabular}{p{0.30\columnwidth}p{0.62\columnwidth}}
-\toprule
-\textbf{Field group} & \textbf{Content and purpose} \\
-\midrule
-Identifiers & \texttt{image\_id}, \texttt{specimen\_id}, \texttt{session\_id}, path, and content hash; defines the one-image-one-source relation. \\
-Biological identity & Standardized species name, identification level, expert source, confirmation date, and uncertainty flag. \\
-Acquisition & Device, magnification, section plane, capture location, lighting condition, and collector or collection protocol. \\
-Governance & Dataset version, validation status, exclusion reason, \texttt{split\_id}, and seed after the split is frozen. \\
-\bottomrule
-\end{tabular}%
-}
-\end{table}
+\includegraphics[width=\columnwidth]{fig/samples_pictures_get_from_api.png}
+\caption{Sample surveillance camera feeds captured from the Ho Chi Minh City Traffic Portal API across diverse urban intersections.}
+\label{fig:api_samples}
+\end{figure}
 
-Về tổ chức, ảnh gốc được lưu bất biến; các ảnh đã chuẩn hóa, crop hoặc tăng cường được tạo dẫn xuất từ ảnh gốc và không thay thế ảnh nguồn. Một cấu trúc thư mục khả dụng là \texttt{raw/specimen\_id/session\_id/image\_id} kết hợp với một manifest dạng CSV hoặc Parquet ở dataset level. Cấu trúc thư mục giúp thao tác thuận tiện, trong khi manifest là nguồn chân lý cho nhãn và provenance/origin relation. Việc này tránh suy luận \texttt{specimen\_id} chỉ từ quy ước đặt tên vốn dễ bị thay đổi theo thời gian.
+\subsubsection{Graph Edges and RBF Adjacency Matrix}
+Graph edges $\mathcal{E}$ represent physical road connections between adjacent camera stations. Edge weights $W_{ij} \in [0, 1]$ are derived from topological road travel distances $d_{ij}$ using a Radial Basis Function (RBF) kernel:
+\begin{equation}
+W_{ij} = \begin{cases} \exp\left(-\frac{d_{ij}^2}{\sigma^2}\right), & \text{if } i \neq j \text{ and } d_{ij} \le \tau \\ 0, & \text{otherwise,} \end{cases}
+\end{equation}
+where $\sigma$ is the standard deviation of road distances and $\tau$ is the spatial distance cutoff threshold.
 
-\subsubsection{Audit Before Split}
-Trước khi tạo tập train, SCDP thực hiện bốn bước audit. Thứ nhất, kiểm tra schema bảo đảm mọi ảnh có định danh, nhãn và trạng thái hợp lệ. Thứ hai, kiểm tra group integrity bảo đảm một \texttt{specimen\_id} không mang các nhãn mâu thuẫn, trừ trường hợp được gắn cờ để chuyên gia xem xét. Thứ ba, perceptual hash và image similarity được dùng để phát hiện ảnh trùng, ảnh crop lại hoặc ảnh xuất hiện dưới nhiều tên. Thứ tư, thống kê số specimen và số ảnh theo loài để xác định các class không đủ số nhóm cho train--validation--test.
+The normalized Graph Laplacian $L$ and Scaled Laplacian $\tilde{L}$ are computed as:
+\begin{equation}
+L = I_N - D^{-1/2} W D^{-1/2}, \quad \tilde{L} = \frac{2}{\lambda_{\max}} L - I_N,
+\end{equation}
+where $D_{ii} = \sum_{j} W_{ij}$ is the diagonal degree matrix and $\lambda_{\max}$ is the maximum eigenvalue of $L$.
 
-Các bước audit này phân biệt hai tình huống. Ảnh giống nhau do cùng mẫu vật là lỗi phân chia nếu chúng ở các split khác nhau. Ảnh giống nhau do hai mẫu vật khác nhau có thể là biến thiên sinh học hợp lệ, nhưng vẫn cần được lưu ý khi diễn giải độ khó của benchmark. Không có kiểm tra embedding nào thay thế được thông tin nguồn gốc được quản lý tốt.
+\subsubsection{Historical Feature Tensor and Target Horizon}
+Outputs from Sub-problem 1 are aggregated at 5-minute intervals. Each node $i$ contains a 4-dimensional feature vector $\mathbf{x}_{i,t} \in \mathbb{R}^4$:
+\begin{enumerate}
+    \item Normalized total vehicle volume $v_{i,t}$.
+    \item Sine time-of-day feature: $\sin\left(\frac{2\pi \cdot \text{tod}}{1440}\right)$.
+    \item Cosine time-of-day feature: $\cos\left(\frac{2\pi \cdot \text{tod}}{1440}\right)$.
+    \item Normalized hour of day: $\frac{\text{hour}}{24}$.
+\end{enumerate}
 
-\subsection{Embedding-Aware Class-wise Specimen Split (CEGS-Split)}
-\subsubsection{Allocation Constraints}
-Sau khi manifest được audit, CEGS-Split thực hiện split ở cấp mẫu vật (specimen level). Với biến nhị phân $a_{j,t}$ chỉ việc gán mẫu vật $S_j$ vào tập $t\in\{\mathrm{train},\mathrm{val},\mathrm{test}\}$, ràng buộc chính là
-\begin{equation}
-\sum_t a_{j,t}=1,\qquad \forall S_j\in\mathcal{S}.
-\label{eq:one_split}
-\end{equation}
-Kết hợp với ánh xạ từ ảnh sang mẫu vật, (\ref{eq:one_split}) bảo đảm điều kiện rời nhau ở (\ref{eq:group_disjoint}). Với mỗi loài $c$, số ảnh hoặc số mẫu vật trong tập $t$ được giữ gần tỷ lệ định trước $p_t$:
-\begin{equation}
-\left|n_{c,t}-p_t n_c\right|\leq \delta_c,
-\label{eq:class_balance}
-\end{equation}
-trong đó $n_{c,t}$ là số đơn vị được chọn để cân bằng, $n_c$ là tổng số specimen của loài $c$, và $\delta_c$ phản ánh tính rời rạc do số mẫu vật có hạn. Khi số specimens của một loài quá ít, protocol ưu tiên báo cáo giới hạn đó thay vì tách ảnh của một mẫu vật để đạt tỷ lệ giả định.
+Given historical time series over $T_{\text{in}} = 24$ steps (120 minutes of history), the historical input tensor is $X \in \mathbb{R}^{B \times T_{\text{in}} \times N \times F}$ ($F=4$). The target is forecasting future traffic volume across horizon $H = 6$ steps (30 minutes ahead): $Y \in \mathbb{R}^{B \times H \times N \times 1}$.
 
-\subsubsection{Specimen-Level Representation}
-Để kiểm tra cấu trúc hình ảnh ngoài metadata, CEGS-Split dùng bộ trích xuất feature tham chiếu $f_0$ đã đóng băng (frozen backbone) và không được tinh chỉnh bằng nhãn của dataset đích. Với ảnh $x_i$, embedding chuẩn hóa là
-\begin{equation}
-z_i=\frac{f_0(x_i)}{\|f_0(x_i)\|_2}.
-\end{equation}
-Đại diện của mẫu vật $S_j$ (specimen centroid) là trung bình của các embedding ảnh:
-\begin{equation}
-h_j=\frac{1}{|S_j|}\sum_{x_i\in S_j}z_i.
-\label{eq:specimen_centroid}
-\end{equation}
-Nếu cần ước lượng hiệp phương sai với số specimens nhỏ, PCA chỉ được fit trên development set và số chiều được giới hạn để tránh ma trận suy biến.
+\subsection{Sub-Problem 2: TA-STGCN Network Architecture}
 
-\subsubsection{Allocation Strategies and Selection Criteria}
-CEGS-Split triển khai bốn chiến lược ở group level: (i) \emph{Mahalanobis stratification}, phân tầng mẫu vật theo độ điển hình đối với phân bố của loài; (ii) \emph{hierarchical allocation}, giữ nguyên các cụm mẫu vật gần nhau khi phân bổ; (iii) \emph{stratified group allocation}, tối ưu cân bằng loài; và (iv) \emph{agglomerative stratified allocation}, kết hợp cụm với cân bằng các distance bands. Mọi chiến lược đều phải thỏa (\ref{eq:one_split}); chúng khác nhau ở cách xử lý class imbalance và multi-modal structure trong từng loài.
+TA-STGCN couples Chebyshev Spectral Graph Convolutions \cite{chebnet}, 1D Gated Temporal Convolutions (GLU) \cite{stgcn}, and Model-Level Multi-Head Temporal Self-Attention \cite{attention}. Figure~\ref{fig:stgcn_architecture} illustrates the structural diagram of the TA-STGCN architecture.
 
-Chiến lược được chọn bằng tiêu chí đã xác định trước trên development set, gồm sai lệch cân bằng theo (\ref{eq:class_balance}), số specimens tối thiểu của mỗi loài, độ ổn định qua các seed và các embedding audit metrics. Không chọn split chỉ để làm kết quả nhận diện cao hơn hoặc thấp hơn. Sau khi chọn seed và cấu hình, manifest split được đóng băng trước khi training target model; mọi thay đổi sau đó phải tạo một phiên bản benchmark mới.
-
-\paragraph{(i) Mahalanobis Distance-based Split:}
-Chiến lược này xem các mẫu vật ở xa trọng tâm (centroid) của lớp là các mẫu dị biệt (outlier) về mặt ngữ nghĩa và ưu tiên đưa chúng vào tập test hoặc validation. Với tập mẫu chưa phân bổ $U$, centroid $\mu_U$ và hiệp phương sai $\Sigma_U$ được xác định bởi:
-\begin{equation}
-\mu_U=\frac{1}{|U|}\sum_{j\in U} z_j,
-\end{equation}
-\begin{equation}
-\Sigma_U=\frac{1}{|U|-1}\sum_{j\in U}(z_j-\mu_U)(z_j-\mu_U)^T+\epsilon I.
-\end{equation}
-Khoảng cách Mahalanobis của mẫu $j$ đến centroid hiện tại là:
-\begin{equation}
-d_{\text{Mahal}}(z_j,\mu_U)=\sqrt{(z_j-\mu_U)^T\Sigma_U^{-1}(z_j-\mu_U)}.
-\end{equation}
-Tại mỗi vòng lặp, mẫu ở xa nhất $j^*=\arg\max_{j\in U}d_{\text{Mahal}}(z_j,\mu_U)$ được chọn theo dung lượng còn thiếu của tập đích, còn các mẫu khác được giữ lại cho vòng sau.
-
-\paragraph{(ii) Hierarchical Clustering-based Split:}
-Chiến lược này phát hiện các nhóm mẫu vật tự nhiên trong cùng một loài bằng Agglomerative Hierarchical Clustering với Ward linkage. Số lượng cụm tối ưu $K^*$ được xác định bằng phương pháp khuỷu tay (elbow method) trên tổng bình phương khoảng cách trong cụm:
-\begin{equation}
-\text{WCSS}(K)=\sum_{k=1}^{K}\sum_{z_j\in\mathcal{C}_k}\|z_j-\mu_{\mathcal{C}_k}\|_2^2.
-\end{equation}
-After scaling $K$ and $\text{WCSS}(K)$ to $[0,1]$, the elbow point is selected by:
-\begin{equation}
-K^*=\arg\max_K \frac{|x_K+y_K-1|}{\sqrt{2}}.
-\end{equation}
-Mỗi cụm $\mathcal{C}_k$ được giữ nguyên vẹn khi phân bổ vào tập train, validation hoặc test, nhằm tránh cắt đứt các nhóm vân gỗ có cấu trúc bề mặt gần nhau.
-
-\paragraph{(iii) Stratified Group-based Split:}
-Phương pháp phân chia nhóm có phân tầng tối ưu hóa đồng thời cô lập nhóm mẫu vật và cân bằng phân bố lớp giữa các tập. Gọi $w_{g,c}$ là số lượng ảnh của loài $c$ trong nhóm $g$, số lượng mẫu mục tiêu cho phân chia $f$ là:
-\begin{equation}
-T_{f,c}=\frac{1}{K}\sum_{g=1}^{G}w_{g,c}.
-\end{equation}
-Thuật toán gán tham lam sẽ lựa chọn tập:
-\begin{equation}
-f^*=\arg\min_f \sum_{c=1}^{C}\left(\frac{C_{f,c}+w_{g,c}}{T_{f,c}}-1\right)^2,
-\end{equation}
-trong đó $C_{f,c}$ là số lượng mẫu hiện tại của loài $c$ trong tập $f$.
-
-\paragraph{(iv) Agglomerative Stratified Split:}
-Phương pháp này kết hợp giữa phân cụm đặc trưng và phân chia phân tầng theo khoảng cách hình học. Sau khi gom cụm mẫu vật, khoảng cách từ trọng tâm cụm $\mu_{\mathcal{C}_k}$ đến trọng tâm chung của toàn loài $\mu_{\text{global}}$ được tính bằng:
-\begin{equation}
-d(\mathcal{C}_k) = \sqrt{ D^2(\mu_{\mathcal{C}_k}, \mu_{\text{global}}) },
-\end{equation}
-Trong đó:
-\begin{equation}
-D^2(\mu_{\mathcal{C}_k}, \mu_{\text{global}}) = (\mu_{\mathcal{C}_k}-\mu_{\text{global}})^T\Sigma_{\text{global}}^{-1}(\mu_{\mathcal{C}_k}-\mu_{\text{global}}).
-\end{equation}
-Các cụm được chia thành ba dải Near, Mid và Far. Khi phân bổ, thuật toán chọn tập có độ hụt lớn nhất so với mục tiêu:
-\begin{equation}
-\Delta_s=\max(0,N_s^{\text{target}}-N_s^{\text{current}}),\quad s\in\{\text{train},\text{val},\text{test}\}.
-\end{equation}
-Nhờ đó, cả ba tập train, validation và test đều chứa đầy đủ các mẫu điển hình, mẫu trung gian và mẫu dị biệt.
-
-\subsubsection{CEGS-Split Optimization and Configuration}
-Để tự động hóa việc tìm kiếm cấu hình phân bổ tối ưu và giảm thiểu rủi ro rò rỉ dữ liệu (data leakage) một cách khách quan nhất, chúng tôi triển khai thuật toán tìm kiếm tối ưu hóa theo loài (Class-wise Optimization). Với mỗi loài gỗ $c$ trong số 19 loài, quy trình tìm kiếm được thực hiện như sau:
-
-Gọi $\mathcal{D}_{\text{train}}^{(m, c)}$ và $\mathcal{D}_{\text{test}}^{(m, c)}$ lần lượt là tập dữ liệu huấn luyện và kiểm thử của loài $c$ thu được khi phân chia bằng phương pháp $m$ (trong số các chiến lược phân bổ được khảo sát). Chúng tôi sử dụng một bộ trích xuất đặc trưng Swin-Large đã đóng băng để thu nhận vector đặc trưng chuẩn hóa $L_2$ ký hiệu là $\mathbf{z}$ của từng ảnh. Độ tương đồng cosine gần nhất (Nearest-Neighbor Cosine Similarity) của một mẫu ảnh kiểm thử $x_i \in \mathcal{D}_{\text{test}}^{(m, c)}$ đối với tập huấn luyện $\mathcal{D}_{\text{train}}^{(m, c)}$ được tính toán bởi:
-\begin{equation}
-s_{\text{NN}}(x_i) = \max_{x_j \in \mathcal{D}_{\text{train}}^{(m, c)}} \frac{\mathbf{z}_i^T \mathbf{z}_j}{\|\mathbf{z}_i\|_2 \|\mathbf{z}_j\|_2}.
-\end{equation}
-Tiêu chí để xác định phương pháp chia tối ưu $m^*$ cho loài gỗ $c$ là cực tiểu hóa giá trị trung bình của độ tương đồng cosine gần nhất này trên toàn bộ tập mẫu kiểm thử:
-\begin{equation}
-m^* = \arg\min_{m} \frac{1}{|\mathcal{D}_{\text{test}}^{(m, c)}|} \sum_{x_i \in \mathcal{D}_{\text{test}}^{(m, c)}} s_{\text{NN}}(x_i).
-\end{equation}
-Phương pháp tối ưu $m^*$ này đại diện cho cấu hình phân chia tạo ra tập kiểm thử thách thức nhất và ít bị rò rỉ thông tin nhất về mặt không gian biểu diễn đặc trưng đối với tập huấn luyện. Kết quả tìm kiếm tối ưu hóa theo loài được trình bày chi tiết trong Bảng \ref{tab:cegs_split}. Quy trình này hoàn toàn tự động dựa trên tiêu chí đo lường tương đồng và không yêu cầu bất kỳ bước điều chỉnh hoặc hoán đổi tập thủ công nào.
-
-\begin{table}[htbp]
+\begin{figure}[htbp]
 \centering
-\caption{Class-specific optimal split configuration of the CEGS-Split protocol.}
-\label{tab:cegs_split}
-\resizebox{\columnwidth}{!}{%
-\begin{tabular}{ll}
-\toprule
-\textbf{Species} & \textbf{Split Strategy} \\
-\midrule
-\textit{Afzelia africana} & Hierarchical Clustering \\
-\textit{Afzelia bella} & Hierarchical Clustering \\
-\textit{Afzelia pachyloba} & Mahalanobis Fixed \\
-\textit{Afzelia quanzensis} & Hierarchical Clustering \\
-\textit{Dalbergia cochinchinensis} & Mahalanobis Fixed \\
-\textit{Dalbergia melanoxylon} & Stratified Group K-Fold \\
-\textit{Dalbergia oliveri} & Mahalanobis Fixed \\
-\textit{Dalbergia rimosa} & Mahalanobis Fixed \\
-\textit{Dalbergia tonkinensis} & Stratified Group K-Fold \\
-\textit{Guibourtia arnoldiana} & Hierarchical Clustering \\
-\textit{Guibourtia coleosperma} & Mahalanobis Fixed \\
-\textit{Guibourtia ehie} & Cosine Graph \\
-\textit{Peltogyne pubescens} & Mahalanobis Fixed \\
-\textit{Pterocarpus erinaceus} & Mahalanobis Fixed \\
-\textit{Pterocarpus indicus} & Agglomerative Stratified \\
-\textit{Pterocarpus macrocarpus} & Hierarchical Clustering \\
-\textit{Pterocarpus soyauxii} & Mahalanobis Fixed \\
-\textit{Sindora cochinchinensis} & Mahalanobis Iterative \\
-\textit{Sindora tonkinensis} & Adversarial Validation \\
-\bottomrule
-\end{tabular}%
-}
-\end{table}
+\includegraphics[width=\columnwidth]{fig/stgcn_architecture.png}
+\caption{Architectural overview of TA-STGCN, integrating Chebyshev Spectral Graph Convolutions, 1D Temporal GLU blocks, and Model-Level Multi-Head Temporal Self-Attention.}
+\label{fig:stgcn_architecture}
+\end{figure}
 
-\subsubsection{Cross-Split Near-Duplicate Audit}
-Với một mẫu vật test $S_j$, độ tương đồng lớn nhất tới tập train được định nghĩa:
+\subsubsection{1D Temporal Gated Convolution (GLU)}
+For feature map $H \in \mathbb{R}^{B \times C_{\text{in}} \times N \times T}$, 1D causal convolution doubles channels to $2 C_{\text{out}}$ \cite{stgcn}:
 \begin{equation}
-r_j=\max_{S_k\in\mathcal{S}_{\mathrm{train}}}
-\frac{h_j^\top h_k}{\|h_j\|_2\|h_k\|_2}.
-\label{eq:nn_audit}
+\text{Conv}_{1D}(H) = [P, Q] \in \mathbb{R}^{B \times 2 C_{\text{out}} \times N \times T'},
 \end{equation}
-Các mẫu có $r_j$ thuộc đuôi cao của phân bố, hoặc có ảnh gần trùng lặp theo perceptual hash, được đưa vào audit list để đối chiếu lại \texttt{specimen\_id}, \texttt{session\_id}, nguồn thu thập và ảnh gốc. Nếu phát hiện cùng nguồn bị gán nhiều định danh, các bản ghi được sửa và split được tái tạo. Nếu nguồn khác nhau nhưng hợp lệ, mẫu được giữ lại và cờ audit được lưu trong manifest. Cách làm này sử dụng embedding như một công cụ audit, không biến độ tương đồng hình ảnh thành định nghĩa của rò rỉ.
+\begin{equation}
+\text{GLU}(H) = P \odot \sigma(Q) \in \mathbb{R}^{B \times C_{\text{out}} \times N \times T'},
+\end{equation}
+where $\odot$ denotes element-wise product and $\sigma(\cdot)$ is the sigmoid gate.
 
-\subsection{Generality of the Protocol}
-SCDP không phụ thuộc vào gỗ. Với ảnh da liễu, lát cắt y sinh, sản phẩm công nghiệp, ảnh vệ tinh đa thời điểm hoặc dữ liệu côn trùng, \texttt{specimen\_id} có thể được thay lần lượt bằng bệnh nhân, chi tiết sản phẩm, ô địa lý--thời gian hoặc cá thể. Nguyên tắc giữ nguyên là: xác định đơn vị mà hệ thống phải tổng quát hóa tới, ghi nhận provenance/origin relation trước khi training, và thực hiện split theo đơn vị đó.
+\subsubsection{Chebyshev Spectral Graph Convolution (ChebNet)}
+Spatial graph convolution is approximated using truncated Chebyshev polynomials up to order $K=3$ \cite{chebnet}:
+\begin{equation}
+g_{\theta} \star_{\mathcal{G}} x \approx \sum_{k=0}^{K-1} \mathbf{\Theta}_k T_k(\tilde{L}) x,
+\end{equation}
+where $T_0(\tilde{L}) = I_N$, $T_1(\tilde{L}) = \tilde{L}$, and $T_k(\tilde{L}) = 2 \tilde{L} T_{k-1}(\tilde{L}) - T_{k-2}(\tilde{L})$.
+
+\subsubsection{ST-Conv Block Assembly}
+Each $ST\text{-Conv}$ block sandwiches spatial ChebNet graph convolution between two temporal GLUs with residual connection and LayerNorm \cite{stgcn}:
+\begin{equation}
+H^{(1)} = \text{GLU}_1(X), \quad H^{(2)} = \text{ReLU}\left( \text{ChebConv}\left(H^{(1)}, \tilde{L}\right) \right),
+\end{equation}
+\begin{equation}
+H^{(3)} = \text{GLU}_2\left(H^{(2)}\right),
+\end{equation}
+\begin{equation}
+H_{\text{block}} = \text{Dropout}\left( \text{LayerNorm}\left( H^{(3)} + \text{Residual}(X) \right) \right).
+\end{equation}
+
+\subsubsection{Model-Level Multi-Head Temporal Self-Attention}
+To capture dynamic long-range temporal dependencies across the 24-step historical window, TA-STGCN applies \textbf{Multi-Head Temporal Self-Attention} \cite{attention} at the model output stage (post ST-Conv blocks).
+
+The feature tensor $H_{\text{stgcn}} \in \mathbb{R}^{B \times C \times N \times T}$ is permuted and reshaped into node sequence batches:
+\begin{equation}
+Z = \text{Reshape}\left(\text{Permute}(H_{\text{stgcn}})\right) \in \mathbb{R}^{(B \cdot N) \times T \times C}.
+\end{equation}
+
+For $h=4$ attention heads \cite{attention}, Query, Key, and Value matrices are projected:
+\begin{equation}
+Q_m = Z W_m^Q, \quad K_m = Z W_m^K, \quad V_m = Z W_m^V, \quad m \in \{1, \dots, h\}.
+\end{equation}
+Scaled dot-product attention per head is computed as:
+\begin{equation}
+\text{head}_m = \text{Softmax}\left( \frac{Q_m K_m^T}{\sqrt{d_k}} \right) V_m, \quad d_k = C / h.
+\end{equation}
+\begin{equation}
+\text{MHA}(Z) = \text{Concat}(\text{head}_1, \dots, \text{head}_h) W^O.
+\end{equation}
+
+A Transformer-style block \cite{attention} with residual connection, LayerNorm, and GELU Feed-Forward Network (FFN) updates temporal representations:
+\begin{equation}
+Z^{(1)} = \text{LayerNorm}\left( Z + \text{MHA}(Z) \right),
+\end{equation}
+\begin{equation}
+Z^{(2)} = \text{LayerNorm}\left( Z^{(1)} + \text{FFN}(Z^{(1)}) \right),
+\end{equation}
+where $\text{FFN}(u) = \text{Linear}_{2}\left( \text{Dropout}\left( \text{GELU}\left( \text{Linear}_{1}(u) \right) \right) \right)$ with 4x dimension expansion ($C \to 4C \to C$).
+
+\subsubsection{Output Conv1D Time-Reduction \& Objective Function}
+The attention output tensor $Z^{(2)}$ is permuted back to $\mathbb{R}^{(B \cdot N) \times C \times T}$ and passed to a 1D output convolution with kernel size $T_{\text{in}}$ to collapse time dimension $T_{\text{in}} \to 1$:
+\begin{equation}
+\hat{Y} = \text{Reshape}\left( \text{Conv1D}_{T_{\text{in}} \to 1}\left(Z^{(2)}\right) \right) \in \mathbb{R}^{B \times H \times N \times 1}.
+\end{equation}
+
+The network is trained end-to-end using Pure Huber Loss \cite{huber} ($\delta = 1.0$):
+\begin{equation}
+\mathcal{L}_{\text{GNN}}(Y, \hat{Y}) = \begin{cases} \frac{1}{2}(Y - \hat{Y})^2, & \text{if } |Y - \hat{Y}| \le \delta \\ \delta |Y - \hat{Y}| - \frac{1}{2}\delta^2, & \text{otherwise.} \end{cases}
+\end{equation}

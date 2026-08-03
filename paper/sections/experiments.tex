@@ -1,39 +1,48 @@
-\section{Experimental Configuration}
+\section{Experimental Setup}
 
-\subsection{S3 Dataset and Analysis Unit}
-Dataset S3 gồm ảnh mặt cắt ngang ở mức vĩ mô của 19 loài thuộc 6 chi: \textit{Afzelia}, \textit{Dalbergia}, \textit{Guibourtia}, \textit{Peltogyne}, \textit{Pterocarpus} và \textit{Sindora}. Mỗi loài có nhiều thư mục con; trong phiên bản dữ liệu được sử dụng, một thư mục con biểu diễn tập hợp ảnh của cùng một mẫu vật (specimen). Các bản ghi chỉ xác định tới cấp chi bị loại khỏi tập giám sát theo loài. Trước khi áp dụng SCDP cho một phiên bản mới của S3, mối quan hệ giữa thư mục con và mẫu vật phải được xác nhận trong manifest thay vì chỉ được giả định từ tên thư mục.
+\subsection{Datasets and Data Preprocessing}
 
-Hình \ref{fig:eda_split} trình bày phân bố số ảnh và số specimen theo loài sau khi áp dụng CEGS-Split. Báo cáo cả hai đại lượng là cần thiết: nhiều ảnh của một mẫu vật cải thiện độ phủ bề mặt, nhưng không làm tăng số đơn vị độc lập để đánh giá khả năng tổng quát hóa.
+\subsubsection{Sub-Problem 1 Vision Dataset}
+The camera vehicle estimation dataset consists of \textbf{6,000 manually annotated traffic images} captured across surveillance cameras from the Ho Chi Minh City Traffic Portal. The dataset is partitioned into:
+\begin{itemize}
+    \item \textbf{Training Set:} 4,000 images.
+    \item \textbf{Validation Set:} 1,000 images.
+    \item \textbf{Testing Set:} 1,000 images.
+\end{itemize}
+Ground-truth annotations provide individual continuous counts for passenger cars and motorbikes. Images are resized to $224 \times 224$ pixels and normalized with ImageNet mean and standard deviation.
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\columnwidth]{fig/eda_split_end_version.png}
-\caption{Class-wise image and specimen distribution in S3 after CEGS-Split allocation.}
-\label{fig:eda_split}
-\end{figure}
+\subsubsection{Sub-Problem 2 Traffic Graph Time Series Dataset}
+Using Stage 1 predictions across 608 active camera nodes, time series are aggregated at 5-minute intervals ($step\_minutes=5$). Missing steps ($\le 30$ minutes) are linearly interpolated and smoothed via double-rolling transformation ($window_1=3$, $window_2=5$).
 
-\subsection{Split Protocol and Comparison}
-Chúng tôi so sánh hai cấu hình đánh giá. Cấu hình \emph{Random Image Split} chia ảnh có phân tầng theo nhãn loài nhưng không ràng buộc ảnh cùng nguồn ở cùng một tập. Cấu hình \emph{CEGS-Split} sử dụng \texttt{specimen\_id} để split toàn bộ ảnh của một nhóm nguồn vào duy nhất tập train, validation hoặc test, đồng thời thực hiện data audit nhằm kiểm tra cân bằng lớp và các cặp cross-split có độ tương đồng cosine cao. Cả hai cấu hình dùng cùng một feature extractor và thủ tục KNN trong phép đối chiếu về split; do đó, chênh lệch quan sát được quy cho đơn vị split dữ liệu, không phải kiến trúc mạng.
+Historical lookback length is $T_{\text{in}} = 24$ steps (120 minutes history), and forecast horizon is $H = 6$ steps (30 minutes ahead).
 
-Random Image Split được thực hiện với ba seed $(42,123,456)$. CEGS-Split hiện được báo cáo như một split đã khóa nhằm phục vụ benchmark tái lập. Vì chỉ có một phiên bản CEGS-Split trong kết quả hiện tại, mọi so sánh định lượng với random split được hiểu là mô tả độ nhạy của benchmark, không phải kiểm định ý nghĩa thống kê. Các nghiên cứu tiếp theo nên phát hành nhiều split group-disjoint hoặc dùng group cross-validation khi số mẫu vật cho phép.
+The time-series dataset is split chronologically:
+\begin{itemize}
+    \item \textbf{Training Set:} First 80\% of the time range.
+    \item \textbf{Validation Set:} Middle 10\% of the time range.
+    \item \textbf{Testing Set:} Final 10\% of the time range.
+\end{itemize}
 
-\subsection{Classification Baseline Model Training}
-Mô hình phân loại baseline sử dụng ConvNeXt-Tiny \cite{convnext} làm backbone, được khởi tạo từ trọng số pre-trained trên ImageNet. Đặc trưng trích xuất đi qua classifier head phi tuyến và được tối ưu hóa bằng Focal Loss ($\gamma = 2.0$, $\alpha = 0.25$) để cân bằng độ khó và tần suất của các loài gỗ. Trong cấu hình huấn luyện, khoảng $90\%$ số lượng lớp của backbone được freeze nhằm hạn chế hiện tượng overfitting trên bộ dữ liệu có ít specimen cho từng lớp. Mô hình sử dụng bộ tối ưu hóa AdamW với learning rate khởi tạo là $10^{-4}$, weight decay $10^{-2}$, học tập với Cosine Annealing scheduler trong tối đa 100 epoch và áp dụng early stopping dựa trên validation loss với patience 50.
+\subsection{Hyperparameter Settings and Implementation Details}
 
-Data augmentation chỉ áp dụng cho tập train, bao gồm các phép biến đổi: rotation, \emph{random resized crop}, color jitter ở mức nhẹ, Gaussian blur và \emph{random erasing}. Các biến đổi này được lựa chọn để mô phỏng thay đổi điều kiện chụp macro nhưng không che lấp cấu trúc mạch hoặc tia gỗ. Tất cả các quá trình chuẩn hóa thống kê, lựa chọn checkpoint và chọn siêu tham số được thực hiện hoàn toàn trên tập train và validation; tập test không được sử dụng cho các bước này.
-
-\subsection{Representation Learning Methods}
-Trên cùng manifest và split khóa, benchmark bao gồm các họ hàm loss học biểu diễn khoảng cách (pairwise/triplet: Contrastive, Hard Contrastive, Triplet, Semi-hard Triplet, Soft-Margin Triplet và Lifted Structured; pair weighting/angular/proxy: Multi-Similarity, Circle, Angular, Proxy Anchor, ArcFace, SubCenter ArcFace và SoftTriple; cùng Supervised Contrastive). Bốn phương pháp tự giám sát (SSL) được khảo sát gồm SimCLR, BYOL, SimSiam và Barlow Twins. Mục tiêu của benchmark không phải tìm một loss function mặc định cho mọi bộ dữ liệu; nó kiểm tra liệu kết luận về mô hình có còn giữ được khi điều kiện dữ liệu đã được cố định và audit nghiêm ngặt.
+All GNN models are implemented in PyTorch 2.x and executed on an Nvidia T4 GPU (16 GB VRAM).
+\begin{itemize}
+    \item \textbf{Batch Size:} $B = 16$.
+    \item \textbf{Max Epochs and Patience:} Models are trained for up to 500 epochs with an early stopping patience of 30 epochs based on validation MAE.
+    \item \textbf{Optimizer:} Adam optimizer \cite{adam} with initial learning rate $\eta = 5 \times 10^{-4}$ and plateau learning rate decay ($\text{patience}=10$, $\text{factor}=0.5$).
+    \item \textbf{Multi-Seed Evaluation Protocol:} Models are evaluated across \textbf{5 independent random seeds}: $\mathcal{S} = \{42, 100, 2024, 777, 999\}$. All reported metrics present $\text{Mean} \pm \text{Std}$ over the 5 seeds.
+\end{itemize}
 
 \subsection{Evaluation Metrics}
-Với bài toán phân loại đóng (closed-set classification), chúng tôi báo cáo accuracy, precision, recall, F1 theo loài, macro-F1 và weighted-F1. Macro-F1 được ưu tiên khi số ảnh giữa các loài không đồng đều. Với embedding, các chỉ số retrieval gồm Recall@k, Precision@k và mAP; giá trị macro và harmonic mean được báo cáo để tránh các lớp dễ chi phối kết quả. Harmonic mean với hằng số ổn định $\epsilon=0.01$ được tính:
+
+Model performance is evaluated using Mean Absolute Error (MAE), Root Mean Squared Error (RMSE), and Mean Squared Error (MSE):
 \begin{equation}
-\mathrm{HM}=\frac{C}{\sum_{c=1}^{C}\frac{1}{m_c+\epsilon}},
+\text{MAE} = \frac{1}{N \cdot H \cdot M} \sum_{i=1}^{N} \sum_{h=1}^{H} \sum_{k=1}^{M} \left| y_{i,h}^{(k)} - \hat{y}_{i,h}^{(k)} \right|,
 \end{equation}
-trong đó $m_c$ là chỉ số của loài $c$ và $C$ là số loài.
-
-Chất lượng cấu trúc embedding được bổ sung bằng Silhouette, Davies--Bouldin, Calinski--Harabasz, Dunn và NMI. Các chỉ số này không thay thế hiệu năng nhận diện, nhưng giúp đánh giá chất lượng của biểu diễn đặc trưng dưới góc độ phân cụm không giám sát (unsupervised clustering).
-
-\subsection{Split Audit Metrics}
-Ngoài hiệu năng nhận diện, chúng tôi ghi nhận số specimen trong mỗi tập, số \texttt{specimen\_id} giao nhau giữa các tập, và độ tương đồng cosine cross-split từ bộ trích xuất tham chiếu. Với phép đối chiếu trong Bảng \ref{tab:split_ablation}, các giá trị cosine là trung bình và cực đại của các cặp ảnh train--test; chúng là chỉ số chẩn đoán về mức độ gần của ảnh, không phải thước đo trực tiếp của rò rỉ. Mọi ảnh bị gắn cờ bởi embedding audit phải được đối chiếu lại với manifest trước khi đưa ra kết luận cuối cùng.
-
+\begin{equation}
+\text{RMSE} = \sqrt{ \frac{1}{N \cdot H \cdot M} \sum_{i=1}^{N} \sum_{h=1}^{H} \sum_{k=1}^{M} \left( y_{i,h}^{(k)} - \hat{y}_{i,h}^{(k)} \right)^2 },
+\end{equation}
+\begin{equation}
+\text{MSE} = \frac{1}{N \cdot H \cdot M} \sum_{i=1}^{N} \sum_{h=1}^{H} \sum_{k=1}^{M} \left( y_{i,h}^{(k)} - \hat{y}_{i,h}^{(k)} \right)^2,
+\end{equation}
+where $N=608$ graph nodes, $H=6$ forecast steps, and $M$ is the test batch count.

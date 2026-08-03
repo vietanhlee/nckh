@@ -1,47 +1,64 @@
 \section{Introduction}
 
 \subsection{Background and Motivation}
-Nhận diện loài gỗ hỗ trợ giám định lâm sản, truy xuất nguồn gốc và thực thi các quy định về thương mại các loài được bảo vệ \cite{cites}. Các phương pháp thị giác máy tính có thể khai thác trực tiếp cấu trúc mạch, tia gỗ, nhu mô và hướng thớ từ ảnh mặt cắt. Tuy nhiên, các đặc trưng này thường khác biệt rất nhỏ giữa các loài gần nhau về phân loại, trong khi cùng một loài có thể biến thiên theo cá thể, vị trí lấy mẫu, tuổi cây, mặt cắt và điều kiện thu nhận ảnh. Những đặc điểm này khiến nhận diện gỗ là một bài toán phân loại thị giác chi tiết (fine-grained visual classification), không đơn thuần là tối ưu một bộ phân loại nhiều lớp \cite{woodreview,wu2021}.
+Rapid global urbanization and the exponential growth of personal motor vehicles—particularly passenger cars and motorcycles—have led to severe urban traffic congestion in developing metropolises, such as Ho Chi Minh City, Vietnam. Constructing new physical road infrastructure requires substantial financial capital and extended timeframes, offering minimal immediate relief. Consequently, Intelligent Transportation Systems (ITS) powered by Artificial Intelligence (AI) have become an essential, cost-effective strategy for real-time traffic perception, adaptive signal control, and proactive congestion forecasting.
 
-Một khó khăn ít được mô tả đầy đủ là cấu trúc sinh dữ liệu. Một mẫu vật gỗ có thể được chụp nhiều lần, ở nhiều vị trí hoặc sau nhiều phép cắt; các ảnh kết quả thường dùng chung bề mặt, điều kiện chiếu sáng, thiết bị và dấu vết gia công. Vì vậy, số ảnh không phải là số quan sát độc lập. Nếu chia dữ liệu ngẫu nhiên theo ảnh, các ảnh có cùng nguồn có thể đồng thời xuất hiện ở các tập train, validation và test. Mô hình khi đó có thể tận dụng các tín hiệu không có giá trị phân loại học, chẳng hạn màu nền, vết xước, bố cục hoặc nhiễu cảm biến, thay vì học đặc trưng giải phẫu có thể chuyển giao sang mẫu vật mới. Đây là một dạng rò rỉ thông tin theo nguồn (source-level leakage), một vấn đề đã được ghi nhận rộng rãi trong các quy trình học máy \cite{kaufman2012,roberts2021}.
+Figure~\ref{fig:traffic_jam} illustrates a representative urban traffic congestion scene in Ho Chi Minh City, highlighting extreme vehicle density and complex occlusions between passenger cars and motorcycles.
 
-\subsection{Problem Statement}
-Xét tập ảnh $\mathcal{X}=\{x_i\}_{i=1}^{M}$ và tập mẫu vật $\mathcal{S}=\{S_j\}_{j=1}^{N}$. Mỗi ảnh $x_i$ có nhãn loài $y_i$ và được ánh xạ tới một mẫu vật nguồn $s(x_i)\in\mathcal{S}$. Trong triển khai thực tế, mục tiêu là dự đoán đúng loài của ảnh đến từ một mẫu vật chưa từng được dùng trong quá trình phát triển model. Do đó, đơn vị độc lập cần được xác định là mẫu vật, không phải ảnh:
-\begin{equation}
-\mathcal{S}_{\mathrm{train}}\cap\mathcal{S}_{\mathrm{val}} =
-\mathcal{S}_{\mathrm{train}}\cap\mathcal{S}_{\mathrm{test}} =
-\mathcal{S}_{\mathrm{val}}\cap\mathcal{S}_{\mathrm{test}} = \varnothing.
-\label{eq:group_disjoint}
-\end{equation}
-Các tập ảnh được suy ra từ phép split này, ví dụ
-\begin{equation}
-\mathcal{D}_{\mathrm{train}}=\{x_i\in\mathcal{X}:s(x_i)\in\mathcal{S}_{\mathrm{train}}\}.
-\label{eq:train_from_specimen}
-\end{equation}
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\columnwidth]{fig/traffic_jam.jpg}
+\caption{Urban traffic congestion in Ho Chi Minh City, Vietnam, illustrating extreme vehicle density and severe occlusions between passenger cars and motorcycles.}
+\label{fig:traffic_jam}
+\end{figure}
 
-Điều kiện (\ref{eq:group_disjoint}) ngăn rò rỉ do cùng mẫu vật khi định danh nguồn là đúng và đầy đủ. Nó không đồng nghĩa với việc mọi ảnh ở hai tập khác nhau đều phải xa nhau trong không gian biểu diễn: hai mẫu vật khác nhau của cùng loài có thể giống nhau về mặt sinh học. Ngược lại, độ tương đồng embedding cao chỉ là tín hiệu cho thấy cần kiểm tra lại nguồn gốc hoặc ảnh gần trùng lặp, chứ không tự nó chứng minh rò rỉ. Sự phân biệt này quan trọng để tránh diễn giải sai cả hiệu năng model lẫn kết quả data audit.
+In modern urban environments, surveillance camera networks connected to public traffic portals offer high-coverage visual feeds at a fraction of the cost of physical induction loop sensors. However, transforming raw visual camera feeds into proactive city-wide traffic intelligence presents a complex multi-faceted challenge. To address this effectively, the overall urban traffic management framework is decomposed into two sequential sub-problems:
+\begin{enumerate}
+    \item \textbf{Sub-problem 1 (Camera-Level Perception):} Estimating real-time, category-specific vehicle counts (passenger cars and motorbikes) directly from individual camera feeds under complex outdoor conditions.
+    \item \textbf{Sub-problem 2 (Network-Wide Forecasting):} Forecasting future traffic flow trends across the entire interconnected urban road network over multi-step time horizons ($t+1$ to $t+6$, corresponding to 5 to 30 minutes into the future).
+\end{enumerate}
 
-\subsection{Methodological Gap}
-Phần lớn công trình nhận diện gỗ tập trung vào feature của ảnh, kiến trúc mạng hoặc loss function \cite{fabijanska2021,wu2021}. Các hướng này là cần thiết, nhưng chỉ giải quyết một phần của quy trình. Khi thông tin về mẫu vật, phiên chụp và quan hệ giữa các ảnh không được ghi nhận ngay từ khâu thu thập, việc tái lập data split và kiểm tra tính độc lập giữa các tập trở nên khó khăn. Tương tự, một split theo nhóm (group-disjoint split) chỉ đáng tin cậy khi định nghĩa nhóm được truy vết (tracked) và có thể audit.
+\subsection{Literature Review and Related Work}
 
-Vì thế, nghiên cứu này chuyển trọng tâm từ tối ưu điểm số sang xây dựng một data pipeline có thể audit (auditable data pipeline) cho việc nhận diện trên mẫu vật mới. Phương pháp được đề xuất bao phủ vòng đời dữ liệu (data lifecycle): xác định đơn vị mẫu vật; thu thập và lưu provenance metadata; tổ chức dữ liệu bằng tệp manifest; kiểm tra nhãn, trùng lặp và group integrity; sau đó mới thực hiện split, train và evaluate model. CEGS-Split là thành phần data split của quy trình này, thay vì là toàn bộ đóng góp phương pháp.
-
-\subsection{Contributions}
-Các đóng góp chính gồm:
+\subsubsection{Visual Vehicle Estimation Methods (Sub-problem 1)}
+Visual vehicle count estimation from surveillance cameras has evolved through three main computational paradigms:
 \begin{itemize}
-    \item Đề xuất \emph{Specimen-Centric Data Protocol} (SCDP), một khung tổng quát cho dữ liệu ảnh có nhiều quan sát trên cùng thực thể vật lý, bao gồm quy ước thu thập, lưu trữ, manifest truy vết, data audit và evaluation.
-    \item Xây dựng CEGS-Split, một cơ chế group-disjoint split theo nhóm nguồn, có phân tầng (stratified) theo loài và kiểm tra embedding để phát hiện các cặp cross-split có độ tương đồng cao cần được rà soát. Cơ chế này giữ nguyên toàn bộ ảnh của một mẫu vật trong duy nhất một tập (train, val hoặc test).
-    \item Tích hợp giao thức dữ liệu với bài toán nhận diện và representation learning: mọi lựa chọn model và siêu tham số được phát triển trên train--validation; tập test chỉ dùng để báo cáo cuối cùng trên các mẫu vật chưa từng xuất hiện (held-out specimens).
-    \item Thực nghiệm trên bộ dữ liệu S3 gồm 19 loài thuộc 6 chi, đồng thời định lượng độ nhạy của kết quả đối với đơn vị split dữ liệu và cung cấp benchmark cho các phương pháp phân loại, metric learning và self-supervised learning.
+    \item \textbf{Object Detection (e.g., YOLO Series \cite{yolo}):} Detectors draw bounding boxes around individual vehicles per frame. Although effective in clear lighting and low-density traffic, object detection performance degrades severely under high traffic density, heavy vehicle occlusions, rain, fog, and nighttime lighting. Furthermore, per-vehicle bounding-box detection incurs high computational overhead.
+    \item \textbf{Density Map Estimation (e.g., MCNN \cite{mcnn}, CSRNet \cite{csrnet}, CAN \cite{can}):} Fully Convolutional Networks (FCNs) map images to pixel-wise density maps, which are integrated to yield total vehicle counts. While resilient to crowd occlusions, density mapping cannot distinguish between different vehicle classes (e.g., separating motorbikes from cars) and requires labor-intensive pixel-level density annotations.
+    \item \textbf{Direct Regression via Transfer Learning:} Direct regression maps camera images directly to continuous vehicle counts per class $[\hat{c}_{\text{car}}, \hat{c}_{\text{bike}}]^T$. By utilizing a modern \textbf{ConvNeXt-Tiny} backbone \cite{convnext} pre-trained on ImageNet-1K with a custom MLP regression head, direct regression retains category breakdown (like object detection) while maintaining high stability under dense occlusions (like density mapping).
 \end{itemize}
 
-\section{Related Work}
+\subsubsection{Time-Series Traffic Flow Forecasting Methods (Sub-problem 2)}
+Early traffic forecasting relied on univariate statistical models (e.g., ARIMA \cite{arima}) or classical machine learning algorithms (e.g., Support Vector Regression SVR \cite{svr}). Modern deep learning approaches treat traffic forecasting through spatio-temporal deep neural networks \cite{dcrnn, wavenet, gman, agcrn, gnn_survey}:
+\begin{itemize}
+    \item \textbf{Sequential RNN Baselines (GCN-LSTM \cite{gcn, tgcn}):} Combine static Graph Convolutional Networks (GCN) \cite{gcn} with Recurrent Neural Networks (LSTM) or Gated Recurrent Units (GRU) \cite{tgcn}. However, sequential RNN backpropagation suffers from vanishing gradients, slow training, and an inability to parallelize across historical time windows.
+    \item \textbf{Convolutional STGNNs (Standard STGCN \cite{stgcn}):} Yu et al. \cite{stgcn} introduced STGCN, combining Chebyshev Spectral Graph Convolutions (ChebNet) \cite{chebnet} with 1D Temporal Gated Convolutions (GLU). STGCN enables rapid parallel training; however, local 1D temporal convolutions have restricted receptive fields, making it difficult to capture dynamic, non-stationary long-term temporal dependencies.
+\end{itemize}
 
-\subsection{Wood Species Identification with Computer Vision}
-Các hệ thống nhận diện gỗ truyền thống dựa vào mô tả giải phẫu hoặc đặc trưng thiết kế thủ công (handcrafted features). Các nghiên cứu gần đây chuyển sang CNN và transfer learning để trích xuất feature trực tiếp từ ảnh mặt cắt, ảnh lõi hoặc ảnh theo các mặt giải phẫu khác nhau \cite{fabijanska2021,wu2021,woodreview}. Kết quả của các nghiên cứu này cho thấy tiềm năng của deep learning, đồng thời chỉ ra sự phụ thuộc mạnh vào loại ảnh, độ phóng đại, chuẩn bị bề mặt và thành phần bộ dữ liệu. SCDP không thay thế các model đó; nó tạo điều kiện để so sánh chúng trong một bối cảnh dữ liệu được kiểm soát.
+\subsection{Problem Formulation and Inadequacy of Single-Node Forecasting}
 
-\subsection{Data Governance and Leakage-Free Evaluation}
-Rò rỉ xảy ra khi quy trình training hoặc evaluation sử dụng thông tin không hợp lệ tại thời điểm dự đoán \cite{kaufman2012}. Với dữ liệu có phép đo lặp lại, việc để cùng một nguồn xuất hiện ở nhiều tập làm vi phạm giả định độc lập của evaluation. Kinh nghiệm từ ảnh y sinh cho thấy các sai sót về thiết kế dataset, patient-level split và kiểm soát nguồn có thể dẫn đến các kết luận quá lạc quan \cite{roberts2021}. Các nguyên tắc này có thể khái quát cho ảnh gỗ: nguồn cần cô lập là mẫu vật vật lý độc lập (specimen) hoặc, nếu phù hợp với mục tiêu triển khai, một cấp nguồn rộng hơn liên quan đến lô thu thập hoặc phiên chụp.
+A critical methodological insight of this study is that \textbf{single-node independent forecasting is fundamentally inadequate for urban traffic networks}.
 
-\subsection{Representation Learning for Fine-Grained Classification}
-Deep Metric Learning tổ chức embedding sao cho các quan sát cùng lớp gần nhau và khác lớp tách biệt hơn; các loss function như ArcFace, Multi-Similarity, Circle Loss và supervised contrastive learning là những đại diện phổ biến \cite{arcface,multisimilarity,circleloss,supcon}. Self-Supervised Learning (SSL) như SimCLR, BYOL, SimSiam và Barlow Twins cũng hữu ích khi dữ liệu nhãn hạn chế \cite{simclr,byol,simsiam,barlow}. Tuy nhiên, một embedding tốt chỉ có ý nghĩa khi được đánh giá trên các nguồn chưa quan sát. Trong nghiên cứu này, representation learning là downstream model đặt sau, và tuân thủ, data governance protocol.
+If each camera location is treated as an isolated univariate time series and predicted independently (e.g., fitting a separate model per road segment), the forecasting system completely ignores spatial topological connectivity. Urban traffic flow is non-stationary and dynamic: congestion at one camera location rapidly spills over and propagates to connected downstream road segments via physical road connections and traffic bottlenecks \cite{ctm}. Predicting traffic at a single node without accounting for spatial graph topology leads to severe error propagation, particularly during peak hours or sudden traffic incidents.
+
+Therefore, effective traffic forecasting requires modeling the entire camera network as a directed weighted spatial graph $\mathcal{G} = (\mathcal{V}, \mathcal{E}, W)$, where $\mathcal{V}$ represents the set of camera nodes ($N=608$ active camera stations across Ho Chi Minh City), $\mathcal{E}$ represents directed road connections, and $W$ is a Radial Basis Function (RBF) weighted distance matrix.
+
+\subsection{Proposed TA-STGCN Framework vs. Baselines}
+To address Sub-problem 2 and overcome the receptive field limitations of prior graph architectures \cite{stgcn, astgcn, stsgcn}, we propose \textbf{TA-STGCN} (Temporal Attention-Guided Spatio-Temporal Graph Convolutional Network). TA-STGCN integrates Chebyshev Spectral Graph Convolutions ($K=3$) \cite{chebnet}, 1D Temporal Gated Convolutions (GLU), and a \emph{Model-Level Multi-Head Temporal Self-Attention} module ($h=4$ heads) \cite{attention}. By applying multi-head temporal self-attention post-ST-Conv blocks, TA-STGCN functions as a dynamic low-pass filter that effectively down-weights high-frequency non-stationary temporal noise (such as sudden traffic signal shifts or transient visual camera glitches) while modeling multi-aspect temporal dependencies (immediate momentum, hourly periodicity, and daily patterns), resulting in superior convergence stability and smooth loss optimization across historical time windows ($T_{\text{in}} = 24$ steps = 120 minutes).
+
+We evaluate TA-STGCN against two established baseline architectures:
+\begin{enumerate}
+    \item \textbf{Baseline 1 (GCN-LSTM):} Traditional sequential GNN combining 2 static GCN layers \cite{gcn} with a 2-layer LSTM ($364,198$ parameters - highest parameter capacity).
+    \item \textbf{Baseline 2 (STGCN Baseline):} Standard 3-block STGCN \cite{stgcn} without attention mechanisms ($303,846$ parameters).
+    \item \textbf{Proposed Model (TA-STGCN):} 2 ST-Conv blocks coupled with Model-Level Multi-Head Temporal Self-Attention \cite{attention} ($\mathbf{165,318 \text{ parameters}}$ - most lightweight architecture).
+\end{enumerate}
+
+\subsection{Main Contributions}
+The main contributions of this paper are summarized as follows:
+\begin{itemize}
+    \item \textbf{Comprehensive End-to-End ITS Framework:} We design a unified two-stage ITS framework that seamlessly bridges camera-level visual perception (Sub-problem 1) with network-wide spatio-temporal graph forecasting (Sub-problem 2).
+    \item \textbf{Annotated Camera Vehicle Image Dataset:} We contribute a real-world dataset of 6,000 manually annotated traffic camera images (4,000 Train, 1,000 Validation, 1,000 Test) collected across major intersections in Ho Chi Minh City, providing precise continuous count annotations for passenger cars and motorcycles under severe congestion.
+    \item \textbf{Synchronized Urban Traffic Graph Dataset:} We construct a real-world 608-node spatio-temporal traffic graph dataset harvested via automated multi-threaded API pipelines from 657 CCTV cameras on the Ho Chi Minh City Traffic Portal, paired with topological road distances and RBF-weighted adjacency matrices.
+    \item \textbf{TA-STGCN Architecture:} We design \emph{TA-STGCN}, introducing Model-Level Multi-Head Temporal Self-Attention \cite{attention} post-ST-Conv blocks to capture long-range temporal dependencies and smooth optimization trajectories without parameter inflation.
+    \item \textbf{Rigorous 5-Seed Multi-Horizon Benchmark:} We conduct comprehensive multi-seed evaluations across 5 independent random seeds ($42, 100, 2024, 777, 999$) evaluating $H=6$ forecast horizons ($t+1$ to $t+6$). TA-STGCN achieves superior forecasting accuracy ($\text{MAE} = 3.1923 \pm 0.0112$, $\text{RMSE} = 4.3435 \pm 0.0142$) while being significantly more lightweight ($165,318$ parameters) than GCN-LSTM \cite{gcn} ($364,198$ parameters) and STGCN Baseline \cite{stgcn} ($303,846$ parameters).
+\end{itemize}

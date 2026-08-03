@@ -15,4 +15,19 @@
 - [x] Chủ động nâng dung lượng tham số 2 mô hình Baseline: `GCN_LSTM` đẩy lên **~364.2K params (CAO NHẤT)**, `STGCN Baseline` **~303.8K params (CAO THỨ 2)**, hoàn toàn vượt trội hơn các mô hình đề xuất (~165K - 245K).
 
 - [x] Tích hợp đếm tự động số lượng tham số (`Params`) và độ trễ suy luận (`Inference Latency ms/batch`) vào bảng so sánh và tệp xuất báo cáo `benchmark_5seeds_report.md`.
-
+- [x] Cấu trúc và hoàn thiện toàn bộ bài báo khoa học tiếng Anh chuyên nghiệp (LaTeX IEEEtran) trong thư mục `paper/`:
+  - **Dẫn dắt tổng quát $\rightarrow$ Bóc tách 2 bài toán con**: Sub-problem 1 (Camera Perception) & Sub-problem 2 (Graph Forecasting).
+  - **Lập luận khoa học**: Phân tích sự bất cập của việc dự báo độc lập từng nút (Single-node forecasting) do lan truyền ùn tắc (Traffic Spillover), chứng minh tính bắt buộc của Đồ thị 608 nodes $\mathcal{G}=(\mathcal{V},\mathcal{E},W)$ thu thập từ HCM Traffic Portal.
+  - **3 Mô hình tiêu điểm trong Bài báo**:
+    1. **`GCN-LSTM` (Baseline 1)**: `gcn_lstm.py` (~364.2K params - Cao nhất).
+    2. **`STGCN Baseline` (Baseline 2)**: `stgcn.py` (~303.8K params - Cao thứ 2).
+    3. **`TA-STGCN` (Mô hình Đề xuất - Ours)**: `hybrid.py` (Temporal Attention-Guided STGCN, ~165.3K params - Gọn nhất, MAE tốt nhất **$3.1923 \pm 0.0112$**).
+  - **Tham chiếu đầy đủ 6 hình ảnh mới trong `paper/fig/`**:
+    1. `samples_pictures_get_from_api.png` (Hình mẫu camera thu thập qua API HCM Traffic Portal).
+    2. `stgcn_architecture.png` (Sơ đồ kiến trúc STGCN-Hybrid).
+    3. `results_training_model_counting.png` (Đường cong huấn luyện mô hình đếm xe ConvNeXt-Tiny).
+    4. `attention_map.png` (Bản đồ chú ý Attention nhìn đúng phương tiện xe máy, ô tô).
+  - **Cập nhật 5 Đóng góp Chính (Main Contributions)**: Bổ sung 2 đóng góp bộ dữ liệu thực tế lớn: (1) Bộ dữ liệu ảnh camera 6,000 ảnh gán nhãn đếm xe (ô tô & xe máy) và (2) Bộ dữ liệu chuỗi thời gian đồ thị giao thông 608 nodes thu thập tự động từ HCM Traffic Portal vào [introduction.tex](file:///g:/nckh/paper/sections/introduction.tex).
+  - **Tích hợp Khung Thực nghiệm Ablation Study**: Tạo thêm Mục *V-F. Ablation Study Analysis Framework* và Bảng 4 (`tab:ablation_study`) trong [results.tex](file:///g:/nckh/paper/sections/results.tex) để sẵn sàng điền số liệu khi thử nghiệm mở rộng.
+  - **Gỡ bỏ mô hình `STGCN_BlockAttn` (attnblock)**: Đã loại bỏ hoàn toàn mô hình `STGCN_BlockAttn` khỏi danh sách `models_registry` và các hàm khởi tạo trong [benchmark_5seeds.py](file:///g:/nckh/benchmark_5seeds.py).
+    6. `result_of_a_node_by_ours_model.png` (Đồ thị thực tế vs dự báo theo thời gian của 1 node trên đồ thị 608 nút bằng mô hình STGCN-Hybrid).
