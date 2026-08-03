@@ -7,19 +7,33 @@
 \usepackage{graphicx}
 \usepackage{textcomp}
 \usepackage{booktabs}
-\usepackage{hyperref}
 \usepackage{multirow}
 \usepackage{array}
 \usepackage{float}
 \usepackage{makecell}
 \usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage[left=0.65in, right=0.65in, top=0.75in, bottom=0.75in, columnsep=0.22in]{geometry}
+
+% Cấu hình màu sắc liên kết chuẩn phong cách bài báo IEEE (IEEE Blue)
+\definecolor{IEEEblue}{RGB}{0,51,102}
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=IEEEblue,
+    citecolor=IEEEblue,
+    urlcolor=IEEEblue,
+    pdfborder={0 0 0}
+}
 
 \begin{document}
 
-\title{A Two-Stage Framework for Urban Traffic Management: From Camera-Level Vehicle Estimation to Temporal Attention-Guided Spatio-Temporal Graph Forecasting}
+% Tiêu đề bài báo được tinh chỉnh cỡ chữ \Large \bfseries nhỏ nhắn, sang trọng và thu hút
+\title{\Large \bfseries Urban Traffic Perception and Multi-Horizon Graph Forecasting: A Two-Stage Framework via ConvNeXt Direct Regression and Temporal Attention STGCN}
 
 \author{Viet-Anh~Le
-\thanks{Viet-Anh Le is with the Posts and Telecommunications Institute of Technology (PTIT), Vietnam (e-mail: anhlv.b23kh002@stu.ptit.edu.vn).}%
+\thanks{Viet-Anh Le is with the Posts and Telecommunications Institute of Technology (PTIT), Hanoi, Vietnam (e-mail: anhlv.b23kh002@stu.ptit.edu.vn).}%
 }
 
 \maketitle
