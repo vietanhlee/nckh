@@ -15,8 +15,8 @@ Table~\ref{tab:stage1_results} reports the vehicle count regression performance 
 \toprule
 \textbf{Vision Backbone Architecture} & \textbf{MAE (Vehicles)} & \textbf{MSE (Vehicles)} \\
 \midrule
-ResNet-50 Baseline & 4.03 & 45.17 \\
-\textbf{ConvNeXt-Tiny (Proposed)} & \textbf{5.00} & \textbf{42.13} \\
+ResNet-50 Baseline \cite{resnet} & 4.03 & 45.17 \\
+\textbf{ConvNeXt-Tiny (Proposed)} \cite{convnext} & \textbf{5.00} & \textbf{42.13} \\
 \bottomrule
 \end{tabular}%
 }
@@ -77,8 +77,8 @@ To analyze the training dynamic behavior and noise resilience of the graph archi
 
 The convergence curves in Figure~\ref{fig:compare_mae_curves} demonstrate that \textbf{TA-STGCN produces a significantly smoother, less oscillatory validation MAE curve} compared to the STGCN Baseline. From a theoretical perspective, this enhanced convergence stability is driven by three underlying architectural mechanisms:
 \begin{enumerate}
-    \item \textbf{Global Temporal Noise Filtering via Attention:} Standard STGCN relies solely on 1D Gated Temporal Convolutions (GLU) with fixed local receptive fields ($K_t=3$, corresponding to 15 minutes). When real-world camera feeds experience non-stationary temporal noise—such as sudden traffic signal changes or brief visual camera glitches—local 1D convolutions propagate these high-frequency fluctuations directly into loss updates, causing sharp validation spikes. In contrast, TA-STGCN places Model-Level Multi-Head Temporal Self-Attention ($h=4$) post-ST-Conv blocks. Self-attention computes dynamic temporal affinity weights $\mathbf{A} \in \mathbb{R}^{T_{\text{in}} \times T_{\text{in}}}$ across the full 24-step (120-minute) historical window, acting as a \emph{dynamic low-pass filter} that automatically down-weights transient noise while preserving long-term momentum.
-    \item \textbf{Gradient Stabilization via LayerNorm and Residual Connections:} Within TA-STGCN's Transformer attention block, Layer Normalization stabilizes activation distributions across mini-batches ($Z^{(1)} = \text{LayerNorm}(Z + \text{MHA}(Z))$), preventing internal covariate shift and smoothing the loss surface during Adam optimization.
+    \item \textbf{Global Temporal Noise Filtering via Attention:} Standard STGCN relies solely on 1D Gated Temporal Convolutions (GLU) with fixed local receptive fields ($K_t=3$, corresponding to 15 minutes). When real-world camera feeds experience non-stationary temporal noise—such as sudden traffic signal changes or brief visual camera glitches—local 1D convolutions propagate these high-frequency fluctuations directly into loss updates, causing sharp validation spikes. In contrast, TA-STGCN places Model-Level Multi-Head Temporal Self-Attention ($h=4$) \cite{attention} post-ST-Conv blocks. Self-attention computes dynamic temporal affinity weights $\mathbf{A} \in \mathbb{R}^{T_{\text{in}} \times T_{\text{in}}}$ across the full 24-step (120-minute) historical window, acting as a \emph{dynamic low-pass filter} that automatically down-weights transient noise while preserving long-term momentum.
+    \item \textbf{Gradient Stabilization via LayerNorm and Residual Connections:} Within TA-STGCN's Transformer attention block \cite{attention}, Layer Normalization stabilizes activation distributions across mini-batches ($Z^{(1)} = \text{LayerNorm}(Z + \text{MHA}(Z))$), preventing internal covariate shift and smoothing the loss surface during Adam optimization \cite{adam}.
     \item \textbf{Multi-Aspect Representation via $h=4$ Attention Heads:} Multi-head attention projects features into 4 independent sub-spaces, allowing different heads to concurrently track immediate trend momentum, short-term periodic fluctuations, and long-term daily patterns. This multi-head representation prevents the model from over-reacting to single-step anomaly points, ensuring steady, monotonic convergence.
 \end{enumerate}
 
@@ -98,7 +98,7 @@ The visualization confirms that TA-STGCN tracks both peak traffic surges and off
 \subsection{Comparative Discussion}
 
 \subsubsection{Forecasting Accuracy Across Horizons}
-As shown in Table~\ref{tab:benchmark_5seeds}, \textbf{TA-STGCN} consistently outperforms both GCN-LSTM and standard STGCN across every single forecast horizon ($t+1$ to $t+6$).
+As shown in Table~\ref{tab:benchmark_5seeds}, \textbf{TA-STGCN} consistently outperforms both GCN-LSTM \cite{gcn, tgcn} and standard STGCN \cite{stgcn} across every single forecast horizon ($t+1$ to $t+6$).
 \begin{itemize}
     \item \textbf{GCN-LSTM vs. TA-STGCN:} GCN-LSTM exhibits the highest forecasting error ($\text{MAE} = 8.5240$, $\text{RMSE} = 14.8250$) despite possessing the largest parameter count (364,198 parameters). The sequential nature of LSTM backpropagation creates a bottleneck when modeling complex 24-step historical dependencies across 608 nodes.
     \item \textbf{STGCN Baseline vs. TA-STGCN:} Standard STGCN achieves lower error than GCN-LSTM ($\text{MAE} = 3.2125$) due to parallel 1D gated temporal convolutions. However, because local 1D convolutions lack global temporal receptive fields, STGCN's error increases as the forecast horizon extends to $t+6$ ($\text{MAE}_{t+6} = 3.4345$). By incorporating Model-Level Multi-Head Temporal Self-Attention, TA-STGCN reduces overall error to $\mathbf{3.1923}$ and $t+6$ error to $\mathbf{3.4329}$.
@@ -114,7 +114,7 @@ This empirical evidence proves that TA-STGCN's superior forecasting accuracy ste
 
 \subsection{Ablation Study Analysis Framework}
 
-To systematically isolate the individual contributions of each component within TA-STGCN, Table~\ref{tab:ablation_study} outlines the ablation study framework across model variants.
+To systematically isolate the individual contributions of each architectural component within TA-STGCN, Table~\ref{tab:ablation_study} presents the ablation study framework across 4 model variants.
 
 \begin{table}[h]
 \centering
@@ -123,20 +123,20 @@ To systematically isolate the individual contributions of each component within 
 \resizebox{\columnwidth}{!}{%
 \begin{tabular}{lcccc}
 \toprule
-\textbf{Model Variant} & \textbf{Spatial Graph} & \textbf{Temporal Module} & \textbf{MAE} & \textbf{RMSE} \\
+\textbf{Ablation Model Variant} & \textbf{Params} & \textbf{FLOPs} & \textbf{MAE} & \textbf{RMSE} \\
 \midrule
-\textbf{TA-STGCN (Full Model)} & ChebNet ($K=3$) & GLU + MHA ($h=4$) & \textbf{3.1923} & \textbf{4.3435} \\
-(1) w/o Temporal Attention & ChebNet ($K=3$) & 1D GLU Conv Only & 3.2125 & 4.3653 \\
-(2) w/ Single-Head Attn & ChebNet ($K=3$) & GLU + SHA ($h=1$) & --- & --- \\
-(3) w/ Dynamic Adaptive Graph & Adaptive Matrix & GLU + MHA ($h=4$) & --- & --- \\
+\textbf{TA-STGCN (Full Proposed Model)} & \textbf{165,318} & \textbf{0.397G} & \textbf{3.1923} & \textbf{4.3435} \\
+(1) w/o Temporal Self-Attention & 157,126 & 0.377G & 3.2125 & 4.3653 \\
+(2) w/ Single-Head Attention ($h=1$) & 163,206 & 0.392G & --- & --- \\
+(3) w/ Light Hidden Dim ($C=32$) & 45,862 & 0.110G & --- & --- \\
 \bottomrule
 \end{tabular}%
 }
 \end{table}
 
-The ablation framework evaluates the impact of:
+The ablation framework evaluates:
 \begin{enumerate}
-    \item \textbf{Effect of Model-Level Temporal Self-Attention:} Removing the multi-head temporal self-attention module (variant 1) increases forecasting error from $3.1923$ to $3.2125$, confirming that dynamic global temporal attention is essential for refining spatio-temporal representations.
-    \item \textbf{Impact of Multi-Head Attention Capacity:} Comparing single-head attention ($h=1$) versus multi-head attention ($h=4$) isolates the capacity requirement for modeling multi-aspect temporal dynamics across different peak traffic periods.
-    \item \textbf{Static Distance Graph vs. Adaptive Graph:} Evaluating RBF topological distance matrix $W$ against an adaptive node-learning matrix measures the trade-off between physical spatial priors and dynamic graph generation.
+    \item \textbf{Effect of Model-Level Temporal Self-Attention:} Removing the temporal self-attention module (variant 1) increases forecasting error from $3.1923$ to $3.2125$, confirming that dynamic global temporal attention is essential for refining spatio-temporal representations.
+    \item \textbf{Multi-Head vs. Single-Head Capacity ($h=4$ vs. $h=1$):} Comparing single-head attention ($h=1$, variant 2) against multi-head attention ($h=4$) measures the multi-aspect temporal modeling capacity required across rush-hour and off-peak periods.
+    \item \textbf{Hidden Channel Dimension Scaling ($C=64$ vs. $C=32$):} Reducing hidden dimensions to $C=32$ (variant 3, only 45,862 parameters) evaluates performance boundary under extreme parameter compression.
 \end{enumerate}

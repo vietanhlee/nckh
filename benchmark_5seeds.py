@@ -50,6 +50,29 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
+def count_flops(model, dummy_input):
+    """
+    Đếm tổng số phép tính toán FLOPs (tính bằng GFLOPs) cho 1 batch đầu vào.
+    Thử dùng thư viện thop nếu có, nếu không thì dùng công thức xấp xỉ chính xác cho GNN.
+    """
+    try:
+        import thop
+        flops, _ = thop.profile(model, inputs=(dummy_input,), verbose=False)
+        return flops / 1e9
+    except Exception:
+        params = count_parameters(model)
+        B, T, N, F = dummy_input.shape
+        approx_flops = 2 * params * T * N
+        return approx_flops / 1e9
+
+
+def measure_gpu_peak_memory(device):
+    """Đo dung lượng bộ nhớ GPU đỉnh (Peak Memory Allocation tính bằng MB)."""
+    if device.type == 'cuda':
+        return torch.cuda.max_memory_allocated(device) / (1024 * 1024)
+    return 0.0
+
+
 def measure_inference_latency(model, loader, device, max_batches=20):
     """
     Đo độ trễ suy luận (Inference Latency) trung bình trên từng batch (tính bằng miligiây ms).
@@ -459,6 +482,8 @@ def run_benchmark():
     results = {
         model_name: {
             'params': 0,
+            'flops_gflops': 0.0,
+            'peak_mem_mb': 0.0,
             'inf_latencies': [],
             'maes': [], 'rmses': [], 'mses': [],
             'step_maes': {f't{t_idx+1}': [] for t_idx in range(6)}
@@ -468,14 +493,16 @@ def run_benchmark():
     # VÒNG LẶP NGOÀI: THEO TỪNG SEED
     for seed in args.seeds:
         print(f"\n{'='*65}")
-        print(f"🌱 [SEED {seed}] BẮT ĐẦU CHẠY CẢ 5 MÔ HÌNH THỬ NGHIỆM")
+        print(f"🌱 [SEED {seed}] BẮT ĐẦU CHẠY CẢ 4 MÔ HÌNH THỬ NGHIỆM")
         print(f"{'='*65}")
 
-        # VÒNG LẶP TRONG: CHẠY LẦN LƯỢT 5 MÔ HÌNH VỚI SEED NÀY
+        # VÒNG LẶP TRONG: CHẠY LẦN LƯỢT CÁC MÔ HÌNH VỚI SEED NÀY
         for model_name, info in models_registry.items():
             cfg = info['config']
             gc.collect()
-            torch.cuda.empty_cache()
+            if device.type == 'cuda':
+                torch.cuda.reset_peak_memory_stats()
+                torch.cuda.empty_cache()
 
             train_ds = MultiStepDataset(df_train, nodes, cfg.T_IN, cfg.HORIZON)
             scaler   = {'mean': train_ds.means, 'std': train_ds.stds}
@@ -493,14 +520,22 @@ def run_benchmark():
             params_count = count_parameters(model)
             results[model_name]['params'] = params_count
 
+            # Đo FLOPs trên dummy batch
+            dummy_x, _ = next(iter(test_loader))
+            dummy_x = dummy_x.to(device)
+            gflops = count_flops(model, dummy_x)
+            results[model_name]['flops_gflops'] = gflops
+
             test_metrics = train_single_seed(
                 model_name, model, train_loader, val_loader, test_loader, cfg, device, seed,
                 use_wandb=args.use_wandb, wandb_project=args.wandb_project
             )
 
-            # Đo độ trễ suy luận (Inference Latency) ms/batch
+            # Đo độ trễ suy luận (Inference Latency) ms/batch và Peak GPU memory
             inf_latency = measure_inference_latency(model, test_loader, device)
+            peak_mem_mb = measure_gpu_peak_memory(device)
             results[model_name]['inf_latencies'].append(inf_latency)
+            results[model_name]['peak_mem_mb'] = max(results[model_name]['peak_mem_mb'], peak_mem_mb)
 
             results[model_name]['maes'].append(test_metrics['mae'])
             results[model_name]['rmses'].append(test_metrics['rmse'])
@@ -509,7 +544,7 @@ def run_benchmark():
             for t_idx in range(6):
                 results[model_name]['step_maes'][f't{t_idx+1}'].append(test_metrics[f'mae_t{t_idx+1}'])
 
-            print(f"   ▶ Seed {seed:>4} | {model_name:<18} (Params: {params_count:,} | Inf: {inf_latency:.2f}ms/batch) -> "
+            print(f"   ▶ Seed {seed:>4} | {model_name:<18} (Params: {params_count:,} | FLOPs: {gflops:.3f} GFLOPs | Inf: {inf_latency:.2f}ms | Mem: {peak_mem_mb:.1f}MB) -> "
                   f"MAE: {test_metrics['mae']:.4f} (t+1: {test_metrics['mae_t1']:.4f}, t+3: {test_metrics['mae_t3']:.4f}, t+6: {test_metrics['mae_t6']:.4f})")
 
             # Xoá mô hình khỏi GPU RAM sau mỗi lượt
@@ -527,11 +562,15 @@ def run_benchmark():
         maes, rmses, mses = res['maes'], res['rmses'], res['mses']
         inf_lats = res['inf_latencies']
         p_count = res['params']
+        flops_g = res['flops_gflops']
+        peak_mem = res['peak_mem_mb']
 
         row = {
             'Model': model_name,
             'Params': f"{p_count:,}",
+            'FLOPs (GFLOPs)': f"{flops_g:.3f}",
             'Inf Latency (ms)': f"{np.mean(inf_lats):.2f} ± {np.std(inf_lats):.2f}",
+            'Peak Mem (MB)': f"{peak_mem:.1f}",
             'MAE Overall': f"{np.mean(maes):.4f} ± {np.std(maes):.4f}",
             'MAE t+1 (5m)': f"{np.mean(res['step_maes']['t1']):.4f} ± {np.std(res['step_maes']['t1']):.4f}",
             'MAE t+2 (10m)': f"{np.mean(res['step_maes']['t2']):.4f} ± {np.std(res['step_maes']['t2']):.4f}",
