@@ -362,9 +362,9 @@ def run_benchmark():
     parser = argparse.ArgumentParser(description="Script huấn luyện 5 Seeds ngẫu nhiên cho 5 mô hình (GCN-LSTM & STGCN).")
     parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 777, 999],
                         help="Danh sách các seeds ngẫu nhiên (mặc định: 42 100 2024 777 999).")
-    parser.add_argument('--epochs', type=int, default=500,
+    parser.add_argument('--epochs', type=int, default=100,
                         help="Số epochs chạy tối đa cho mỗi seed (mặc định: 500).")
-    parser.add_argument('--patience', type=int, default=30,
+    parser.add_argument('--patience', type=int, default=20,
                         help="Số patience early stopping (mặc định: 50).")
     parser.add_argument('--batch_size', type=int, default=32,
                         help="Kích thước batch_size (mặc định: 32 tránh CUDA OOM).")
