@@ -86,7 +86,7 @@ def measure_inference_latency(model, loader, device, max_batches=20):
     return elapsed_ms / max(1, count)
 
 
-def train_single_ablation_variant(variant_name, model, train_loader, val_loader, test_loader, cfg, device, seed):
+def train_single_ablation_variant(variant_name, model, train_loader, val_loader, test_loader, cfg, device, seed, scaler):
     """Huấn luyện và đánh giá 1 biến thể Ablation Study."""
     criterion = PureHuberLoss(delta=1.0)
     weight_decay = getattr(cfg, 'WEIGHT_DECAY', 1e-4)
@@ -101,6 +101,9 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
     best_val_loss = float('inf')
     patience_counter = 0
     best_model_weights = copy.deepcopy(model.state_dict())
+
+    means = torch.tensor(scaler['mean'], device=device)
+    stds = torch.tensor(scaler['std'], device=device)
 
     print(f"\n⚡ [{variant_name}] Seed {seed} | Bắt đầu huấn luyện (Max Epochs: {cfg.EPOCHS}, Patience: {cfg.PATIENCE})...")
 
@@ -129,7 +132,10 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
                 pred = model(X_batch)
                 loss = criterion(pred, Y_batch)
                 val_loss += loss.item() * len(X_batch)
-                val_mae  += torch.abs(pred - Y_batch).mean().item() * len(X_batch)
+                
+                y_true = Y_batch * stds + means
+                y_pred = pred * stds + means
+                val_mae += torch.abs(y_pred - y_true).mean().item() * len(X_batch)
 
         val_loss /= len(val_loader.dataset)
         val_mae  /= len(val_loader.dataset)
@@ -154,38 +160,51 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
     model.load_state_dict(best_model_weights)
     model.eval()
 
-    test_mae, test_rmse, test_mse = 0.0, 0.0, 0.0
+    total_mae, total_mape, total_mse = 0.0, 0.0, 0.0
     step_maes = [0.0] * 6
-    total_samples = 0
+    step_mapes = [0.0] * 6
+    count_batches = 0
 
     with torch.no_grad():
         for X_batch, Y_batch in test_loader:
             X_batch, Y_batch = X_batch.to(device), Y_batch.to(device)
             pred = model(X_batch)
-            bs = len(X_batch)
-            total_samples += bs
 
-            err = pred - Y_batch
+            y_true = Y_batch * stds + means
+            y_pred = pred * stds + means
+
+            err = y_true - y_pred
             abs_err = torch.abs(err)
 
-            test_mae  += abs_err.mean().item() * bs
-            test_mse  += (err ** 2).mean().item() * bs
+            mask = (y_true > 0.5).float() # Mask xe > 0.5 để tránh chia cho 0
+
+            total_mae += abs_err.mean().item()
+            total_mse += (err ** 2).mean().item()
+
+            mape_batch = (abs_err / (y_true + 1e-5)) * mask
+            total_mape += mape_batch.sum().item() / max(mask.sum().item(), 1.0)
 
             for t_idx in range(6):
-                step_maes[t_idx] += abs_err[:, t_idx, :, :].mean().item() * bs
+                step_maes[t_idx] += abs_err[:, t_idx, :, :].mean().item()
+                mask_t = mask[:, t_idx, :, :]
+                step_mapes[t_idx] += (mape_batch[:, t_idx, :, :].sum().item() / max(mask_t.sum().item(), 1.0))
 
-    test_mae /= total_samples
-    test_mse /= total_samples
-    test_rmse = np.sqrt(test_mse)
-    step_maes = [s / total_samples for s in step_maes]
+            count_batches += 1
+
+    avg_mae = total_mae / max(1, count_batches)
+    avg_mape = total_mape / max(1, count_batches)
+    avg_mse = total_mse / max(1, count_batches)
+    avg_rmse = np.sqrt(avg_mse)
 
     metrics = {
-        'mae': test_mae,
-        'rmse': test_rmse,
-        'mse': test_mse
+        'mae': avg_mae,
+        'mape': avg_mape,
+        'rmse': avg_rmse,
+        'mse': avg_mse
     }
     for t_idx in range(6):
-        metrics[f'mae_t{t_idx+1}'] = step_maes[t_idx]
+        metrics[f'mae_t{t_idx+1}'] = step_maes[t_idx] / max(1, count_batches)
+        metrics[f'mape_t{t_idx+1}'] = step_mapes[t_idx] / max(1, count_batches)
 
     return metrics
 
@@ -194,7 +213,7 @@ def run_ablation_benchmark():
     parser = argparse.ArgumentParser(description="Script huấn luyện Ablation Study cho các biến thể TA-STGCN.")
     parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024],
                         help="Danh sách các seeds thử nghiệm Ablation Study.")
-    parser.add_argument('--epochs', type=int, default=100, help="Số epochs tối đa.")
+    parser.add_argument('--epochs', type=int, default=70, help="Số epochs tối đa.")
     parser.add_argument('--patience', type=int, default=20, help="Early stopping patience.")
     parser.add_argument('--batch_size', type=int, default=32, help="Kích thước batch_size.")
     parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH",
@@ -265,9 +284,10 @@ def run_ablation_benchmark():
 
     results = {
         v_name: {
-            'params': 0, 'flops_gflops': 0.0, 'inf_latencies': [],
-            'maes': [], 'rmses': [], 'mses': [],
-            'step_maes': {f't{t_idx+1}': [] for t_idx in range(6)}
+            'params': 0,
+            'maes': [], 'mapes': [], 'rmses': [], 'mses': [],
+            'step_maes': {f't{t_idx+1}': [] for t_idx in range(6)},
+            'step_mapes': {f't{t_idx+1}': [] for t_idx in range(6)}
         } for v_name in ablation_registry
     }
 
@@ -297,26 +317,21 @@ def run_ablation_benchmark():
             params_count = count_parameters(model)
             results[v_name]['params'] = params_count
 
-            dummy_x, _ = next(iter(test_loader))
-            dummy_x = dummy_x.to(device)
-            gflops = count_flops(model, dummy_x)
-            results[v_name]['flops_gflops'] = gflops
-
             test_metrics = train_single_ablation_variant(
-                v_name, model, train_loader, val_loader, test_loader, base_cfg, device, seed
+                v_name, model, train_loader, val_loader, test_loader, base_cfg, device, seed, scaler
             )
 
-            inf_latency = measure_inference_latency(model, test_loader, device)
-            results[v_name]['inf_latencies'].append(inf_latency)
             results[v_name]['maes'].append(test_metrics['mae'])
+            results[v_name]['mapes'].append(test_metrics['mape'])
             results[v_name]['rmses'].append(test_metrics['rmse'])
             results[v_name]['mses'].append(test_metrics['mse'])
 
             for t_idx in range(6):
                 results[v_name]['step_maes'][f't{t_idx+1}'].append(test_metrics[f'mae_t{t_idx+1}'])
+                results[v_name]['step_mapes'][f't{t_idx+1}'].append(test_metrics[f'mape_t{t_idx+1}'])
 
-            print(f"   ▶ Seed {seed:>4} | {v_name:<35} (Params: {params_count:,} | FLOPs: {gflops:.3f} GFLOPs) -> "
-                  f"MAE: {test_metrics['mae']:.4f}")
+            print(f"   ▶ Seed {seed:>4} | {v_name:<35} (Params: {params_count:,}) -> "
+                  f"MAE: {test_metrics['mae']:.4f} (MAPE: {test_metrics['mape']:.2%})")
 
             del model
             torch.cuda.empty_cache()
@@ -324,20 +339,23 @@ def run_ablation_benchmark():
 
     table_data = []
     for v_name, res in results.items():
-        maes, rmses = res['maes'], res['rmses']
-        inf_lats = res['inf_latencies']
+        maes, mapes, rmses = res['maes'], res['mapes'], res['rmses']
         p_count = res['params']
-        flops_g = res['flops_gflops']
 
         row = {
             'Ablation Variant': v_name,
             'Params': f"{p_count:,}",
-            'FLOPs (GFLOPs)': f"{flops_g:.3f}",
-            'Inf Latency (ms)': f"{np.mean(inf_lats):.2f} ± {np.std(inf_lats):.2f}",
             'MAE Overall': f"{np.mean(maes):.4f} ± {np.std(maes):.4f}",
+            'MAPE Overall': f"{np.mean(mapes)*100:.2f}% ± {np.std(mapes)*100:.2f}%",
             'RMSE Overall': f"{np.mean(rmses):.4f} ± {np.std(rmses):.4f}"
         }
         table_data.append(row)
+
+    summary_df = pd.DataFrame(table_data)
+    print(f"\n{'='*90}")
+    print(f"🏆 BẢNG KẾT QUẢ ABLATION STUDY (MEAN ± STD QUA {len(args.seeds)} SEEDS)")
+    print(f"{'='*90}")
+    print(summary_df.to_string(index=False))
 
     summary_df = pd.DataFrame(table_data)
     print(f"\n{'='*90}")

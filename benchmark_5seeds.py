@@ -22,6 +22,7 @@ from gcn_lstm import ImprovedGNN_LSTM, Config as GCNLSTMConfig, normalize_adj_sy
 from stgcn import STGCN_Model as Baseline_STGCN_Model, Config as BaselineConfig
 from hybrid import STGCN_Model as Hybrid_STGCN_Model, Config as HybridConfig, HuberSmoothLoss
 from stgcn_mixed_blocks import STGCN_Mixed_Model, Config as MixedConfig
+from advanced_baselines import GraphWaveNet, ASTGCN, GMAN
 
 # Import tiện ích nạp dữ liệu từ stgcn.py
 from stgcn import (
@@ -123,12 +124,14 @@ class ModelEMA:
 
 
 def evaluate_detailed(model, loader, device, scaler_stats, loss_fn=None):
-    """Đánh giá chi tiết mô hình, bao gồm MAE tại cả 6 bước thời gian t+1 đến t+6."""
+    """Đánh giá chi tiết mô hình, bao gồm MAE, MAPE tại cả 6 bước thời gian t+1 đến t+6."""
     model.eval()
     total_mae = 0
+    total_mape = 0
     total_mse = 0
     total_loss = 0
     total_step_maes = [0.0] * 6
+    total_step_mapes = [0.0] * 6
     count_batches = 0
 
     means = torch.tensor(scaler_stats['mean'], device=device)
@@ -150,12 +153,20 @@ def evaluate_detailed(model, loader, device, scaler_stats, loss_fn=None):
             err = y_true - y_pred
             abs_err = torch.abs(err)  # (B, Horizon=6, Nodes, 1)
 
+            mask = (y_true > 0.5).float() # mask nơi số lượng xe > 0.5 để tránh chia cho 0
+
             mae_val = abs_err.mean().item()
             total_mae += mae_val
+            
+            mape_batch = (abs_err / (y_true + 1e-5)) * mask
+            mape_val = mape_batch.sum().item() / max(mask.sum().item(), 1.0)
+            total_mape += mape_val
 
-            # MAE tại từng mốc bước thời gian từ t+1 đến t+6 (index 0 đến 5)
+            # MAE và MAPE tại từng mốc bước thời gian từ t+1 đến t+6 (index 0 đến 5)
             for t_idx in range(6):
                 total_step_maes[t_idx] += abs_err[:, t_idx, :, :].mean().item()
+                mask_t = mask[:, t_idx, :, :]
+                total_step_mapes[t_idx] += (mape_batch[:, t_idx, :, :].sum().item() / max(mask_t.sum().item(), 1.0))
 
             sq_err = err ** 2
             total_mse += sq_err.mean().item()
@@ -163,27 +174,31 @@ def evaluate_detailed(model, loader, device, scaler_stats, loss_fn=None):
             count_batches += 1
 
             # Dọn dẹp GPU Memory tức thì cho batch vừa tính
-            del X, Y, pred, y_true, y_pred, err, abs_err
+            del X, Y, pred, y_true, y_pred, err, abs_err, mask, mape_batch
 
     if count_batches == 0:
-        res = {'mae': 9999.0, 'mse': 9999.0, 'rmse': 9999.0, 'loss': 9999.0}
+        res = {'mae': 9999.0, 'mape': 9999.0, 'mse': 9999.0, 'rmse': 9999.0, 'loss': 9999.0}
         for t_idx in range(6):
             res[f'mae_t{t_idx+1}'] = 9999.0
+            res[f'mape_t{t_idx+1}'] = 9999.0
         return res
 
     avg_mae = total_mae / count_batches
+    avg_mape = total_mape / count_batches
     avg_mse = total_mse / count_batches
     avg_loss = total_loss / count_batches
     avg_rmse = np.sqrt(avg_mse)
 
     res = {
         'mae': avg_mae,
+        'mape': avg_mape,
         'mse': avg_mse,
         'rmse': avg_rmse,
         'loss': avg_loss
     }
     for t_idx in range(6):
         res[f'mae_t{t_idx+1}'] = total_step_maes[t_idx] / count_batches
+        res[f'mape_t{t_idx+1}'] = total_step_mapes[t_idx] / count_batches
 
     return res
 
@@ -247,6 +262,7 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
     best_val_mae = float('inf')
     patience_cnt = 0
     checkpoint_path = os.path.join(cfg.SAVE_DIR, f"temp_{model_name}_seed_{seed}.pth")
+    val_mae_history = []
 
     pbar = tqdm(range(cfg.EPOCHS), desc=f" Seed: {seed:>4} | {model_name:<18}", leave=False)
     for ep in pbar:
@@ -292,6 +308,7 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
         val_mae = val_metrics['mae']
         val_loss = val_metrics['loss']
         avg_train_loss = total_loss / len(train_loader)
+        val_mae_history.append(val_mae)
 
         if lr_scheduler is not None:
             lr_scheduler.step(val_loss)
@@ -307,7 +324,8 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
                     'val_mae': val_mae,
                     'val_mae_t1': val_metrics['mae_t1'],
                     'val_mae_t3': val_metrics['mae_t3'],
-                    'val_mae_t6': val_metrics['mae_t6']
+                    'val_mae_t6': val_metrics['mae_t6'],
+                    'val_mape': val_metrics['mape']
                 })
             except Exception:
                 pass
@@ -325,6 +343,7 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
     # Tải checkpoint tốt nhất và đánh giá chi tiết trên tập Test
     model.load_state_dict(torch.load(checkpoint_path))
     test_metrics = evaluate_detailed(model, test_loader, device, scaler_stats, loss_fn=loss_fn)
+    test_metrics['val_mae_history'] = val_mae_history
 
     # Log chỉ số Test cuối cùng lên WandB và đóng Run
     if wandb_run is not None:
@@ -339,7 +358,8 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
                 'test_mae_t3': test_metrics['mae_t3'],
                 'test_mae_t4': test_metrics['mae_t4'],
                 'test_mae_t5': test_metrics['mae_t5'],
-                'test_mae_t6': test_metrics['mae_t6']
+                'test_mae_t6': test_metrics['mae_t6'],
+                'test_mape': test_metrics['mape']
             })
             wandb.finish()
         except Exception:
@@ -362,7 +382,7 @@ def run_benchmark():
     parser = argparse.ArgumentParser(description="Script huấn luyện 5 Seeds ngẫu nhiên cho 5 mô hình (GCN-LSTM & STGCN).")
     parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 777, 999],
                         help="Danh sách các seeds ngẫu nhiên (mặc định: 42 100 2024 777 999).")
-    parser.add_argument('--epochs', type=int, default=100,
+    parser.add_argument('--epochs', type=int, default=70,
                         help="Số epochs chạy tối đa cho mỗi seed (mặc định: 500).")
     parser.add_argument('--patience', type=int, default=20,
                         help="Số patience early stopping (mặc định: 50).")
@@ -380,7 +400,7 @@ def run_benchmark():
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"============================================================")
-    print(f"🚀 CHẠY BENCHMARK {len(args.seeds)} SEEDS CHO 5 MÔ HÌNH (GCN-LSTM + 4 STGCN)")
+    print(f"🚀 CHẠY BENCHMARK {len(args.seeds)} SEEDS (Bao gồm Graph WaveNet, ASTGCN, GMAN)")
     print(f"   Device        : {device}")
     print(f"   Seeds         : {args.seeds}")
     print(f"   Epochs        : {args.epochs}")
@@ -475,6 +495,27 @@ def run_benchmark():
                 L_tilde=L_tilde, num_heads=cfg.ATTN_NUM_HEADS, dropout=cfg.DROPOUT,
                 use_final_attention=cfg.USE_FINAL_ATTENTION
             )
+        },
+        'Graph_WaveNet': {
+            'class': GraphWaveNet,
+            'config': stgcn_cfg,
+            'build_fn': lambda cfg: GraphWaveNet(
+                num_nodes=len(nodes), in_dim=4, out_dim=1, blocks=4, layers=2, horizon=cfg.HORIZON
+            )
+        },
+        'ASTGCN': {
+            'class': ASTGCN,
+            'config': stgcn_cfg,
+            'build_fn': lambda cfg: ASTGCN(
+                num_nodes=len(nodes), in_channels=4, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=64, L_tilde=L_tilde
+            )
+        },
+        'GMAN': {
+            'class': GMAN,
+            'config': stgcn_cfg,
+            'build_fn': lambda cfg: GMAN(
+                num_nodes=len(nodes), in_channels=4, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=64, heads=4, num_blocks=1
+            )
         }
     }
 
@@ -485,8 +526,10 @@ def run_benchmark():
             'flops_gflops': 0.0,
             'peak_mem_mb': 0.0,
             'inf_latencies': [],
-            'maes': [], 'rmses': [], 'mses': [],
-            'step_maes': {f't{t_idx+1}': [] for t_idx in range(6)}
+            'maes': [], 'mapes': [], 'rmses': [], 'mses': [],
+            'step_maes': {f't{t_idx+1}': [] for t_idx in range(6)},
+            'step_mapes': {f't{t_idx+1}': [] for t_idx in range(6)},
+            'val_mae_histories': []
         } for model_name in models_registry
     }
 
@@ -520,32 +563,27 @@ def run_benchmark():
             params_count = count_parameters(model)
             results[model_name]['params'] = params_count
 
-            # Đo FLOPs trên dummy batch
-            dummy_x, _ = next(iter(test_loader))
-            dummy_x = dummy_x.to(device)
-            gflops = count_flops(model, dummy_x)
-            results[model_name]['flops_gflops'] = gflops
-
             test_metrics = train_single_seed(
                 model_name, model, train_loader, val_loader, test_loader, cfg, device, seed,
                 use_wandb=args.use_wandb, wandb_project=args.wandb_project
             )
 
-            # Đo độ trễ suy luận (Inference Latency) ms/batch và Peak GPU memory
-            inf_latency = measure_inference_latency(model, test_loader, device)
+            # Đo Peak GPU memory
             peak_mem_mb = measure_gpu_peak_memory(device)
-            results[model_name]['inf_latencies'].append(inf_latency)
             results[model_name]['peak_mem_mb'] = max(results[model_name]['peak_mem_mb'], peak_mem_mb)
 
             results[model_name]['maes'].append(test_metrics['mae'])
+            results[model_name]['mapes'].append(test_metrics['mape'])
             results[model_name]['rmses'].append(test_metrics['rmse'])
             results[model_name]['mses'].append(test_metrics['mse'])
+            results[model_name]['val_mae_histories'].append(test_metrics['val_mae_history'])
 
             for t_idx in range(6):
                 results[model_name]['step_maes'][f't{t_idx+1}'].append(test_metrics[f'mae_t{t_idx+1}'])
+                results[model_name]['step_mapes'][f't{t_idx+1}'].append(test_metrics[f'mape_t{t_idx+1}'])
 
-            print(f"   ▶ Seed {seed:>4} | {model_name:<18} (Params: {params_count:,} | FLOPs: {gflops:.3f} GFLOPs | Inf: {inf_latency:.2f}ms | Mem: {peak_mem_mb:.1f}MB) -> "
-                  f"MAE: {test_metrics['mae']:.4f} (t+1: {test_metrics['mae_t1']:.4f}, t+3: {test_metrics['mae_t3']:.4f}, t+6: {test_metrics['mae_t6']:.4f})")
+            print(f"   ▶ Seed {seed:>4} | {model_name:<18} (Params: {params_count:,} | Mem: {peak_mem_mb:.1f}MB) -> "
+                  f"MAE: {test_metrics['mae']:.4f} (MAPE: {test_metrics['mape']:.2%})")
 
             # Xoá mô hình khỏi GPU RAM sau mỗi lượt
             del model
@@ -554,12 +592,12 @@ def run_benchmark():
 
     # Tổng hợp báo cáo Markdown
     print(f"\n{'='*110}")
-    print(f"🏆 BẢNG KẾT QUẢ TỔNG HỢP (PARAMS, INFERENCE LATENCY & MAE 6 BƯỚC HORIZON MEAN ± STD QUA {len(args.seeds)} SEEDS)")
+    print(f"🏆 BẢNG KẾT QUẢ TỔNG HỢP (PARAMS & MAE/MAPE MEAN ± STD QUA {len(args.seeds)} SEEDS)")
     print(f"{'='*110}")
 
     table_data = []
     for model_name, res in results.items():
-        maes, rmses, mses = res['maes'], res['rmses'], res['mses']
+        maes, mapes, rmses, mses = res['maes'], res['mapes'], res['rmses'], res['mses']
         inf_lats = res['inf_latencies']
         p_count = res['params']
         flops_g = res['flops_gflops']
@@ -568,18 +606,14 @@ def run_benchmark():
         row = {
             'Model': model_name,
             'Params': f"{p_count:,}",
-            'FLOPs (GFLOPs)': f"{flops_g:.3f}",
-            'Inf Latency (ms)': f"{np.mean(inf_lats):.2f} ± {np.std(inf_lats):.2f}",
             'Peak Mem (MB)': f"{peak_mem:.1f}",
             'MAE Overall': f"{np.mean(maes):.4f} ± {np.std(maes):.4f}",
-            'MAE t+1 (5m)': f"{np.mean(res['step_maes']['t1']):.4f} ± {np.std(res['step_maes']['t1']):.4f}",
-            'MAE t+2 (10m)': f"{np.mean(res['step_maes']['t2']):.4f} ± {np.std(res['step_maes']['t2']):.4f}",
-            'MAE t+3 (15m)': f"{np.mean(res['step_maes']['t3']):.4f} ± {np.std(res['step_maes']['t3']):.4f}",
-            'MAE t+4 (20m)': f"{np.mean(res['step_maes']['t4']):.4f} ± {np.std(res['step_maes']['t4']):.4f}",
-            'MAE t+5 (25m)': f"{np.mean(res['step_maes']['t5']):.4f} ± {np.std(res['step_maes']['t5']):.4f}",
-            'MAE t+6 (30m)': f"{np.mean(res['step_maes']['t6']):.4f} ± {np.std(res['step_maes']['t6']):.4f}",
-            'RMSE': f"{np.mean(rmses):.4f} ± {np.std(rmses):.4f}",
-            'MSE': f"{np.mean(mses):.4f} ± {np.std(mses):.4f}"
+            'MAPE Overall': f"{np.mean(mapes)*100:.2f}% ± {np.std(mapes)*100:.2f}%",
+            'MAE t+1': f"{np.mean(res['step_maes']['t1']):.4f}",
+            'MAE t+3': f"{np.mean(res['step_maes']['t3']):.4f}",
+            'MAE t+6': f"{np.mean(res['step_maes']['t6']):.4f}",
+            'RMSE': f"{np.mean(rmses):.4f}",
+            'MSE': f"{np.mean(mses):.4f}"
         }
         table_data.append(row)
 
@@ -589,25 +623,55 @@ def run_benchmark():
     # Ghi báo cáo ra file benchmark_5seeds_report.md
     report_path = "benchmark_5seeds_report.md"
     with open(report_path, "w", encoding="utf-8") as f:
-        f.write(f"# 📊 Báo cáo Thực nghiệm {len(args.seeds)} Seeds Ngẫu nhiên (Bao gồm Params & Inference Latency)\n\n")
+        f.write(f"# 📊 Báo cáo Thực nghiệm {len(args.seeds)} Seeds Ngẫu nhiên\n\n")
         f.write(f"- **Seeds sử dụng**: `{args.seeds}`\n")
         f.write(f"- **Tập dữ liệu**: Train 80%, Val 10% (ở giữa), Test 10% (ở cuối)\n")
         f.write(f"- **Cấu hình**: Epochs={args.epochs}, Patience={args.patience}, Batch Size={args.batch_size}\n")
-        f.write(f"- **Ghi chú về số lượng tham số**: Hai mô hình Baseline (`GCN_LSTM` & `STGCN Baseline`) được chủ động nâng dung lượng tham số (~245K - 303K params) cao hơn hoặc bằng các mô hình đề xuất (~165K - 245K params) để chứng minh hiệu quả vượt trội của cơ chế Attention thời gian không xuất phát từ việc phình to tham số (Brute-force parameter scaling).\n\n")
+        f.write(f"- **Advanced Baselines Added**: Graph WaveNet, ASTGCN, GMAN. Các model này được chọn số block/channel sao cho dung lượng tham số tiệm cận hoặc cao hơn STGCN để so sánh công bằng.\n\n")
         f.write("## 🏆 Bảng Kết quả So sánh Tổng quan\n\n")
         f.write(summary_df.to_markdown(index=False))
         f.write("\n\n---\n\n## 📝 Chi tiết Metrics thô theo từng Seed\n\n")
         for model_name, res in results.items():
             f.write(f"### 🔹 {model_name}\n")
             f.write(f"- **Trainable Parameters**: {res['params']:,}\n")
-            f.write(f"- **Inference Latency (ms/batch)**: {res['inf_latencies']}\n")
             f.write(f"- **MAE Overall**: {res['maes']}\n")
+            f.write(f"- **MAPE Overall**: {res['mapes']}\n")
             for t_idx in range(6):
                 f.write(f"- **MAE t+{t_idx+1} ({(t_idx+1)*5}m)**: {res['step_maes'][f't{t_idx+1}']}\n")
             f.write(f"- **RMSE Overall**: {res['rmses']}\n")
             f.write(f"- **MSE Overall**: {res['mses']}\n\n")
 
     print(f"\n📑 Đã lưu báo cáo chi tiết vào tệp: {report_path}")
+
+    # Plot Validation MAE curves
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(12, 7))
+    
+    for model_name, res in results.items():
+        histories = res['val_mae_histories']
+        if not histories: continue
+        
+        max_len = max(len(h) for h in histories)
+        padded_histories = []
+        for h in histories:
+            if len(h) < max_len:
+                h = h + [h[-1]] * (max_len - len(h))
+            padded_histories.append(h)
+            
+        mean_curve = np.mean(padded_histories, axis=0)
+        plt.plot(range(1, max_len + 1), mean_curve, label=model_name, linewidth=2)
+        
+    plt.xlabel('Epoch')
+    plt.ylabel('Validation MAE')
+    plt.title('Validation MAE Convergence Curves (Average over Seeds)')
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    
+    os.makedirs('plots', exist_ok=True)
+    plot_path = os.path.join('plots', 'val_mae_benchmark.png')
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"📈 Đã lưu biểu đồ đường cong Validation MAE vào: {plot_path}")
 
 
 if __name__ == "__main__":
