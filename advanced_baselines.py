@@ -153,7 +153,7 @@ class GraphWaveNet(nn.Module):
             x = x + residual[:, :, :, -x.size(3):]
             x = self.bn[i](x)
 
-        x = F.relu(skip)
+        x = F.relu(skip[:, :, :, -1:])
         x = F.relu(self.end_conv_1(x))
         x = self.end_conv_2(x) # (B, horizon*out_dim, N, 1)
         x = x.squeeze(-1) # (B, horizon*out_dim, N)
