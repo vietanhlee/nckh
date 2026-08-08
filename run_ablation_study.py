@@ -107,7 +107,8 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
 
     print(f"\n⚡ [{variant_name}] Seed {seed} | Bắt đầu huấn luyện (Max Epochs: {cfg.EPOCHS}, Patience: {cfg.PATIENCE})...")
 
-    for epoch in range(1, cfg.EPOCHS + 1):
+    pbar = tqdm(range(1, cfg.EPOCHS + 1), desc=f" Seed: {seed:>4} | {variant_name:<32}", leave=False)
+    for epoch in pbar:
         model.train()
         train_loss = 0.0
         for X_batch, Y_batch in train_loader:
@@ -149,11 +150,10 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
         else:
             patience_counter += 1
 
-        if epoch % 50 == 0 or patience_counter == cfg.PATIENCE:
-            print(f"   Epoch {epoch:>3d}/{cfg.EPOCHS} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Val MAE: {val_mae:.4f}")
+        pbar.set_postfix(loss=f"{train_loss:.4f}", val_mae=f"{val_mae:.4f}")
 
         if patience_counter >= cfg.PATIENCE:
-            print(f"🛑 [Early Stopping] Dừng ở Epoch {epoch} dựa trên Validation Loss.")
+            print(f"   🛑 [Early Stopping] Dừng ở Epoch {epoch} dựa trên Validation Loss.")
             break
 
     # Load trọng số tốt nhất để đánh giá trên Test set
