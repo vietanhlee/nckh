@@ -178,10 +178,16 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
             best_val_loss = val_loss
             patience_counter = 0
             best_model_weights = copy.deepcopy(model.state_dict())
+            is_best_str = " (⭐ Best)"
         else:
             patience_counter += 1
+            is_best_str = ""
 
         pbar.set_postfix(loss=f"{train_loss:.4f}", val_mae=f"{val_mae:.4f}")
+
+        # In log ra terminal/Kaggle mỗi 10 epoch hoặc khi có Best Model mới
+        if epoch % 10 == 0 or epoch == 1 or is_best_str != "":
+            print(f"   └─ Epoch {epoch:>2d}/{cfg.EPOCHS} | Train Loss: {train_loss:.4f} | Val MAE: {val_mae:.4f}{is_best_str}", flush=True)
 
         if wandb_run is not None:
             try:
@@ -196,7 +202,7 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
                 pass
 
         if patience_counter >= cfg.PATIENCE:
-            print(f"   🛑 [Early Stopping] Dừng ở Epoch {epoch} dựa trên Validation Loss.")
+            print(f"   🛑 [Early Stopping] Dừng ở Epoch {epoch} dựa trên Validation Loss.", flush=True)
             break
 
     # Load trọng số tốt nhất để đánh giá trên Test set
