@@ -27,6 +27,15 @@ from stgcn import (
 )
 
 load_dotenv()
+api_key = os.getenv("WANDB_API_KEY")
+use_wandb_default = False
+if api_key:
+    try:
+        import wandb
+        wandb.login(key=api_key)
+        use_wandb_default = True
+    except Exception as e:
+        print(f"⚠️ WandB login lỗi: {e}")
 
 def set_seed(seed):
     """Cố định seed ngẫu nhiên đảm bảo tính lặp lại (Reproducibility)."""
@@ -86,7 +95,7 @@ def measure_inference_latency(model, loader, device, max_batches=20):
     return elapsed_ms / max(1, count)
 
 
-def train_single_ablation_variant(variant_name, model, train_loader, val_loader, test_loader, cfg, device, seed, scaler):
+def train_single_ablation_variant(variant_name, model, train_loader, val_loader, test_loader, cfg, device, seed, scaler, use_wandb=False, wandb_project="NCKH-Ablation-Study"):
     """Huấn luyện và đánh giá 1 biến thể Ablation Study."""
     criterion = PureHuberLoss(delta=1.0)
     weight_decay = getattr(cfg, 'WEIGHT_DECAY', 1e-4)
@@ -104,6 +113,28 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
 
     means = torch.tensor(scaler['mean'], device=device)
     stds = torch.tensor(scaler['std'], device=device)
+
+    wandb_run = None
+    if use_wandb:
+        try:
+            import wandb
+            project_name = os.getenv('WANDB_PROJECT', wandb_project)
+            wandb_run = wandb.init(
+                project=project_name,
+                name=f"Ablation_{variant_name}_seed_{seed}",
+                config={
+                    'variant_name': variant_name,
+                    'seed': seed,
+                    'epochs': cfg.EPOCHS,
+                    'batch_size': cfg.BATCH_SIZE,
+                    'learning_rate': cfg.LEARNING_RATE,
+                    'patience': cfg.PATIENCE
+                },
+                reinit=True
+            )
+        except Exception as e:
+            print(f"⚠️ Không thể khởi tạo WandB cho {variant_name} (Seed {seed}): {e}")
+            wandb_run = None
 
     print(f"\n⚡ [{variant_name}] Seed {seed} | Bắt đầu huấn luyện (Max Epochs: {cfg.EPOCHS}, Patience: {cfg.PATIENCE})...")
 
@@ -151,6 +182,18 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
             patience_counter += 1
 
         pbar.set_postfix(loss=f"{train_loss:.4f}", val_mae=f"{val_mae:.4f}")
+
+        if wandb_run is not None:
+            try:
+                import wandb
+                wandb.log({
+                    'epoch': epoch,
+                    'train_loss': train_loss,
+                    'val_loss': val_loss,
+                    'val_mae': val_mae
+                })
+            except Exception:
+                pass
 
         if patience_counter >= cfg.PATIENCE:
             print(f"   🛑 [Early Stopping] Dừng ở Epoch {epoch} dựa trên Validation Loss.")
@@ -206,6 +249,21 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
         metrics[f'mae_t{t_idx+1}'] = step_maes[t_idx] / max(1, count_batches)
         metrics[f'mape_t{t_idx+1}'] = step_mapes[t_idx] / max(1, count_batches)
 
+    if wandb_run is not None:
+        try:
+            import wandb
+            wandb.log({
+                'test_mae': avg_mae,
+                'test_mape': avg_mape,
+                'test_rmse': avg_rmse,
+                'test_mae_t1': metrics['mae_t1'],
+                'test_mae_t3': metrics['mae_t3'],
+                'test_mae_t6': metrics['mae_t6']
+            })
+            wandb.finish()
+        except Exception:
+            pass
+
     return metrics
 
 
@@ -218,7 +276,14 @@ def run_ablation_benchmark():
     parser.add_argument('--batch_size', type=int, default=32, help="Kích thước batch_size.")
     parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH",
                         help="Thư mục gốc chứa dữ liệu.")
+    parser.add_argument('--use_wandb', action='store_true', default=use_wandb_default,
+                        help="Tự động log kết quả lên WandB (nếu có API key).")
+    parser.add_argument('--no_wandb', action='store_true', help="Tắt log WandB.")
+    parser.add_argument('--wandb_project', type=str, default="NCKH-Ablation-Study",
+                        help="Tên WandB project.")
     args = parser.parse_args()
+
+    use_wandb = args.use_wandb and not args.no_wandb
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -318,7 +383,8 @@ def run_ablation_benchmark():
             results[v_name]['params'] = params_count
 
             test_metrics = train_single_ablation_variant(
-                v_name, model, train_loader, val_loader, test_loader, base_cfg, device, seed, scaler
+                v_name, model, train_loader, val_loader, test_loader, base_cfg, device, seed, scaler,
+                use_wandb=use_wandb, wandb_project=args.wandb_project
             )
 
             results[v_name]['maes'].append(test_metrics['mae'])

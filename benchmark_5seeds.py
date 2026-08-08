@@ -394,8 +394,8 @@ def run_benchmark():
                         help="Tự động khởi tạo và ghi log lên WandB (mặc định: True).")
     parser.add_argument('--no_wandb', dest='use_wandb', action='store_false',
                         help="Tắt ghi log WandB.")
-    parser.add_argument('--wandb_project', type=str, default="STGCN_NCKH_Benchmark",
-                        help="Tên project trên WandB (mặc định: STGCN_NCKH_Benchmark).")
+    parser.add_argument('--wandb_project', type=str, default="NCKH-Benmark-5Seed",
+                        help="Tên project trên WandB (mặc định: NCKH-Benmark-5Seed).")
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
