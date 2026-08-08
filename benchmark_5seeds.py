@@ -264,12 +264,12 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
     checkpoint_path = os.path.join(cfg.SAVE_DIR, f"temp_{model_name}_seed_{seed}.pth")
     val_mae_history = []
 
-    pbar = tqdm(range(cfg.EPOCHS), desc=f" Seed: {seed:>4} | {model_name:<18}", leave=False)
-    for ep in pbar:
+    for ep in range(1, cfg.EPOCHS + 1):
         model.train()
         total_loss = 0
 
-        for X, Y in train_loader:
+        pbar = tqdm(train_loader, desc=f"   Epoch {ep:02d}/{cfg.EPOCHS}", leave=False)
+        for X, Y in pbar:
             X, Y = X.to(device), Y.to(device)
             x_last = X[:, -1, :, :1].unsqueeze(1) if model_name == "STGCN_Hybrid" else None
 
@@ -294,6 +294,7 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
                 ema.update(model)
 
             total_loss += loss.item()
+            pbar.set_postfix(loss=f"{loss.item():.4f}")
             del X, Y, pred, loss
 
         # Đánh giá trên tập Validation
@@ -313,12 +314,24 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
         if lr_scheduler is not None:
             lr_scheduler.step(val_loss)
 
+        if val_mae < best_val_mae:
+            best_val_mae = val_mae
+            patience_cnt = 0
+            save_state = ema.shadow if ema is not None else model.state_dict()
+            torch.save(save_state, checkpoint_path)
+            is_best_str = " -> Saved Best"
+        else:
+            patience_cnt += 1
+            is_best_str = ""
+
+        print(f"Ep {ep:02d}/{cfg.EPOCHS} | Loss: {avg_train_loss:.4f} / {val_loss:.4f} | Val MAE: {val_mae:.2f}{is_best_str}")
+
         # Log tiến trình từng epoch sang WandB
         if wandb_run is not None:
             try:
                 import wandb
                 wandb.log({
-                    'epoch': ep + 1,
+                    'epoch': ep,
                     'train_loss': avg_train_loss,
                     'val_loss': val_loss,
                     'val_mae': val_mae,
@@ -330,15 +343,9 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
             except Exception:
                 pass
 
-        if val_mae < best_val_mae:
-            best_val_mae = val_mae
-            patience_cnt = 0
-            save_state = ema.shadow if ema is not None else model.state_dict()
-            torch.save(save_state, checkpoint_path)
-        else:
-            patience_cnt += 1
-            if patience_cnt >= cfg.PATIENCE:
-                break
+        if patience_cnt >= cfg.PATIENCE:
+            print(f"🛑 Early Stopping tại epoch {ep}")
+            break
 
     # Tải checkpoint tốt nhất và đánh giá chi tiết trên tập Test
     model.load_state_dict(torch.load(checkpoint_path))
