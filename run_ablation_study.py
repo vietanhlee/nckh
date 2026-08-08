@@ -138,11 +138,11 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
 
     print(f"\n⚡ [{variant_name}] Seed {seed} | Bắt đầu huấn luyện (Max Epochs: {cfg.EPOCHS}, Patience: {cfg.PATIENCE})...")
 
-    pbar = tqdm(range(1, cfg.EPOCHS + 1), desc=f" Seed: {seed:>4} | {variant_name:<32}", leave=False)
-    for epoch in pbar:
+    for epoch in range(1, cfg.EPOCHS + 1):
         model.train()
         train_loss = 0.0
-        for X_batch, Y_batch in train_loader:
+        pbar = tqdm(train_loader, desc=f"   Epoch {epoch:02d}/{cfg.EPOCHS}", leave=False)
+        for X_batch, Y_batch in pbar:
             X_batch, Y_batch = X_batch.to(device), Y_batch.to(device)
             optimizer.zero_grad()
             pred = model(X_batch)
@@ -151,6 +151,7 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
             train_loss += loss.item() * len(X_batch)
+            pbar.set_postfix(loss=f"{loss.item():.4f}")
 
         train_loss /= len(train_loader.dataset)
 
@@ -178,16 +179,12 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
             best_val_loss = val_loss
             patience_counter = 0
             best_model_weights = copy.deepcopy(model.state_dict())
-            is_best_str = " (⭐ Best)"
+            is_best_str = " -> Saved Best"
         else:
             patience_counter += 1
             is_best_str = ""
 
-        pbar.set_postfix(loss=f"{train_loss:.4f}", val_mae=f"{val_mae:.4f}")
-
-        # In log ra terminal/Kaggle mỗi 10 epoch hoặc khi có Best Model mới
-        if epoch % 10 == 0 or epoch == 1 or is_best_str != "":
-            print(f"   └─ Epoch {epoch:>2d}/{cfg.EPOCHS} | Train Loss: {train_loss:.4f} | Val MAE: {val_mae:.4f}{is_best_str}", flush=True)
+        print(f"Ep {epoch:02d}/{cfg.EPOCHS} | Loss: {train_loss:.4f} / {val_loss:.4f} | Val MAE: {val_mae:.2f}{is_best_str}")
 
         if wandb_run is not None:
             try:
@@ -202,7 +199,7 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
                 pass
 
         if patience_counter >= cfg.PATIENCE:
-            print(f"   🛑 [Early Stopping] Dừng ở Epoch {epoch} dựa trên Validation Loss.", flush=True)
+            print(f"🛑 Early Stopping tại epoch {epoch}")
             break
 
     # Load trọng số tốt nhất để đánh giá trên Test set
