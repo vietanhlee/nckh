@@ -321,7 +321,7 @@ def run_ablation_benchmark():
                 num_nodes=len(nodes), in_feat=4, block_hidden=64,
                 num_blocks=2, T_in=cfg.T_IN, cheb_K=3, horizon=cfg.HORIZON,
                 output_feat=1, L_tilde=L_tilde, dropout=0.1,
-                use_temporal_attention=True, attn_num_heads=4, attn_dropout=0.1
+                use_temporal_attention=True, attn_num_heads=2, attn_dropout=0.1
             )
         },
         'TA-STGCN w/o Temporal Attention': {
@@ -329,7 +329,7 @@ def run_ablation_benchmark():
                 num_nodes=len(nodes), in_feat=4, block_hidden=64,
                 num_blocks=2, T_in=cfg.T_IN, cheb_K=3, horizon=cfg.HORIZON,
                 output_feat=1, L_tilde=L_tilde, dropout=0.1,
-                use_temporal_attention=False, attn_num_heads=4, attn_dropout=0.1
+                use_temporal_attention=False, attn_num_heads=2, attn_dropout=0.1
             )
         },
         'TA-STGCN w/ Single-Head Attn (h=1)': {
@@ -345,7 +345,7 @@ def run_ablation_benchmark():
                 num_nodes=len(nodes), in_feat=4, block_hidden=32,
                 num_blocks=2, T_in=cfg.T_IN, cheb_K=3, horizon=cfg.HORIZON,
                 output_feat=1, L_tilde=L_tilde, dropout=0.1,
-                use_temporal_attention=True, attn_num_heads=4, attn_dropout=0.1
+                use_temporal_attention=True, attn_num_heads=2, attn_dropout=0.1
             )
         }
     }
@@ -426,17 +426,11 @@ def run_ablation_benchmark():
     print(f"{'='*90}")
     print(summary_df.to_string(index=False))
 
-    summary_df = pd.DataFrame(table_data)
-    print(f"\n{'='*90}")
-    print(f"🏆 BẢNG KẾT QUẢ ABLATION STUDY (MEAN ± STD QUA {len(args.seeds)} SEEDS)")
-    print(f"{'='*90}")
-    print(summary_df.to_string(index=False))
-
     report_path = "ablation_study_report.md"
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(f"# 🧪 Báo cáo Thực nghiệm Ablation Study ({len(args.seeds)} Seeds)\n\n")
         f.write(f"- **Seeds**: `{args.seeds}`\n")
-        f.write(f"- **Mô hình gốc**: TA-STGCN (2 ST-Conv blocks, $C=64$, $h=4$ heads)\n\n")
+        f.write(f"- **Mô hình gốc**: TA-STGCN (2 ST-Conv blocks, $C=64$, $h=2$ heads)\n\n")
         f.write("## 🏆 Bảng Kết quả So sánh Ablation Study\n\n")
         f.write(summary_df.to_markdown(index=False))
 
