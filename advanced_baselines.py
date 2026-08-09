@@ -297,8 +297,8 @@ class ASTGCN(nn.Module):
         cheb_poly = [p.to(x.device) for p in self.cheb_polynomials]
         for block in self.blocks:
             x = block(x, cheb_poly)
-        # x: (B, N, C_out, T)
-        x = x.transpose(1, 3) # (B, T, N, C_out)
+        # x: (B, N, C_out, T) -> permute to (B, T, N, C_out)
+        x = x.permute(0, 3, 1, 2) # (B, T, N, C_out)
         out = self.final_conv(x).squeeze(-1) # (B, horizon, N)
         return out.unsqueeze(-1) # (B, horizon, N, 1)
 
