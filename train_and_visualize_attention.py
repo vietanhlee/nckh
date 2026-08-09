@@ -11,15 +11,21 @@ from hybrid import CFG, load_adj_from_excel, compute_scaled_laplacian, load_time
 from hybrid import MultiStepDataset, STGCN_Model, HuberSmoothLoss, optim
 from hybrid import train_one_epoch
 
+import argparse
+
 def train_and_visualize():
+    parser = argparse.ArgumentParser(description="Trích xuất và vẽ ma trận Temporal Attention cho 5 khung giờ đặc trưng.")
+    parser.add_argument('--epochs', type=int, default=100, help="Số epochs huấn luyện (mặc định: 100).")
+    args = parser.parse_args()
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Device: {device}")
+    print(f"⚡ Device: {device} | Max Epochs: {args.epochs}")
 
     # 1. Load data
     A_raw, nodes = load_adj_from_excel(CFG.ADJ_PATH)
     L_tilde = compute_scaled_laplacian(A_raw)
     
-    print("Loading data...")
+    print("Loading dataset...")
     df_all = load_timeseries_double_rolling(CFG.CSV_PATH, nodes, CFG.DATA_WINDOW1, CFG.DATA_WINDOW2, CFG.TIME_STEP_MINUTES)
     
     n_total = len(df_all)
@@ -55,20 +61,18 @@ def train_and_visualize():
     # Train or load weights
     model_path = CFG.FULL_SAVE_PATH
     if os.path.exists(model_path):
-        print(f"Loading pre-trained model from {model_path} for visualization...")
+        print(f"Loading pre-trained model checkpoint from {model_path}...")
         model.load_state_dict(torch.load(model_path, map_location=device))
     else:
-        print("Training model for 2 epochs just for visualization (since weights not found)...")
-        print("To get a perfect heatmap, please train the model fully using run_training() first.")
+        print(f"Training model for {args.epochs} epochs for high-quality attention visualization...")
         optimizer = optim.AdamW(model.parameters(), lr=CFG.LEARNING_RATE)
         loss_fn = HuberSmoothLoss(delta=CFG.LOSS_DELTA, smooth_weight=CFG.SMOOTH_LOSS_WEIGHT)
         scaler_obj = torch.cuda.amp.GradScaler() if torch.cuda.is_available() else None
         
-        for epoch in range(2):
-            print(f"Epoch {epoch+1}/2...")
-            # For CPU, bypass amp grad scaler
+        for epoch in range(1, args.epochs + 1):
             if scaler_obj is None:
                 model.train()
+                total_loss = 0.0
                 for X, Y in train_loader:
                     X, Y = X.to(device), Y.to(device)
                     x_last = X[:, -1, :, :1].unsqueeze(1)
@@ -77,8 +81,13 @@ def train_and_visualize():
                     loss = loss_fn(pred, Y, x_last)
                     loss.backward()
                     optimizer.step()
+                    total_loss += loss.item()
+                if epoch % 10 == 0 or epoch == 1:
+                    print(f"   Epoch {epoch:03d}/{args.epochs} | Loss: {total_loss/len(train_loader):.4f}")
             else:
                 train_one_epoch(model, train_loader, optimizer, loss_fn, device, scaler_obj, scaler)
+                if epoch % 10 == 0 or epoch == 1:
+                    print(f"   Epoch {epoch:03d}/{args.epochs} completed.")
         
         os.makedirs(os.path.dirname(model_path), exist_ok=True)
         torch.save(model.state_dict(), model_path)
@@ -88,33 +97,33 @@ def train_and_visualize():
     attention_weights = None
     def hook_fn(module, input, output):
         nonlocal attention_weights
-        # nn.MultiheadAttention returns (attn_output, attn_output_weights)
         attention_weights = output[1].detach().cpu().numpy() # Shape: (B*N, T_in, T_in)
         
-    # Register the hook on the MultiheadAttention layer
     model.temporal_attn.attn.register_forward_hook(hook_fn)
     model.eval()
     
-    # 4. Find peak and off-peak times from test set
-    peak_idx = -1
-    offpeak_idx = -1
-    
+    # 4. Tìm 5 khung giờ đặc trưng trong tập Test
+    periods = {
+        'Night_OffPeak': {'range': (2.0, 4.0), 'title': 'Night Off-Peak (02:00 - 04:00)', 'idx': -1},
+        'Morning_Peak': {'range': (7.5, 9.5), 'title': 'Morning Peak (07:30 - 09:30)', 'idx': -1},
+        'Noon_Normal': {'range': (11.5, 13.5), 'title': 'Noon Normal (11:30 - 13:30)', 'idx': -1},
+        'Evening_Peak': {'range': (16.5, 18.5), 'title': 'Evening Peak (16:30 - 18:30)', 'idx': -1},
+        'Late_Evening': {'range': (21.0, 23.0), 'title': 'Late Evening (21:00 - 23:00)', 'idx': -1}
+    }
+
     for i in range(len(test_ds)):
-        hour = test_ds.time_feats[i, -1] * 24
-        # 17:00 - 18:00
-        if 17 <= hour <= 18 and peak_idx == -1:
-            peak_idx = i
-        # 02:00 - 03:00
-        if 2 <= hour <= 3 and offpeak_idx == -1:
-            offpeak_idx = i
-            
-        if peak_idx != -1 and offpeak_idx != -1:
-            break
-            
-    if peak_idx == -1: peak_idx = 0
-    if offpeak_idx == -1: offpeak_idx = len(test_ds) // 2
-    
-    # 5. Extract attention heatmaps for Peak, Off-Peak, and Difference
+        hour = test_ds.time_feats[i, -1] * 24.0
+        for pkey, pinfo in periods.items():
+            if pinfo['idx'] == -1:
+                low, high = pinfo['range']
+                if low <= hour <= high:
+                    pinfo['idx'] = i
+
+    # Fallback nếu khung giờ nào không tìm thấy chính xác
+    for pkey, pinfo in periods.items():
+        if pinfo['idx'] == -1:
+            pinfo['idx'] = len(test_ds) // 2
+
     def get_attn_matrix(idx):
         X, Y = test_ds[idx]
         X_tensor = torch.tensor(X).unsqueeze(0).to(device)
@@ -122,82 +131,71 @@ def train_and_visualize():
             model(X_tensor)
         return np.mean(attention_weights, axis=0) # (T_in, T_in)
 
-    attn_peak = get_attn_matrix(peak_idx)
-    attn_offpeak = get_attn_matrix(offpeak_idx)
-    attn_diff = attn_peak - attn_offpeak
-
-    # Labels cho trục thời gian (từ -120 phút đến -5 phút)
+    # Labels thời gian chuẩn (-120m đến -5m)
     time_ticks = [f"-{(24-i)*5}m" for i in range(0, 24, 3)]
     tick_indices = list(range(0, 24, 3))
-
     os.makedirs(CFG.PLOT_DIR, exist_ok=True)
 
-    # A. Vẽ ảnh đơn lẻ cho Peak và Off-Peak
-    def save_single_heatmap(attn_mat, label, title, cmap='viridis'):
+    # A. Lưu 5 file ảnh đơn lẻ sắc nét
+    attn_matrices = {}
+    for pkey, pinfo in periods.items():
+        attn_mat = get_attn_matrix(pinfo['idx'])
+        attn_matrices[pkey] = attn_mat
+
         plt.figure(figsize=(9, 7))
-        ax = sns.heatmap(attn_mat, cmap=cmap, annot=False, cbar_kws={'label': 'Attention Weight'})
-        plt.title(title, fontsize=13, fontweight='bold', pad=12)
-        plt.xlabel('Historical Key Steps (Past Mins)', fontsize=11)
-        plt.ylabel('Query Time Steps (Current Mins)', fontsize=11)
-        plt.xticks(tick_indices, time_ticks, rotation=0)
+        sns.heatmap(attn_mat, cmap='viridis', annot=False, cbar_kws={'label': 'Attention Weight'})
+        plt.title(f"Global Temporal Attention Heatmap\n{pinfo['title']}", fontsize=13, fontweight='bold', pad=12)
+        plt.xlabel('Historical Key Steps (Past Mins)', fontsize=11, labelpad=8)
+        plt.ylabel('Query Time Steps (Current Mins)', fontsize=11, labelpad=8)
+        plt.xticks(tick_indices, time_ticks, rotation=45, ha='right')
         plt.yticks(tick_indices, time_ticks, rotation=0)
-        save_path = os.path.join(CFG.PLOT_DIR, f'attention_heatmap_{label.lower()}.png')
+        
+        save_path = os.path.join(CFG.PLOT_DIR, f'attention_heatmap_{pkey.lower()}.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.close()
-        print(f"📊 Saved heatmap for {label} at {save_path}")
+        print(f"📊 Saved single heatmap for {pkey} at {save_path}")
 
-    save_single_heatmap(attn_peak, 'Peak_Hour', 'Temporal Attention Heatmap (Peak Hour: 17:00 - 18:00)')
-    save_single_heatmap(attn_offpeak, 'OffPeak_Hour', 'Temporal Attention Heatmap (Off-Peak Hour: 02:00 - 03:00)')
+    # B. Vẽ bức ảnh tổng hợp 5 Subplots chuẩn IEEE (1 row x 5 columns)
+    fig, axes = plt.subplots(1, 5, figsize=(32, 6))
 
-    # B. Vẽ ảnh ghép 3 Subplots chuẩn IEEE Paper (Peak vs Off-Peak vs Difference)
-    fig, axes = plt.subplots(1, 3, figsize=(22, 6))
-
-    sns.heatmap(attn_peak, ax=axes[0], cmap='viridis', cbar_kws={'label': 'Weight'})
-    axes[0].set_title('(a) Peak Hour Attention (17:00 - 18:00)', fontsize=12, fontweight='bold')
-    axes[0].set_xlabel('Historical Key Steps', fontsize=10)
-    axes[0].set_ylabel('Current Query Steps', fontsize=10)
-    axes[0].set_xticks(tick_indices)
-    axes[0].set_xticklabels(time_ticks)
-    axes[0].set_yticks(tick_indices)
-    axes[0].set_yticklabels(time_ticks)
-
-    sns.heatmap(attn_offpeak, ax=axes[1], cmap='viridis', cbar_kws={'label': 'Weight'})
-    axes[1].set_title('(b) Off-Peak Attention (02:00 - 03:00)', fontsize=12, fontweight='bold')
-    axes[1].set_xlabel('Historical Key Steps', fontsize=10)
-    axes[1].set_ylabel('Current Query Steps', fontsize=10)
-    axes[1].set_xticks(tick_indices)
-    axes[1].set_xticklabels(time_ticks)
-    axes[1].set_yticks(tick_indices)
-    axes[1].set_yticklabels(time_ticks)
-
-    sns.heatmap(attn_diff, ax=axes[2], cmap='coolwarm', center=0, cbar_kws={'label': 'Δ Weight'})
-    axes[2].set_title('(c) Difference (Peak - Off-Peak)', fontsize=12, fontweight='bold')
-    axes[2].set_xlabel('Historical Key Steps', fontsize=10)
-    axes[2].set_ylabel('Current Query Steps', fontsize=10)
-    axes[2].set_xticks(tick_indices)
-    axes[2].set_xticklabels(time_ticks)
-    axes[2].set_yticks(tick_indices)
-    axes[2].set_yticklabels(time_ticks)
+    for idx, (pkey, pinfo) in enumerate(periods.items()):
+        attn_mat = attn_matrices[pkey]
+        ax = axes[idx]
+        sns.heatmap(attn_mat, ax=ax, cmap='viridis', cbar_kws={'label': 'Weight'} if idx == 4 else None)
+        ax.set_title(f"({chr(97+idx)}) {pinfo['title']}", fontsize=11, fontweight='bold')
+        ax.set_xlabel('Historical Key Steps', fontsize=10, labelpad=6)
+        if idx == 0:
+            ax.set_ylabel('Current Query Steps', fontsize=10, labelpad=6)
+        else:
+            ax.set_ylabel('')
+        ax.set_xticks(tick_indices)
+        ax.set_xticklabels(time_ticks, rotation=45, ha='right')
+        ax.set_yticks(tick_indices)
+        ax.set_yticklabels(time_ticks)
 
     plt.tight_layout()
-    comparison_path = os.path.join(CFG.PLOT_DIR, 'attention_heatmap_comparison.png')
-    plt.savefig(comparison_path, dpi=300, bbox_inches='tight')
+    grid_path = os.path.join(CFG.PLOT_DIR, 'attention_heatmap_5periods_grid.png')
+    grid_pdf_path = os.path.join(CFG.PLOT_DIR, 'attention_heatmap_5periods_grid.pdf')
+    plt.savefig(grid_path, dpi=300, bbox_inches='tight')
+    plt.savefig(grid_pdf_path, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"🖼️ Saved 3-subplot IEEE comparison figure at {comparison_path}")
+    print(f"🖼️ Saved 5-period IEEE grid comparison figure at {grid_path} and {grid_pdf_path}")
 
-    # C. Trích xuất thống kê định lượng (Quantitative Statistics)
-    recent_peak = np.mean(attn_peak[:, -4:]) # 20 phút gần nhất (t-4 đến t)
-    longterm_peak = np.mean(attn_peak[:, :12]) # 60-120 phút trước
+    # C. Trích xuất thống kê định lượng cho cả 5 khung giờ
+    print("\n" + "="*85)
+    print("📈 BẢNG TỔNG HỢP THỐNG KÊ ĐỊNH LƯỢNG TEMPORAL ATTENTION WEIGHTS (5 KHUNG GIỜ)")
+    print("="*85)
+    print(f"{'Khung Giờ (Time Period)':<35} | {'Recent (last 20m)':<18} | {'Long-term (60-120m)':<18} | {'Ratio':<6}")
+    print("-" * 85)
 
-    recent_offpeak = np.mean(attn_offpeak[:, -4:])
-    longterm_offpeak = np.mean(attn_offpeak[:, :12])
+    for pkey, pinfo in periods.items():
+        amat = attn_matrices[pkey]
+        recent = np.mean(amat[:, -4:])
+        longterm = np.mean(amat[:, :12])
+        ratio = recent / max(longterm, 1e-6)
+        print(f"{pinfo['title']:<35} | {recent:<18.4f} | {longterm:<18.4f} | {ratio:<6.2f}x")
 
-    print("\n" + "="*70)
-    print("📈 KẾT QUẢ PHÂN TÍCH ĐỊNH LƯỢNG TEMPORAL ATTENTION WEIGHTS")
-    print("="*70)
-    print(f"🔴 Peak Hour   | Recent (last 20m): {recent_peak:.4f} | Long-term (60-120m): {longterm_peak:.4f} | Ratio: {recent_peak/longterm_peak:.2f}x")
-    print(f"🔵 Off-Peak    | Recent (last 20m): {recent_offpeak:.4f} | Long-term (60-120m): {longterm_offpeak:.4f} | Ratio: {recent_offpeak/longterm_offpeak:.2f}x")
-    print("="*70)
+    print("="*85)
 
 if __name__ == "__main__":
     train_and_visualize()
