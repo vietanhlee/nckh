@@ -389,8 +389,8 @@ def run_benchmark():
     parser = argparse.ArgumentParser(description="Script huấn luyện 5 Seeds ngẫu nhiên cho 5 mô hình (GCN-LSTM & STGCN).")
     parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 777, 999],
                         help="Danh sách các seeds ngẫu nhiên (mặc định: 42 100 2024 777 999).")
-    parser.add_argument('--epochs', type=int, default=70,
-                        help="Số epochs chạy tối đa cho mỗi seed (mặc định: 500).")
+    parser.add_argument('--epochs', type=int, default=80,
+                        help="Số epochs chạy tối đa cho mỗi seed (mặc định: 80).")
     parser.add_argument('--patience', type=int, default=20,
                         help="Số patience early stopping (mặc định: 50).")
     parser.add_argument('--batch_size', type=int, default=32,
@@ -462,8 +462,29 @@ def run_benchmark():
 
     print(f"   - Dataset size: Train={len(df_train)}, Val={len(df_val)}, Test={len(df_test)}")
 
-    # Đăng ký thử nghiệm các mô hình (GCN_LSTM chạy đầu tiên)
+    # Đăng ký thử nghiệm các mô hình (Các mô hình Advanced Baselines được chạy trước để phát hiện lỗi sớm)
     models_registry = {
+        'Graph_WaveNet': {
+            'class': GraphWaveNet,
+            'config': stgcn_cfg,
+            'build_fn': lambda cfg: GraphWaveNet(
+                num_nodes=len(nodes), in_dim=4, out_dim=1, blocks=4, layers=2, horizon=cfg.HORIZON
+            )
+        },
+        'ASTGCN': {
+            'class': ASTGCN,
+            'config': stgcn_cfg,
+            'build_fn': lambda cfg: ASTGCN(
+                num_nodes=len(nodes), in_channels=4, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=64, L_tilde=L_tilde
+            )
+        },
+        'GMAN': {
+            'class': GMAN,
+            'config': stgcn_cfg,
+            'build_fn': lambda cfg: GMAN(
+                num_nodes=len(nodes), in_channels=4, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=64, heads=4, num_blocks=1
+            )
+        },
         'GCN_LSTM': {
             'class': ImprovedGNN_LSTM,
             'config': gcn_lstm_cfg,
@@ -501,27 +522,6 @@ def run_benchmark():
                 T_in=cfg.T_IN, cheb_K=cfg.CHEB_K, horizon=cfg.HORIZON, output_feat=1,
                 L_tilde=L_tilde, num_heads=cfg.ATTN_NUM_HEADS, dropout=cfg.DROPOUT,
                 use_final_attention=cfg.USE_FINAL_ATTENTION
-            )
-        },
-        'Graph_WaveNet': {
-            'class': GraphWaveNet,
-            'config': stgcn_cfg,
-            'build_fn': lambda cfg: GraphWaveNet(
-                num_nodes=len(nodes), in_dim=4, out_dim=1, blocks=4, layers=2, horizon=cfg.HORIZON
-            )
-        },
-        'ASTGCN': {
-            'class': ASTGCN,
-            'config': stgcn_cfg,
-            'build_fn': lambda cfg: ASTGCN(
-                num_nodes=len(nodes), in_channels=4, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=64, L_tilde=L_tilde
-            )
-        },
-        'GMAN': {
-            'class': GMAN,
-            'config': stgcn_cfg,
-            'build_fn': lambda cfg: GMAN(
-                num_nodes=len(nodes), in_channels=4, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=64, heads=4, num_blocks=1
             )
         }
     }

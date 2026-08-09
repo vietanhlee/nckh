@@ -187,8 +187,8 @@ class SpatialAttention(nn.Module):
 
     def forward(self, x):
         # x: (B, N, C, T)
-        lhs = torch.matmul(torch.matmul(x, self.W1), self.W2) # (B, N, T)
-        rhs = torch.matmul(self.W3, x).transpose(1, 2) # (B, T, N)
+        lhs = torch.einsum('bnct,t,ct->bnt', x, self.W1, self.W2) # (B, N, T)
+        rhs = torch.einsum('c,bnct->btn', self.W3, x) # (B, T, N)
         product = torch.matmul(lhs, rhs) # (B, N, N)
         S = torch.matmul(self.Vs, torch.sigmoid(product + self.bs)) # (B, N, N)
         S = F.softmax(S, dim=-1)
@@ -213,8 +213,8 @@ class TemporalAttention(nn.Module):
 
     def forward(self, x):
         # x: (B, N, C, T)
-        lhs = torch.matmul(torch.matmul(x.transpose(1, 3), self.U1), self.U2) # (B, T, N)
-        rhs = torch.matmul(self.U3, x.transpose(1, 2)) # (B, N, T)
+        lhs = torch.einsum('bnct,n,cn->btn', x, self.U1, self.U2) # (B, T, N)
+        rhs = torch.einsum('c,bnct->bnt', self.U3, x) # (B, N, T)
         product = torch.matmul(lhs, rhs) # (B, T, T)
         E = torch.matmul(self.Ve, torch.sigmoid(product + self.be)) # (B, T, T)
         E = F.softmax(E, dim=-1)
@@ -294,8 +294,9 @@ class ASTGCN(nn.Module):
     def forward(self, x):
         # x: (B, T, N, F) -> (B, N, F, T)
         x = x.permute(0, 2, 3, 1)
+        cheb_poly = [p.to(x.device) for p in self.cheb_polynomials]
         for block in self.blocks:
-            x = block(x, self.cheb_polynomials)
+            x = block(x, cheb_poly)
         # x: (B, N, C_out, T)
         x = x.transpose(1, 3) # (B, T, N, C_out)
         out = self.final_conv(x).squeeze(-1) # (B, horizon, N)
