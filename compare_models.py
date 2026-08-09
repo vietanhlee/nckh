@@ -52,7 +52,7 @@ def main():
                         help="Chế độ chạy: 'train' (huấn luyện mới cả 7 mô hình từ đầu rồi so sánh) hoặc 'eval' (chỉ tải checkpoint và đánh giá).")
     parser.add_argument('--epochs', type=int, default=None,
                         help="Số lượng epochs chạy thử nghiệm nếu chọn chế độ 'train' (mặc định lấy theo Config của từng mô hình).")
-    parser.add_argument('--root_dir', type=str, default="/content/drive/MyDrive/GRAPH/",
+    parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH/",
                         help="Đường dẫn thư mục gốc chứa dữ liệu và lưu checkpoint.")
     args = parser.parse_args()
 
