@@ -225,6 +225,13 @@ def train_and_visualize():
         cmp_pdf = os.path.join(CFG.PLOT_DIR, f'attention_comparison_{pkey.lower()}.pdf')
         plt.savefig(cmp_png, dpi=300, bbox_inches='tight')
         plt.savefig(cmp_pdf, dpi=300, bbox_inches='tight')
+
+        # Ngoài ra cũng lưu trực tiếp vào thư mục paper/fig nếu tồn tại
+        paper_fig_dir = os.path.join('paper', 'fig')
+        if os.path.exists(paper_fig_dir):
+            plt.savefig(os.path.join(paper_fig_dir, f'attention_comparison_{pkey.lower()}.pdf'), dpi=300, bbox_inches='tight')
+            plt.savefig(os.path.join(paper_fig_dir, f'attention_comparison_{pkey.lower()}.png'), dpi=300, bbox_inches='tight')
+
         plt.close()
         print(f"🖼️ Saved 3-subplot comparison for {pkey} at {cmp_png} and {cmp_pdf}")
 
