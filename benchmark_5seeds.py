@@ -680,6 +680,77 @@ def run_benchmark():
     plt.close()
     print(f"📈 Đã lưu biểu đồ đường cong Validation MAE vào: {plot_path}")
 
+    # Plot Error Growth by Horizon (t+1 to t+6: 5 min to 30 min ahead)
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+
+    x_steps = np.array([1, 2, 3, 4, 5, 6])
+    x_labels = [f"t+{t}\n({t*5}m)" for t in x_steps]
+
+    colors = {
+        'STGCN_Hybrid': '#d62728',       # Bold Red / Ours
+        'STGCN_MixedBlocks': '#ff7f0e',
+        'STGCN (Baseline)': '#1f77b4',
+        'GCN_LSTM': '#7f7f7f',
+        'Graph_WaveNet': '#2ca02c',
+        'ASTGCN': '#9467bd',
+        'GMAN': '#8c564b'
+    }
+    markers = {
+        'STGCN_Hybrid': 'o',
+        'STGCN_MixedBlocks': 's',
+        'STGCN (Baseline)': '^',
+        'GCN_LSTM': 'x',
+        'Graph_WaveNet': 'D',
+        'ASTGCN': 'v',
+        'GMAN': 'p'
+    }
+
+    # Left Subplot: MAE by Horizon
+    for model_name, res in results.items():
+        step_maes_mean = [np.mean(res['step_maes'][f't{t}']) for t in range(1, 7)]
+        color = colors.get(model_name, '#333333')
+        marker = markers.get(model_name, 'o')
+        linewidth = 2.5 if 'Hybrid' in model_name or 'Ours' in model_name else 1.5
+        linestyle = '-' if 'Hybrid' in model_name or 'Ours' in model_name else '--'
+        
+        axes[0].plot(x_steps, step_maes_mean, label=model_name, color=color, 
+                     marker=marker, linewidth=linewidth, linestyle=linestyle, markersize=7)
+
+    axes[0].set_xlabel('Prediction Horizon (Minutes Ahead)', fontsize=11, fontweight='bold')
+    axes[0].set_ylabel('Mean Absolute Error (MAE)', fontsize=11, fontweight='bold')
+    axes[0].set_title('(a) MAE Growth across Prediction Horizons', fontsize=12, fontweight='bold')
+    axes[0].set_xticks(x_steps)
+    axes[0].set_xticklabels(x_labels)
+    axes[0].grid(True, linestyle='--', alpha=0.6)
+    axes[0].legend(fontsize=9, loc='upper left')
+
+    # Right Subplot: MAPE by Horizon (%)
+    for model_name, res in results.items():
+        step_mapes_mean = [np.mean(res['step_mapes'][f't{t}']) * 100 for t in range(1, 7)]
+        color = colors.get(model_name, '#333333')
+        marker = markers.get(model_name, 'o')
+        linewidth = 2.5 if 'Hybrid' in model_name or 'Ours' in model_name else 1.5
+        linestyle = '-' if 'Hybrid' in model_name or 'Ours' in model_name else '--'
+        
+        axes[1].plot(x_steps, step_mapes_mean, label=model_name, color=color, 
+                     marker=marker, linewidth=linewidth, linestyle=linestyle, markersize=7)
+
+    axes[1].set_xlabel('Prediction Horizon (Minutes Ahead)', fontsize=11, fontweight='bold')
+    axes[1].set_ylabel('Mean Absolute Percentage Error (MAPE %)', fontsize=11, fontweight='bold')
+    axes[1].set_title('(b) MAPE Growth across Prediction Horizons', fontsize=12, fontweight='bold')
+    axes[1].set_xticks(x_steps)
+    axes[1].set_xticklabels(x_labels)
+    axes[1].grid(True, linestyle='--', alpha=0.6)
+    axes[1].legend(fontsize=9, loc='upper left')
+
+    plt.tight_layout()
+    horizon_png_path = os.path.join('plots', 'error_by_horizon.png')
+    horizon_pdf_path = os.path.join('plots', 'error_by_horizon.pdf')
+    plt.savefig(horizon_png_path, dpi=300, bbox_inches='tight')
+    plt.savefig(horizon_pdf_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"📉 Đã lưu biểu đồ tăng trưởng sai số Error by Horizon vào: {horizon_png_path} và {horizon_pdf_path}")
+
 
 if __name__ == "__main__":
     run_benchmark()
