@@ -165,7 +165,7 @@ def train_and_visualize():
         plt.close()
         print(f"📊 Saved single heatmap for {pkey} at {save_path}")
 
-    # B. Tạo 4 bức ảnh so sánh chuẩn 3-Subplot (Target vs Night Off-Peak vs Difference)
+    # B. Tạo 4 phiên bản so sánh (Mỗi phiên bản gồm 3 ảnh đơn lẻ + 1 ảnh ghép 3-Subplot)
     targets_to_compare = ['Morning_Peak', 'Noon_Normal', 'Evening_Peak', 'Late_Evening']
 
     for pkey in targets_to_compare:
@@ -173,6 +173,21 @@ def train_and_visualize():
         attn_target = attn_matrices[pkey]
         attn_diff = attn_target - attn_offpeak
 
+        # B1. Lưu ảnh Difference Heatmap đơn lẻ
+        plt.figure(figsize=(9, 7))
+        sns.heatmap(attn_diff, cmap='coolwarm', center=0, annot=False, cbar_kws={'label': 'Δ Attention Weight'})
+        plt.title(f"Temporal Attention Difference Heatmap\n{pinfo['title']} vs. Night Off-Peak", fontsize=13, fontweight='bold', pad=12)
+        plt.xlabel('Historical Key Steps (Past Mins)', fontsize=11, labelpad=8)
+        plt.ylabel('Query Time Steps (Current Mins)', fontsize=11, labelpad=8)
+        plt.xticks(tick_indices, time_ticks, rotation=45, ha='right')
+        plt.yticks(tick_indices, time_ticks, rotation=0)
+        
+        diff_single_png = os.path.join(CFG.PLOT_DIR, f'attention_difference_{pkey.lower()}.png')
+        plt.savefig(diff_single_png, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"📊 Saved single difference heatmap for {pkey} at {diff_single_png}")
+
+        # B2. Lưu ảnh ghép 3-Subplot (a: Target, b: Off-Peak, c: Difference)
         fig, axes = plt.subplots(1, 3, figsize=(22, 6))
 
         # (a) Target Period
