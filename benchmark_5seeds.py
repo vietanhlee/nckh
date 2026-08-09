@@ -372,15 +372,20 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
         except Exception:
             pass
 
-    # Xoá file checkpoint tạm và giải phóng bộ nhớ GPU
+    # Xoá file checkpoint tạm và giải phóng bộ nhớ GPU triệt để
     if os.path.exists(checkpoint_path):
         os.remove(checkpoint_path)
 
-    del optimizer, grad_scaler
+    try:
+        model.cpu()
+    except Exception:
+        pass
+
+    del model, optimizer, grad_scaler
     if ema is not None:
         del ema
-    torch.cuda.empty_cache()
     gc.collect()
+    torch.cuda.empty_cache()
 
     return test_metrics
 
@@ -563,6 +568,10 @@ def run_benchmark():
             train_loader = DataLoader(train_ds, batch_size=cfg.BATCH_SIZE, shuffle=True)
             val_loader   = DataLoader(val_ds, batch_size=eval_batch_size)
             test_loader  = DataLoader(test_ds, batch_size=eval_batch_size)
+
+            # Dọn dẹp GPU cache trước khi build mô hình mới
+            gc.collect()
+            torch.cuda.empty_cache()
 
             model = info['build_fn'](cfg).to(device)
 

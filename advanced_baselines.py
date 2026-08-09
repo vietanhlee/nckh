@@ -356,10 +356,14 @@ class GMANBlock(nn.Module):
     def forward(self, x):
         # x: (B, T, N, E)
         B, T, N, E = x.shape
-        # Spatial Attention
-        x_s = x.reshape(B*T, N, E)
-        out_s = self.spatial_attention(x_s, x_s, x_s)
-        x = self.norm1(x + out_s.reshape(B, T, N, E))
+        # Spatial Attention: loop over time steps T to save 24x peak GPU memory
+        out_s_list = []
+        for t in range(T):
+            x_st = x[:, t, :, :] # (B, N, E)
+            out_st = self.spatial_attention(x_st, x_st, x_st) # (B, N, E)
+            out_s_list.append(out_st)
+        out_s = torch.stack(out_s_list, dim=1) # (B, T, N, E)
+        x = self.norm1(x + out_s)
         
         # Temporal Attention
         x_t = x.transpose(1, 2).reshape(B*N, T, E)
