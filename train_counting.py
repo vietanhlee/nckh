@@ -24,8 +24,8 @@ import timm
 # =====================================================================
 class Config:
     # 📂 Đường dẫn tệp CSV nhãn và thư mục ảnh
-    CSV_FILE = "/kaggle/input/datasets/canhdoo/nckh-traffic/train_resnet/labels1.csv"
-    IMAGE_DIR = "/kaggle/input/datasets/canhdoo/nckh-traffic/train_resnet/images"
+    CSV_FILE = "/kaggle/input/datasets/canhdoo/csv-images/traffic_update.csv"
+    IMAGE_DIR = "/kaggle/input/datasets/canhdoo/lane-vehicle/images"
 
     # 🏗️ Danh sách họ mô hình cần chạy benchmark: 'resnet', 'efficientnet', 'convnext'
     MODELS = ['resnet', 'efficientnet', 'convnext']
@@ -55,11 +55,96 @@ def set_seed(seed):
 
 
 class VehicleDataset(Dataset):
-    """Dataset nạp ảnh giao thông và nhãn đếm phương tiện (Ô tô & Xe máy)."""
+    """Dataset nạp ảnh giao thông và nhãn đếm phương tiện (Ô tô & Xe máy) an toàn tuyệt đối."""
     def __init__(self, csv_file, image_dir, transform=None):
-        self.data = pd.read_csv(csv_file)
         self.image_dir = image_dir
         self.transform = transform
+        
+        if not os.path.exists(csv_file):
+            raise FileNotFoundError(f"❌ File CSV nhãn không tồn tại: {csv_file}")
+        if not os.path.exists(image_dir):
+            raise FileNotFoundError(f"❌ Thư mục ảnh không tồn tại: {image_dir}")
+
+        raw_df = pd.read_csv(csv_file)
+        raw_count = len(raw_df)
+
+        # 1. Tự động xác định tên cột filename
+        fn_col = None
+        for c in ['filename', 'file_name', 'image', 'image_name', 'img', 'name']:
+            if c in raw_df.columns:
+                fn_col = c
+                break
+        if fn_col is None:
+            fn_col = raw_df.columns[0] # Mặc định chọn cột đầu tiên
+
+        # 2. Tự động xác định tên cột Xe máy và Ô tô (Hỗ trợ định dạng header: filename,xe_may,o_to)
+        moto_col = None
+        for c in ['xe_may', 'xemay', 'motorcycle', 'motorcycles', 'motorbike', 'motor']:
+            if c in raw_df.columns:
+                moto_col = c
+                break
+
+        car_col = None
+        for c in ['o_to', 'oto', 'car', 'cars', 'car_count']:
+            if c in raw_df.columns:
+                car_col = c
+                break
+
+        if car_col is None or moto_col is None:
+            other_cols = [c for c in raw_df.columns if c != fn_col]
+            if len(other_cols) >= 2:
+                # Nếu không tìm thấy bằng tên chính xác, đoán dựa trên từ khóa trong tên cột
+                for c in other_cols:
+                    c_lower = str(c).lower()
+                    if any(k in c_lower for k in ['may', 'moto', 'bike']) and moto_col is None:
+                        moto_col = c
+                    elif any(k in c_lower for k in ['to', 'car', 'auto']) and car_col is None:
+                        car_col = c
+                
+                # Mặc định gán 2 cột nếu vẫn chưa xác định
+                if moto_col is None:
+                    moto_col = other_cols[0]
+                if car_col is None:
+                    car_col = other_cols[1] if other_cols[1] != moto_col else other_cols[0]
+            else:
+                raise ValueError(f"❌ Không tìm thấy các cột chứa nhãn số lượng [Xe máy, Ô tô] trong CSV: {csv_file}")
+
+        print(f"📌 [VehicleDataset] Đã xác định thứ tự cột từ CSV -> Ảnh: '{fn_col}' | Xe máy: '{moto_col}' | Ô tô: '{car_col}'")
+
+        # 3. Lọc bỏ các dòng thiếu thông tin nhãn, NaN hoặc ảnh không tồn tại trên đĩa
+        valid_rows = []
+        for idx, row in raw_df.iterrows():
+            fname = str(row[fn_col]).strip()
+            if not fname or pd.isna(row[car_col]) or pd.isna(row[moto_col]):
+                continue
+            
+            img_path = os.path.join(self.image_dir, fname)
+            if not os.path.isfile(img_path):
+                # Thử kiểm tra nếu tên tệp thiếu đuôi mở rộng (.jpg / .png)
+                alt_paths = [img_path + ".jpg", img_path + ".png"]
+                found_alt = False
+                for ap in alt_paths:
+                    if os.path.isfile(ap):
+                        fname = os.path.basename(ap)
+                        found_alt = True
+                        break
+                if not found_alt:
+                    continue # Bỏ qua nếu ảnh không tồn tại trong image_dir
+
+            try:
+                car_cnt = float(row[car_col])
+                moto_cnt = float(row[moto_col])
+                valid_rows.append({'filename': fname, 'o_to': car_cnt, 'xe_may': moto_cnt})
+            except (ValueError, TypeError):
+                continue
+
+        self.data = pd.DataFrame(valid_rows)
+        clean_count = len(self.data)
+        dropped_count = raw_count - clean_count
+
+        print(f"📊 [VehicleDataset] Đã nạp thành công {clean_count}/{raw_count} cặp [ảnh - nhãn] hợp lệ.")
+        if dropped_count > 0:
+            print(f"⚠️ Đã tự động lọc bỏ {dropped_count} dòng trong CSV không tìm thấy ảnh hoặc bị lỗi nhãn.")
 
     def __len__(self):
         return len(self.data)
@@ -68,13 +153,12 @@ class VehicleDataset(Dataset):
         row = self.data.iloc[idx]
         img_path = os.path.join(self.image_dir, str(row['filename']))
         
-        # Xử lý mở ảnh an toàn
-        if not os.path.exists(img_path):
-            raise FileNotFoundError(f"Không tìm thấy file ảnh: {img_path}")
-            
-        image = Image.open(img_path).convert('RGB')
+        try:
+            image = Image.open(img_path).convert('RGB')
+        except Exception:
+            # Fallback nếu tệp ảnh bị hỏng: tạo ảnh đen giả lập
+            image = Image.new('RGB', (224, 224), color=(0, 0, 0))
 
-        # Nhãn: [Ô tô, Xe máy]
         label = torch.tensor([float(row['o_to']), float(row['xe_may'])], dtype=torch.float32)
 
         if self.transform:
