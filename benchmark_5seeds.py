@@ -396,9 +396,9 @@ def run_benchmark():
                         help="Danh sách các seeds ngẫu nhiên (mặc định: 42 100 2024 777 999).")
     parser.add_argument('--model_group', type=str, choices=['all', 'advanced', 'standard'], default='all',
                         help="Nhóm mô hình cần chạy: 'advanced' (GraphWaveNet, ASTGCN, GMAN), 'standard' (GCN_LSTM, STGCN, STGCN_Hybrid, STGCN_MixedBlocks), 'all' (Tất cả).")
-    parser.add_argument('--epochs', type=int, default=70,
+    parser.add_argument('--epochs', type=int, default=100,
                         help="Số epochs chạy tối đa cho mỗi seed (mặc định: 60).")
-    parser.add_argument('--patience', type=int, default=15,
+    parser.add_argument('--patience', type=int, default=25,
                         help="Số patience early stopping (mặc định: 50).")
     parser.add_argument('--batch_size', type=int, default=32,
                         help="Kích thước batch_size (mặc định: 32 tránh CUDA OOM).")

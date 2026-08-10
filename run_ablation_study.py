@@ -107,10 +107,6 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
         optimizer, mode='min', factor=lr_factor, patience=lr_patience
     )
 
-    best_val_loss = float('inf')
-    patience_counter = 0
-    best_model_weights = copy.deepcopy(model.state_dict())
-
     means = torch.tensor(scaler['mean'], device=device)
     stds = torch.tensor(scaler['std'], device=device)
 
@@ -136,13 +132,17 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
             print(f"⚠️ Không thể khởi tạo WandB cho {variant_name} (Seed {seed}): {e}")
             wandb_run = None
 
+    best_val_loss = float('inf')
+    patience_counter = 0
+    best_model_weights = copy.deepcopy(model.state_dict())
+    val_mae_history = []
+
     print(f"\n⚡ [{variant_name}] Seed {seed} | Bắt đầu huấn luyện (Max Epochs: {cfg.EPOCHS}, Patience: {cfg.PATIENCE})...")
 
     for epoch in range(1, cfg.EPOCHS + 1):
         model.train()
         train_loss = 0.0
-        pbar = tqdm(train_loader, desc=f"   Epoch {epoch:02d}/{cfg.EPOCHS}", leave=False)
-        for X_batch, Y_batch in pbar:
+        for X_batch, Y_batch in train_loader:
             X_batch, Y_batch = X_batch.to(device), Y_batch.to(device)
             optimizer.zero_grad()
             pred = model(X_batch)
@@ -151,7 +151,6 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
             train_loss += loss.item() * len(X_batch)
-            pbar.set_postfix(loss=f"{loss.item():.4f}")
 
         train_loss /= len(train_loader.dataset)
 
@@ -159,6 +158,8 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
         model.eval()
         val_loss = 0.0
         val_mae = 0.0
+        val_mse = 0.0
+        val_mape = 0.0
         with torch.no_grad():
             for X_batch, Y_batch in val_loader:
                 X_batch, Y_batch = X_batch.to(device), Y_batch.to(device)
@@ -168,10 +169,21 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
                 
                 y_true = Y_batch * stds + means
                 y_pred = pred * stds + means
-                val_mae += torch.abs(y_pred - y_true).mean().item() * len(X_batch)
+                err = y_true - y_pred
+                abs_err = torch.abs(err)
+                mask = (y_true > 0.5).float()
+
+                val_mae += abs_err.mean().item() * len(X_batch)
+                val_mse += (err ** 2).mean().item() * len(X_batch)
+                mape_b = (abs_err / (y_true + 1e-5)) * mask
+                val_mape += (mape_b.sum().item() / max(mask.sum().item(), 1.0)) * len(X_batch)
 
         val_loss /= len(val_loader.dataset)
         val_mae  /= len(val_loader.dataset)
+        val_mse  /= len(val_loader.dataset)
+        val_mape /= len(val_loader.dataset)
+        val_rmse = np.sqrt(val_mse)
+        val_mae_history.append(val_mae)
 
         scheduler.step(val_loss)
 
@@ -179,13 +191,10 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
             best_val_loss = val_loss
             patience_counter = 0
             best_model_weights = copy.deepcopy(model.state_dict())
-            is_best_str = " -> Saved Best"
         else:
             patience_counter += 1
-            is_best_str = ""
 
-        print(f"Ep {epoch:02d}/{cfg.EPOCHS} | Loss: {train_loss:.4f} / {val_loss:.4f} | Val MAE: {val_mae:.2f}{is_best_str}")
-
+        # Log đường cong per-epoch sang WandB
         if wandb_run is not None:
             try:
                 import wandb
@@ -193,13 +202,19 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
                     'epoch': epoch,
                     'train_loss': train_loss,
                     'val_loss': val_loss,
-                    'val_mae': val_mae
+                    'val_mae': val_mae,
+                    'val_mape': val_mape * 100,
+                    'val_rmse': val_rmse,
+                    'val_mse': val_mse
                 })
             except Exception:
                 pass
 
+        if epoch % 10 == 0 or patience_counter == cfg.PATIENCE:
+            print(f"   Epoch {epoch:>3d}/{cfg.EPOCHS} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Val MAE: {val_mae:.4f} | Val MAPE: {val_mape:.2%}")
+
         if patience_counter >= cfg.PATIENCE:
-            print(f"🛑 Early Stopping tại epoch {epoch}")
+            print(f"🛑 [Early Stopping] Dừng ở Epoch {epoch} dựa trên Validation Loss.")
             break
 
     # Load trọng số tốt nhất để đánh giá trên Test set
@@ -246,19 +261,22 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
         'mae': avg_mae,
         'mape': avg_mape,
         'rmse': avg_rmse,
-        'mse': avg_mse
+        'mse': avg_mse,
+        'val_mae_history': val_mae_history
     }
     for t_idx in range(6):
         metrics[f'mae_t{t_idx+1}'] = step_maes[t_idx] / max(1, count_batches)
         metrics[f'mape_t{t_idx+1}'] = step_mapes[t_idx] / max(1, count_batches)
 
+    # Log kết quả Test cuối cùng sang WandB
     if wandb_run is not None:
         try:
             import wandb
             wandb.log({
                 'test_mae': avg_mae,
-                'test_mape': avg_mape,
+                'test_mape': avg_mape * 100,
                 'test_rmse': avg_rmse,
+                'test_mse': avg_mse,
                 'test_mae_t1': metrics['mae_t1'],
                 'test_mae_t3': metrics['mae_t3'],
                 'test_mae_t6': metrics['mae_t6']
@@ -272,10 +290,10 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
 
 def run_ablation_benchmark():
     parser = argparse.ArgumentParser(description="Script huấn luyện Ablation Study cho các biến thể TA-STGCN.")
-    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 777, 11],
+    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024],
                         help="Danh sách các seeds thử nghiệm Ablation Study.")
-    parser.add_argument('--epochs', type=int, default=80, help="Số epochs tối đa.")
-    parser.add_argument('--patience', type=int, default=15, help="Early stopping patience.")
+    parser.add_argument('--epochs', type=int, default=100, help="Số epochs tối đa.")
+    parser.add_argument('--patience', type=int, default=20, help="Early stopping patience.")
     parser.add_argument('--batch_size', type=int, default=32, help="Kích thước batch_size.")
     parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH",
                         help="Thư mục gốc chứa dữ liệu.")
@@ -352,7 +370,7 @@ def run_ablation_benchmark():
 
     results = {
         v_name: {
-            'params': 0,
+            'params': 0, 'flops_gflops': 0.0, 'inf_latencies': [],
             'maes': [], 'mapes': [], 'rmses': [], 'mses': [],
             'step_maes': {f't{t_idx+1}': [] for t_idx in range(6)},
             'step_mapes': {f't{t_idx+1}': [] for t_idx in range(6)}
@@ -385,22 +403,32 @@ def run_ablation_benchmark():
             params_count = count_parameters(model)
             results[v_name]['params'] = params_count
 
+            dummy_x, _ = next(iter(test_loader))
+            dummy_x = dummy_x.to(device)
+            gflops = count_flops(model, dummy_x)
+            results[v_name]['flops_gflops'] = gflops
+
             test_metrics = train_single_ablation_variant(
                 v_name, model, train_loader, val_loader, test_loader, base_cfg, device, seed, scaler,
                 use_wandb=use_wandb, wandb_project=args.wandb_project
             )
 
+            inf_latency = measure_inference_latency(model, test_loader, device)
+            results[v_name]['inf_latencies'].append(inf_latency)
             results[v_name]['maes'].append(test_metrics['mae'])
             results[v_name]['mapes'].append(test_metrics['mape'])
             results[v_name]['rmses'].append(test_metrics['rmse'])
             results[v_name]['mses'].append(test_metrics['mse'])
+            if 'val_mae_histories' not in results[v_name]:
+                results[v_name]['val_mae_histories'] = []
+            results[v_name]['val_mae_histories'].append(test_metrics['val_mae_history'])
 
             for t_idx in range(6):
                 results[v_name]['step_maes'][f't{t_idx+1}'].append(test_metrics[f'mae_t{t_idx+1}'])
                 results[v_name]['step_mapes'][f't{t_idx+1}'].append(test_metrics[f'mape_t{t_idx+1}'])
 
-            print(f"   ▶ Seed {seed:>4} | {v_name:<35} (Params: {params_count:,}) -> "
-                  f"MAE: {test_metrics['mae']:.4f} (MAPE: {test_metrics['mape']:.2%})")
+            print(f"   ▶ Seed {seed:>4} | {v_name:<35} (Params: {params_count:,} | FLOPs: {gflops:.3f} GFLOPs) -> "
+                  f"MAE: {test_metrics['mae']:.4f} (MAPE: {test_metrics['mape']:.2%}, RMSE: {test_metrics['rmse']:.4f})")
 
             del model
             torch.cuda.empty_cache()
@@ -408,15 +436,20 @@ def run_ablation_benchmark():
 
     table_data = []
     for v_name, res in results.items():
-        maes, mapes, rmses = res['maes'], res['mapes'], res['rmses']
+        maes, mapes, rmses, mses = res['maes'], res['mapes'], res['rmses'], res['mses']
+        inf_lats = res['inf_latencies']
         p_count = res['params']
+        flops_g = res['flops_gflops']
 
         row = {
             'Ablation Variant': v_name,
             'Params': f"{p_count:,}",
+            'FLOPs (GFLOPs)': f"{flops_g:.3f}",
+            'Inf Latency (ms)': f"{np.mean(inf_lats):.2f} ± {np.std(inf_lats):.2f}",
             'MAE Overall': f"{np.mean(maes):.4f} ± {np.std(maes):.4f}",
             'MAPE Overall': f"{np.mean(mapes)*100:.2f}% ± {np.std(mapes)*100:.2f}%",
-            'RMSE Overall': f"{np.mean(rmses):.4f} ± {np.std(rmses):.4f}"
+            'RMSE Overall': f"{np.mean(rmses):.4f} ± {np.std(rmses):.4f}",
+            'MSE Overall': f"{np.mean(mses):.4f} ± {np.std(mses):.4f}"
         }
         table_data.append(row)
 
