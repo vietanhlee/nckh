@@ -520,16 +520,6 @@ def run_benchmark():
                 use_temporal_attention=cfg.USE_TEMPORAL_ATTENTION,
                 attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT
             )
-        },
-        'STGCN_MixedBlocks': {
-            'class': STGCN_Mixed_Model,
-            'config': mixed_cfg,
-            'build_fn': lambda cfg: STGCN_Mixed_Model(
-                num_nodes=len(nodes), in_feat=4, block_hidden=cfg.BLOCK_HIDDEN,
-                T_in=cfg.T_IN, cheb_K=cfg.CHEB_K, horizon=cfg.HORIZON, output_feat=1,
-                L_tilde=L_tilde, num_heads=4, dropout=cfg.DROPOUT,
-                use_final_attention=cfg.USE_FINAL_ATTENTION
-            )
         }
     }
 
@@ -541,7 +531,7 @@ def run_benchmark():
     elif args.model_group == 'standard':
         advanced_keys = ['Graph_WaveNet', 'ASTGCN', 'GMAN']
         models_registry = {k: v for k, v in models_registry.items() if k not in advanced_keys}
-        print("📌 Chạy nhóm Standard Models: GCN_LSTM, STGCN (Baseline), TA-STGCN, STGCN_MixedBlocks")
+        print("📌 Chạy nhóm Standard Models: GCN_LSTM, STGCN (Baseline), TA-STGCN")
 
     # Lưu kết quả theo mô hình
     results = {
