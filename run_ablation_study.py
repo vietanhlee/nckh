@@ -272,9 +272,9 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
 
 def run_ablation_benchmark():
     parser = argparse.ArgumentParser(description="Script huấn luyện Ablation Study cho các biến thể TA-STGCN.")
-    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 777],
+    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 777, 11],
                         help="Danh sách các seeds thử nghiệm Ablation Study.")
-    parser.add_argument('--epochs', type=int, default=60, help="Số epochs tối đa.")
+    parser.add_argument('--epochs', type=int, default=80, help="Số epochs tối đa.")
     parser.add_argument('--patience', type=int, default=15, help="Early stopping patience.")
     parser.add_argument('--batch_size', type=int, default=32, help="Kích thước batch_size.")
     parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH",
