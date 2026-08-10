@@ -86,7 +86,7 @@ class Config:
 
     # --- CẢI TIẾN 4: KIẾN TRÚC HYBRID - TEMPORAL SELF-ATTENTION ---
     USE_TEMPORAL_ATTENTION = True
-    ATTN_NUM_HEADS = 2      # Số head trong Multi-Head Attention (64/2 = 32 dim/head)
+    ATTN_NUM_HEADS = 4      # Số head trong Multi-Head Attention (64/4 = 16 dim/head)
     ATTN_DROPOUT   = 0.1
 
     @property

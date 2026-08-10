@@ -62,7 +62,7 @@ def train_and_visualize():
         L_tilde=L_tilde,
         dropout=CFG.DROPOUT,
         use_temporal_attention=True,
-        attn_num_heads=2,
+        attn_num_heads=4,
         attn_dropout=CFG.ATTN_DROPOUT
     ).to(device)
     

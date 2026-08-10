@@ -272,7 +272,7 @@ def train_single_ablation_variant(variant_name, model, train_loader, val_loader,
 
 def run_ablation_benchmark():
     parser = argparse.ArgumentParser(description="Script huấn luyện Ablation Study cho các biến thể TA-STGCN.")
-    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024],
+    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 777],
                         help="Danh sách các seeds thử nghiệm Ablation Study.")
     parser.add_argument('--epochs', type=int, default=60, help="Số epochs tối đa.")
     parser.add_argument('--patience', type=int, default=15, help="Early stopping patience.")
@@ -321,7 +321,7 @@ def run_ablation_benchmark():
                 num_nodes=len(nodes), in_feat=4, block_hidden=64,
                 num_blocks=2, T_in=cfg.T_IN, cheb_K=3, horizon=cfg.HORIZON,
                 output_feat=1, L_tilde=L_tilde, dropout=0.1,
-                use_temporal_attention=True, attn_num_heads=2, attn_dropout=0.1
+                use_temporal_attention=True, attn_num_heads=4, attn_dropout=0.1
             )
         },
         'TA-STGCN w/o Temporal Attention': {
@@ -329,7 +329,7 @@ def run_ablation_benchmark():
                 num_nodes=len(nodes), in_feat=4, block_hidden=64,
                 num_blocks=2, T_in=cfg.T_IN, cheb_K=3, horizon=cfg.HORIZON,
                 output_feat=1, L_tilde=L_tilde, dropout=0.1,
-                use_temporal_attention=False, attn_num_heads=2, attn_dropout=0.1
+                use_temporal_attention=False, attn_num_heads=4, attn_dropout=0.1
             )
         },
         'TA-STGCN w/ Single-Head Attn (h=1)': {
@@ -345,7 +345,7 @@ def run_ablation_benchmark():
                 num_nodes=len(nodes), in_feat=4, block_hidden=32,
                 num_blocks=2, T_in=cfg.T_IN, cheb_K=3, horizon=cfg.HORIZON,
                 output_feat=1, L_tilde=L_tilde, dropout=0.1,
-                use_temporal_attention=True, attn_num_heads=2, attn_dropout=0.1
+                use_temporal_attention=True, attn_num_heads=4, attn_dropout=0.1
             )
         }
     }
@@ -430,7 +430,7 @@ def run_ablation_benchmark():
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(f"# 🧪 Báo cáo Thực nghiệm Ablation Study ({len(args.seeds)} Seeds)\n\n")
         f.write(f"- **Seeds**: `{args.seeds}`\n")
-        f.write(f"- **Mô hình gốc**: TA-STGCN (2 ST-Conv blocks, $C=64$, $h=2$ heads)\n\n")
+        f.write(f"- **Mô hình gốc**: TA-STGCN (2 ST-Conv blocks, $C=64$, $h=4$ heads)\n\n")
         f.write("## 🏆 Bảng Kết quả So sánh Ablation Study\n\n")
         f.write(summary_df.to_markdown(index=False))
 

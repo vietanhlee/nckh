@@ -392,8 +392,8 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
 
 def run_benchmark():
     parser = argparse.ArgumentParser(description="Script huấn luyện 5 Seeds ngẫu nhiên cho 5 mô hình (GCN-LSTM & STGCN).")
-    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 777, 999],
-                        help="Danh sách các seeds ngẫu nhiên (mặc định: 42 100 2024 777 999).")
+    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024],
+                        help="Danh sách các seeds ngẫu nhiên (mặc định: 42 100 2024 777).")
     parser.add_argument('--epochs', type=int, default=60,
                         help="Số epochs chạy tối đa cho mỗi seed (mặc định: 80).")
     parser.add_argument('--patience', type=int, default=20,
@@ -516,7 +516,7 @@ def run_benchmark():
                 num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
                 horizon=cfg.HORIZON, output_feat=1, L_tilde=L_tilde, dropout=cfg.DROPOUT,
                 use_temporal_attention=cfg.USE_TEMPORAL_ATTENTION,
-                attn_num_heads=2, attn_dropout=cfg.ATTN_DROPOUT
+                attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT
             )
         },
         'STGCN_MixedBlocks': {
@@ -525,7 +525,7 @@ def run_benchmark():
             'build_fn': lambda cfg: STGCN_Mixed_Model(
                 num_nodes=len(nodes), in_feat=4, block_hidden=cfg.BLOCK_HIDDEN,
                 T_in=cfg.T_IN, cheb_K=cfg.CHEB_K, horizon=cfg.HORIZON, output_feat=1,
-                L_tilde=L_tilde, num_heads=2, dropout=cfg.DROPOUT,
+                L_tilde=L_tilde, num_heads=4, dropout=cfg.DROPOUT,
                 use_final_attention=cfg.USE_FINAL_ATTENTION
             )
         }
