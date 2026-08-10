@@ -169,7 +169,7 @@ def train_single_noise_experiment(model_name, model_fn, df_train, df_val, df_tes
 def run_noise_robustness_experiment():
     parser = argparse.ArgumentParser(description="Thử nghiệm Phân tích Độ nhạy với Nhiễu Nhận dạng (Noise Sensitivity Analysis).")
     parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024], help="Danh sách các seeds thử nghiệm.")
-    parser.add_argument('--epochs', type=int, default=60, help="Số epochs tối đa cho mỗi mức nhiễu.")
+    parser.add_argument('--epochs', type=int, default=80, help="Số epochs tối đa cho mỗi mức nhiễu.")
     parser.add_argument('--patience', type=int, default=15, help="Early stopping patience.")
     parser.add_argument('--batch_size', type=int, default=32, help="Batch size.")
     parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH", help="Thư mục gốc.")
