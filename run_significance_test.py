@@ -42,7 +42,7 @@ def set_seed(seed):
 
 
 def train_model_for_evaluation(model_name, model_fn, train_loader, val_loader, cfg, device, seed):
-    """Huấn luyện mô hình phục vụ thu thập mảng sai số điểm đơn lẻ."""
+    """Huấn luyện mô hình phục vụ đánh giá Benchmark & Kiểm định Thống kê."""
     set_seed(seed)
     model = model_fn(cfg).to(device)
     criterion = PureHuberLoss(delta=1.0)
@@ -97,16 +97,17 @@ def train_model_for_evaluation(model_name, model_fn, train_loader, val_loader, c
     return model
 
 
-def collect_pointwise_absolute_errors(model, test_loader, scaler, device):
+def evaluate_benchmark_and_pointwise_errors(model, test_loader, scaler, device, horizon_steps=6):
     """
-    Thu thập mảng sai số tuyệt đối từng điểm dự báo đơn lẻ (Pointwise Absolute Errors):
-    E = |Y_true - Y_pred| trên toàn bộ tập Test (Batch * Horizon * Node).
+    Tính toán chỉ số Benchmark từng chân trời (t+1..t+6) VÀ thu thập mảng sai số tuyệt đối từng điểm.
     """
     model.eval()
     means = torch.tensor(scaler['mean'], device=device)
     stds = torch.tensor(scaler['std'], device=device)
 
     all_abs_errors = []
+    horizon_maes = [[] for _ in range(horizon_steps)]
+    overall_mses = []
 
     with torch.no_grad():
         for X_batch, Y_batch in test_loader:
@@ -116,15 +117,33 @@ def collect_pointwise_absolute_errors(model, test_loader, scaler, device):
             y_true = Y_batch * stds + means
             y_pred = pred * stds + means
 
-            err = torch.abs(y_true - y_pred)
-            all_abs_errors.append(err.cpu().numpy().flatten())
+            err = y_true - y_pred
+            abs_err = torch.abs(err)
 
-    return np.concatenate(all_abs_errors)
+            all_abs_errors.append(abs_err.cpu().numpy().flatten())
+            overall_mses.append((err ** 2).mean().item())
+
+            # Tính MAE từng horizon (B, H, N, F)
+            for h in range(horizon_steps):
+                h_mae = abs_err[:, h, :, :].mean().item()
+                horizon_maes[h].append(h_mae)
+
+    pointwise_errors = np.concatenate(all_abs_errors)
+    overall_mae = np.mean(pointwise_errors)
+    overall_rmse = np.sqrt(np.mean(overall_mses))
+    avg_horizon_maes = [np.mean(h_list) for h_list in horizon_maes]
+
+    return {
+        'overall_mae': overall_mae,
+        'overall_rmse': overall_rmse,
+        'horizon_maes': avg_horizon_maes,
+        'pointwise_errors': pointwise_errors
+    }
 
 
-def run_full_wilcoxon_significance_test():
-    parser = argparse.ArgumentParser(description="Kiểm định Thống kê Wilcoxon Signed-Rank Test cho TA-STGCN vs TẤT CẢ Baselines.")
-    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 22], help="Danh sách seeds thử nghiệm.")
+def run_full_benchmark_and_significance_test():
+    parser = argparse.ArgumentParser(description="Script Master Benchmark Sub-problem 2 VÀ Kiểm định Thống kê Wilcoxon.")
+    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024], help="Danh sách seeds thử nghiệm.")
     parser.add_argument('--epochs', type=int, default=80, help="Số epochs tối đa.")
     parser.add_argument('--patience', type=int, default=15, help="Early stopping patience.")
     parser.add_argument('--batch_size', type=int, default=32, help="Batch size.")
@@ -141,7 +160,6 @@ def run_full_wilcoxon_significance_test():
     base_cfg.PATIENCE = args.patience
     base_cfg.BATCH_SIZE = args.batch_size
 
-    # Fallback kiểm tra tệp dữ liệu cục bộ
     if not os.path.exists(base_cfg.CSV_PATH):
         local_dir = os.getcwd()
         alt_adj = os.path.join(local_dir, "Graph_fix_py_3.xlsx")
@@ -167,7 +185,6 @@ def run_full_wilcoxon_significance_test():
     df_val = df_all.iloc[n_train:n_train + n_val]
     df_test = df_all.iloc[n_train + n_val:]
 
-    # Cấu hình các mô hình Baseline
     stgcn_cfg = BaselineConfig()
     stgcn_cfg.EPOCHS, stgcn_cfg.PATIENCE, stgcn_cfg.BATCH_SIZE = args.epochs, args.patience, args.batch_size
 
@@ -222,14 +239,17 @@ def run_full_wilcoxon_significance_test():
         }
     }
 
-    collected_errors = {m_name: [] for m_name in models_to_test}
+    metrics_across_seeds = {
+        m_name: {'overall_mae': [], 'overall_rmse': [], 'horizon_maes': [[] for _ in range(6)], 'pointwise_errors': []}
+        for m_name in models_to_test
+    }
 
     print(f"\n==========================================================================================")
-    print(f"📊 KIỂM ĐỊNH THỐNG KÊ WILCOXON SIGNED-RANK TEST (TA-STGCN vs TẤT CẢ BASELINES)")
+    print(f"📊 HUẤN LUYỆN BENCHMARK VÀ THU THẬP DỮ LIỆU KIỂM ĐỊNH THỐNG KÊ (5 SEEDS)")
     print(f"==========================================================================================")
 
     for seed in args.seeds:
-        print(f"\n🌱 [SEED {seed}] Đang huấn luyện và thu thập mảng sai số từng điểm trên tập Test...")
+        print(f"\n🌱 [SEED {seed}] Đang thực thi huấn luyện và đánh giá trên tập Test...")
         train_ds = MultiStepDataset(df_train, nodes, base_cfg.T_IN, base_cfg.HORIZON)
         scaler = {'mean': train_ds.means, 'std': train_ds.stds}
         val_ds = MultiStepDataset(df_val, nodes, base_cfg.T_IN, base_cfg.HORIZON, scaler)
@@ -241,22 +261,53 @@ def run_full_wilcoxon_significance_test():
 
         for m_name, info in models_to_test.items():
             model = train_model_for_evaluation(m_name, info['fn'], train_loader, val_loader, info['cfg'], device, seed)
-            err = collect_pointwise_absolute_errors(model, test_loader, scaler, device)
-            collected_errors[m_name].append(err)
+            res = evaluate_benchmark_and_pointwise_errors(model, test_loader, scaler, device, base_cfg.HORIZON)
+
+            metrics_across_seeds[m_name]['overall_mae'].append(res['overall_mae'])
+            metrics_across_seeds[m_name]['overall_rmse'].append(res['overall_rmse'])
+            metrics_across_seeds[m_name]['pointwise_errors'].append(res['pointwise_errors'])
+            for h in range(6):
+                metrics_across_seeds[m_name]['horizon_maes'][h].append(res['horizon_maes'][h])
+
+            print(f"   ▶ {m_name:<26} | Seed {seed:>4} -> MAE Overall: {res['overall_mae']:.4f} | RMSE: {res['overall_rmse']:.4f}")
+
             del model
             if device.type == 'cuda':
                 torch.cuda.empty_cache()
             gc.collect()
 
-    # Hợp nhất dữ liệu tất cả các seed
-    final_errors = {m_name: np.concatenate(collected_errors[m_name]) for m_name in models_to_test}
+    # 1. Bảng 1: BENCHMARK SUB-PROBLEM 2 (Đầy đủ theo từng horizon t+1..t+6 cho Table III)
+    benchmark_table_rows = []
+    for m_name in models_to_test:
+        row = {'Model Architecture': m_name}
+        mae_mean = np.mean(metrics_across_seeds[m_name]['overall_mae'])
+        mae_std = np.std(metrics_across_seeds[m_name]['overall_mae'])
+        rmse_mean = np.mean(metrics_across_seeds[m_name]['overall_rmse'])
+        rmse_std = np.std(metrics_across_seeds[m_name]['overall_rmse'])
+
+        row['MAE Overall'] = f"{mae_mean:.4f} ± {mae_std:.4f}"
+        row['RMSE Overall'] = f"{rmse_mean:.4f} ± {rmse_std:.4f}"
+
+        for h in range(6):
+            h_mean = np.mean(metrics_across_seeds[m_name]['horizon_maes'][h])
+            h_std = np.std(metrics_across_seeds[m_name]['horizon_maes'][h])
+            row[f'MAE t+{h+1}'] = f"{h_mean:.4f} ± {h_std:.4f}"
+
+        benchmark_table_rows.append(row)
+
+    df_benchmark = pd.DataFrame(benchmark_table_rows)
+
+    print(f"\n{'='*95}")
+    print(f"🏆 BẢNG KẾT QUẢ BENCHMARK SUB-PROBLEM 2 CHO TABLE III (MEAN ± STD)")
+    print(f"{'='*95}")
+    print(df_benchmark.to_string(index=False))
+
+    # 2. Bảng 2: KIỂM ĐỊNH THỐNG KÊ WILCOXON SIGNED-RANK TEST
+    final_errors = {m_name: np.concatenate(metrics_across_seeds[m_name]['pointwise_errors']) for m_name in models_to_test}
     target_errors = final_errors['TA-STGCN (Proposed / Ours)']
     sample_size = len(target_errors)
 
-    print(f"\n📈 Tổng số điểm dữ liệu mẫu bắt cặp thu thập: N = {sample_size:,} điểm dự báo.")
-
-    # Thực hiện kiểm định Wilcoxon giữa TA-STGCN với từng Baseline
-    results_list = []
+    wilcoxon_rows = []
     for m_name in models_to_test:
         if m_name == 'TA-STGCN (Proposed / Ours)':
             continue
@@ -266,7 +317,7 @@ def run_full_wilcoxon_significance_test():
         w_stat, p_val = wilcoxon(diff, alternative='greater')
         is_sig = p_val < 0.01
 
-        results_list.append({
+        wilcoxon_rows.append({
             'Baseline Architecture': m_name,
             'Baseline Median MAE': f"{np.median(base_err):.4f}",
             'TA-STGCN Median MAE': f"{np.median(target_errors):.4f}",
@@ -275,30 +326,31 @@ def run_full_wilcoxon_significance_test():
             'Statistical Significance (p < 0.01)': 'YES (p < 0.01) *' if is_sig else f'No (p = {p_val:.4f})'
         })
 
-    df_res = pd.DataFrame(results_list)
+    df_wilcoxon = pd.DataFrame(wilcoxon_rows)
 
     print(f"\n{'='*95}")
-    print(f"🏆 BẢNG KẾT QUẢ KIỂM ĐỊNH THỐNG KÊ WILCOXON SIGNED-RANK TEST CHO TẤT CẢ BASELINES")
+    print(f"📊 BẢNG KẾT QUẢ KIỂM ĐỊNH THỐNG KÊ WILCOXON SIGNED-RANK TEST (p < 0.01)")
     print(f"{'='*95}")
-    print(df_res.to_string(index=False))
+    print(df_wilcoxon.to_string(index=False))
 
-    # Ghi báo cáo Markdown
-    report_path = "significance_test_report.md"
+    # Ghi tệp báo cáo Markdown tổng hợp
+    report_path = "subproblem2_master_benchmark_report.md"
     with open(report_path, "w", encoding="utf-8") as f:
-        f.write("# 📊 Báo cáo Kiểm định Thống kê Wilcoxon Signed-Rank Test Cho Tất cả Baseline\n\n")
-        f.write(f"- **Tổng số điểm dữ liệu mẫu bắt cặp**: $N = {sample_size:,}$ điểm dự báo trên tập Test\n")
-        f.write(f"- **Mô hình đề xuất**: `TA-STGCN (Proposed / Ours)` (Median MAE = `{np.median(target_errors):.4f}`)\n\n")
-        f.write("## 📋 Bảng So sánh Ý nghĩa Thống kê với từng Baseline:\n\n")
-        f.write(df_res.to_markdown(index=False))
-        f.write("\n\n---\n\n## 💡 Chú thích Bài báo (Table III Footnote):\n")
+        f.write("# 🏆 Master Báo cáo Benchmark Sub-problem 2 & Kiểm định Thống kê Wilcoxon\n\n")
+        f.write("## 1. Bảng Kết quả Benchmark Đa chân trời (Dành cho Table III trong Bài báo)\n\n")
+        f.write(df_benchmark.to_markdown(index=False))
+        f.write("\n\n---\n\n## 2. Bảng Kết quả Kiểm định Thống kê Wilcoxon Signed-Rank Test\n\n")
+        f.write(f"- **Kích thước mẫu bắt cặp**: $N = {sample_size:,}$ điểm dự báo trên tập Test\n\n")
+        f.write(df_wilcoxon.to_markdown(index=False))
+        f.write("\n\n---\n\n## 💡 Chú thích bài báo (Table III Footnote):\n")
         f.write("```latex\n")
         f.write("\\caption{Sub-Problem 2 Multi-Horizon Traffic Forecasting Benchmark Across 5 Random Seeds (Mean \\pm Std).}\n")
         f.write("% Footnote:\n")
         f.write("* Indicates statistical significance against all evaluated baseline models at p < 0.01 (Wilcoxon signed-rank test).\n")
         f.write("```\n")
 
-    print(f"\n📑 Đã lưu báo cáo kiểm định thống kê vào tệp: {report_path}")
+    print(f"\n📑 Đã lưu báo cáo tổng hợp Master Benchmark vào tệp: {report_path}")
 
 
 if __name__ == "__main__":
-    run_full_wilcoxon_significance_test()
+    run_full_benchmark_and_significance_test()
