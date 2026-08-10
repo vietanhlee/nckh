@@ -510,7 +510,7 @@ def run_benchmark():
                 horizon=cfg.HORIZON, output_feat=1, L_tilde=L_tilde, dropout=cfg.DROPOUT
             )
         },
-        'STGCN_Hybrid': {
+        'TA-STGCN': {
             'class': Hybrid_STGCN_Model,
             'config': hybrid_cfg,
             'build_fn': lambda cfg: Hybrid_STGCN_Model(
@@ -541,7 +541,7 @@ def run_benchmark():
     elif args.model_group == 'standard':
         advanced_keys = ['Graph_WaveNet', 'ASTGCN', 'GMAN']
         models_registry = {k: v for k, v in models_registry.items() if k not in advanced_keys}
-        print("📌 Chạy nhóm Standard Models: GCN_LSTM, STGCN, STGCN_Hybrid, STGCN_MixedBlocks")
+        print("📌 Chạy nhóm Standard Models: GCN_LSTM, STGCN (Baseline), TA-STGCN, STGCN_MixedBlocks")
 
     # Lưu kết quả theo mô hình
     results = {
