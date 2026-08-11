@@ -218,12 +218,12 @@ def train_single_noise_experiment(model_name, model_fn, df_train, df_val, df_tes
         base_cfg.CSV_PATH, nodes, base_cfg.DATA_WINDOW1, base_cfg.DATA_WINDOW2, base_cfg.TIME_STEP_MINUTES
     )
 
-    # 4 Mức nhiễu mô phỏng sai số nhận dạng Giai đoạn 1
+    # 4 Mức nhiễu mô phỏng sai số nhận dạng Giai đoạn 1 (Tổng quát, không gắn cứng tên mô hình vision)
     noise_levels = [
         {'name': 'Level 0: Clean (No Noise)', 'mae_noise': 0.0},
         {'name': 'Level 1: Mild Noise (MAE=1.50)', 'mae_noise': 1.50},
-        {'name': 'Level 2: ConvNeXt-Tiny Error (MAE=3.53)', 'mae_noise': 3.53},
-        {'name': 'Level 3: Heavy ResNet-50 Error (MAE=5.00)', 'mae_noise': 5.00}
+        {'name': 'Level 2: Moderate Noise (MAE=3.50)', 'mae_noise': 3.50},
+        {'name': 'Level 3: Heavy Noise (MAE=5.00)', 'mae_noise': 5.00}
     ]
 
     models_to_test = {
@@ -382,12 +382,12 @@ def train_single_noise_experiment(model_name, model_fn, df_train, df_val, df_tes
             color=colors[m_name], alpha=0.10
         )
 
-    plt.axvline(x=3.53, color='gray', linestyle=':', linewidth=1.8, label='Stage 1 ConvNeXt-Tiny Error (MAE=3.53)')
+    plt.axvline(x=3.50, color='gray', linestyle=':', linewidth=1.8, label='Stage 1 Perception Noise (MAE=3.50)')
 
     plt.title('Robustness to Stage 1 Perception Noise Across All Models', fontsize=12, fontweight='bold', pad=12)
     plt.xlabel('Simulated Stage 1 Perception Noise Level (Input ΔMAE)', fontsize=11, fontweight='bold')
     plt.ylabel('Stage 2 Forecasting MAE Overall', fontsize=11, fontweight='bold')
-    plt.xticks([0.0, 1.50, 3.53, 5.00], ['0.0 (Clean)', '1.50 (Mild)', '3.53 (ConvNeXt-Tiny)', '5.00 (Heavy)'])
+    plt.xticks([0.0, 1.50, 3.50, 5.00], ['0.0 (Clean)', '1.50 (Mild)', '3.50 (Moderate)', '5.00 (Heavy)'])
     plt.grid(True, linestyle='--', alpha=0.6)
     plt.legend(frameon=True, facecolor='white', edgecolor='none', fontsize=9, loc='upper left')
     plt.tight_layout()
@@ -409,7 +409,7 @@ def train_single_noise_experiment(model_name, model_fn, df_train, df_val, df_tes
         f.write("## 📊 Bảng Kết quả Đánh giá Độ suy giảm Hiệu năng\n\n")
         f.write(df_report.to_markdown(index=False))
         f.write("\n\n---\n\n## 💡 Kết luận Khoa học:\n")
-        f.write("1. **Độ dốc đường cong MAE**: Khi mức nhiễu đầu vào tăng từ 0.0 lên 3.53 (mức sai số thực tế của ConvNeXt-Tiny), sai số dự báo của các mô hình Baseline tăng nhanh.\n")
+        f.write("1. **Độ dốc đường cong MAE**: Khi mức nhiễu đầu vào tăng từ 0.0 lên 3.50 (mức sai số nhận dạng Giai đoạn 1), sai số dự báo của các mô hình Baseline tăng nhanh.\n")
         f.write("2. **Độ bền vững của TA-STGCN**: Đường cong MAE của TA-STGCN có độ dốc thoải nhất, chứng minh cơ chế **Model-Level Multi-Head Temporal Self-Attention** hoạt động như một **Bộ lọc thông thấp động (Dynamic Low-Pass Filter)** tự động triệt tiêu các sai số đếm xe tức thời từ camera.\n")
 
     print(f"📑 Đã lưu báo cáo chi tiết vào tệp: {report_path}")
