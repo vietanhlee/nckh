@@ -97,6 +97,11 @@ def get_target_layer(model, model_name):
             return model.blocks[-1]
         elif hasattr(model, 'features'):
             return model.features[-1]
+    elif 'vit' in name_lower:
+        if hasattr(model, 'blocks'):
+            return model.blocks[-1]
+        elif hasattr(model, 'encoder'):
+            return model.encoder.layers[-1]
     elif 'convnext' in name_lower:
         if hasattr(model, 'stages'):
             return model.stages[-1]
@@ -105,7 +110,7 @@ def get_target_layer(model, model_name):
 
     # Fallback cho timm models
     for name, module in reversed(list(model.named_modules())):
-        if isinstance(module, (nn.Conv2d, nn.BatchNorm2d)):
+        if isinstance(module, (nn.Conv2d, nn.BatchNorm2d, nn.LayerNorm)):
             return module
 
     raise ValueError(f"Không tìm thấy target layer cho {model_name}")
@@ -129,8 +134,8 @@ def generate_vision_explainability_figures(image_path, models_dict, device, save
 
     input_tensor = preprocess(raw_img).unsqueeze(0).to(device)
 
-    # 2. Khởi tạo Figure lưới hiển thị 4 cột: Ảnh gốc, ResNet-50, EfficientNet-B4, ConvNeXt-Tiny
-    fig, axes = plt.subplots(1, 4, figsize=(16, 4.5), dpi=300)
+    # 2. Khởi tạo Figure lưới hiển thị 5 cột: Ảnh gốc, ResNet-50, EfficientNet-B4, ViT-Small, ConvNeXt-Tiny
+    fig, axes = plt.subplots(1, 5, figsize=(20, 4.5), dpi=300)
     plt.rcParams['font.family'] = 'DejaVu Sans'
 
     # (Col 0) Ảnh giao thông thực tế gốc
@@ -138,11 +143,12 @@ def generate_vision_explainability_figures(image_path, models_dict, device, save
     axes[0].set_title("(a) Traffic Camera Scene\n(Original Input)", fontsize=11, fontweight='bold')
     axes[0].axis('off')
 
-    model_names = ['resnet', 'efficientnet', 'convnext']
+    model_names = ['resnet', 'efficientnet', 'vit', 'convnext']
     titles = [
         "(b) ResNet-50\n(Grad-CAM++ Attribution)",
         "(c) EfficientNet-B4\n(Grad-CAM++ Attribution)",
-        "(d) ConvNeXt-Tiny (Ours)\n(Grad-CAM++ Attribution)"
+        "(d) ViT-Small\n(Grad-CAM++ Attribution)",
+        "(e) ConvNeXt-Tiny (Ours)\n(Grad-CAM++ Attribution)"
     ]
 
     for idx, m_key in enumerate(model_names):

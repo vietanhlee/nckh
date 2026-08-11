@@ -27,14 +27,15 @@ class Config:
     CSV_FILE = "/kaggle/input/datasets/canhdoo/csv-images/traffic_update.csv"
     IMAGE_DIR = "/kaggle/input/datasets/canhdoo/lane-vehicle/images"
 
-    # 🏗️ Danh sách họ mô hình cần chạy benchmark: 'resnet', 'efficientnet', 'convnext'
-    MODELS = ['resnet', 'efficientnet', 'convnext']
+    # 🏗️ Danh sách 4 họ mô hình cần chạy benchmark: 'resnet', 'efficientnet', 'vit', 'convnext'
+    MODELS = ['resnet', 'efficientnet', 'vit', 'convnext']
 
     # 🧪 Danh sách seeds ngẫu nhiên để đánh giá thống kê (Mean ± Std)
     SEEDS = [42, 100, 2024]
 
     # ⚡ Siêu tham số huấn luyện
-    EPOCHS = 60
+    EPOCHS = 100
+    PATIENCE = 17 # ⚡ Early Stopping Patience = 17 epochs
     BATCH_SIZE = 32
     LEARNING_RATE = 3e-4
     IMG_SIZE = (224, 224)
@@ -170,7 +171,7 @@ class VehicleDataset(Dataset):
 def build_counting_model(model_name: str, num_classes: int = 2, pretrained: bool = True):
     """
     Khởi tạo mô hình ước lượng số lượng phương tiện (2 đầu ra: [Ô tô, Xe máy]).
-    Hỗ trợ 3 họ mô hình tiêu chuẩn: ResNet (ResNet-50), EfficientNet (EfficientNet-B0), ConvNeXt (ConvNeXt-Tiny).
+    Hỗ trợ 4 họ mô hình tiêu chuẩn: ResNet (ResNet-50), EfficientNet (EfficientNet-B4), ViT (ViT-Small), ConvNeXt (ConvNeXt-Tiny).
     """
     name_clean = model_name.lower()
     
@@ -199,6 +200,18 @@ def build_counting_model(model_name: str, num_classes: int = 2, pretrained: bool
                 nn.Dropout(0.2),
                 nn.Linear(128, num_classes)
             )
+    elif 'vit' in name_clean:
+        try:
+            model = timm.create_model('vit_small_patch16_224', pretrained=pretrained, num_classes=num_classes)
+        except Exception:
+            model = models.vit_b_16(weights=models.ViT_B_16_Weights.DEFAULT if pretrained else None)
+            in_features = model.heads.head.in_features
+            model.heads.head = nn.Sequential(
+                nn.Linear(in_features, 128),
+                nn.GELU(),
+                nn.Dropout(0.2),
+                nn.Linear(128, num_classes)
+            )
     elif 'convnext' in name_clean:
         try:
             model = timm.create_model('convnext_tiny', pretrained=pretrained, num_classes=num_classes)
@@ -212,7 +225,7 @@ def build_counting_model(model_name: str, num_classes: int = 2, pretrained: bool
                 nn.Linear(128, num_classes)
             )
     else:
-        raise ValueError(f"Tên mô hình không hợp lệ: {model_name}. Chọn một trong các loại: 'resnet', 'efficientnet', 'convnext'")
+        raise ValueError(f"Tên mô hình không hợp lệ: {model_name}. Chọn một trong các loại: 'resnet', 'efficientnet', 'vit', 'convnext'")
 
     return model
 
@@ -289,7 +302,7 @@ class GradCAMPlusPlus:
 
 
 def get_target_layer(model, model_name):
-    """Xác định lớp Convolution cuối cùng cho từng kiến trúc mô hình."""
+    """Xác định lớp Convolution/Attention cuối cùng cho từng kiến trúc mô hình."""
     name_lower = model_name.lower()
     if 'resnet' in name_lower:
         if hasattr(model, 'layer4'):
@@ -299,6 +312,11 @@ def get_target_layer(model, model_name):
             return model.conv_head
         elif hasattr(model, 'blocks'):
             return model.blocks[-1]
+    elif 'vit' in name_lower:
+        if hasattr(model, 'blocks'):
+            return model.blocks[-1]
+        elif hasattr(model, 'encoder'):
+            return model.encoder.layers[-1]
     elif 'convnext' in name_lower:
         if hasattr(model, 'stages'):
             return model.stages[-1]
@@ -306,13 +324,13 @@ def get_target_layer(model, model_name):
             return model.features[-1]
 
     for name, module in reversed(list(model.named_modules())):
-        if isinstance(module, (nn.Conv2d, nn.BatchNorm2d)):
+        if isinstance(module, (nn.Conv2d, nn.BatchNorm2d, nn.LayerNorm)):
             return module
     raise ValueError(f"Không tìm thấy target layer cho {model_name}")
 
 
 def generate_vision_explainability_figures(sample_img_path, trained_models_dict, device, save_dir="paper/fig"):
-    """Tạo biểu đồ Grad-CAM Feature Attribution Heatmap so sánh 3 mô hình vision."""
+    """Tạo biểu đồ Grad-CAM++ Feature Attribution Heatmap so sánh 4 mô hình vision."""
     os.makedirs(save_dir, exist_ok=True)
     if not os.path.exists(sample_img_path):
         print(f"⚠️ Không tìm thấy ảnh {sample_img_path} để tạo Grad-CAM heatmap.")
@@ -330,18 +348,19 @@ def generate_vision_explainability_figures(sample_img_path, trained_models_dict,
     input_tensor = preprocess(raw_img).unsqueeze(0).to(device)
 
     import matplotlib.pyplot as plt
-    fig, axes = plt.subplots(1, 4, figsize=(16, 4.5), dpi=300)
+    fig, axes = plt.subplots(1, 5, figsize=(20, 4.5), dpi=300)
     plt.rcParams['font.family'] = 'DejaVu Sans'
 
     axes[0].imshow(raw_img)
     axes[0].set_title("(a) Traffic Camera Scene\n(Original Input)", fontsize=11, fontweight='bold')
     axes[0].axis('off')
 
-    model_names = ['resnet', 'efficientnet', 'convnext']
+    model_names = ['resnet', 'efficientnet', 'vit', 'convnext']
     titles = [
         "(b) ResNet-50\n(Grad-CAM++ Attribution)",
         "(c) EfficientNet-B4\n(Grad-CAM++ Attribution)",
-        "(d) ConvNeXt-Tiny (Ours)\n(Grad-CAM++ Attribution)"
+        "(d) ViT-Small\n(Grad-CAM++ Attribution)",
+        "(e) ConvNeXt-Tiny (Ours)\n(Grad-CAM++ Attribution)"
     ]
 
     for idx, m_key in enumerate(model_names):
@@ -369,7 +388,7 @@ def generate_vision_explainability_figures(sample_img_path, trained_models_dict,
     plt.savefig(fig_png, format='png', bbox_inches='tight', dpi=300)
     plt.close()
 
-    print(f"🖼️ Đã tự động tạo biểu đồ Grad-CAM XAI cho 3 mô hình Vision vào:\n   - {fig_pdf}\n   - {fig_png}")
+    print(f"🖼️ Đã tự động tạo biểu đồ Grad-CAM XAI cho 4 mô hình Vision vào:\n   - {fig_pdf}\n   - {fig_png}")
 
 
 def measure_inference_latency(model, loader, device, max_batches=20):
@@ -444,7 +463,7 @@ def compute_counting_metrics(y_true, y_pred):
 
 
 def train_single_seed_counting(model_name, train_loader, val_loader, test_loader, cfg, device, seed):
-    """Huấn luyện và đánh giá 1 mô hình đếm phương tiện với 1 seed ngẫu nhiên."""
+    """Huấn luyện và đánh giá 1 mô hình đếm phương tiện với 1 seed ngẫu nhiên (hỗ trợ Early Stopping = 17)."""
     set_seed(seed)
     
     model = build_counting_model(model_name, num_classes=2, pretrained=True).to(device)
@@ -453,10 +472,12 @@ def train_single_seed_counting(model_name, train_loader, val_loader, test_loader
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(train_loader) * cfg['epochs'])
     scaler = torch.amp.GradScaler('cuda') if device.type == 'cuda' else None
 
+    patience = cfg.get('patience', 17)
+    patience_counter = 0
     best_val_mae = float('inf')
     best_model_weights = copy.deepcopy(model.state_dict())
 
-    print(f"\n⚡ [{model_name.upper()}] Seed {seed} | Bắt đầu huấn luyện ({cfg['epochs']} Epochs)...")
+    print(f"\n⚡ [{model_name.upper()}] Seed {seed} | Bắt đầu huấn luyện (Max Epochs={cfg['epochs']}, Patience={patience})...")
 
     for epoch in range(1, cfg['epochs'] + 1):
         model.train()
@@ -503,10 +524,17 @@ def train_single_seed_counting(model_name, train_loader, val_loader, test_loader
 
         if val_mae < best_val_mae:
             best_val_mae = val_mae
+            patience_counter = 0
             best_model_weights = copy.deepcopy(model.state_dict())
+        else:
+            patience_counter += 1
 
-        if epoch % 10 == 0 or epoch == cfg['epochs']:
+        if epoch % 5 == 0 or epoch == cfg['epochs']:
             print(f"   Epoch {epoch:>2d}/{cfg['epochs']} | Train Loss: {train_loss:.4f} | Val MAE: {val_mae:.2f} (Best: {best_val_mae:.2f})")
+
+        if patience_counter >= patience:
+            print(f"   🛑 Early stopping tại epoch {epoch} (Patience={patience} không giảm Val MAE). Best Val MAE: {best_val_mae:.2f}")
+            break
 
     # Đánh giá trên tập Test với trọng số tốt nhất
     model.load_state_dict(best_model_weights)
@@ -535,7 +563,8 @@ def run_counting_benchmark():
                         help="Thư mục chứa tệp ảnh giao thông.")
     parser.add_argument('--seeds', type=int, nargs='+', default=Config.SEEDS,
                         help="Danh sách các seeds thử nghiệm.")
-    parser.add_argument('--epochs', type=int, default=Config.EPOCHS, help="Số epochs huấn luyện.")
+    parser.add_argument('--epochs', type=int, default=Config.EPOCHS, help="Số epochs huấn luyện tối đa.")
+    parser.add_argument('--patience', type=int, default=Config.PATIENCE, help="Early stopping patience (mặc định: 17).")
     parser.add_argument('--batch_size', type=int, default=Config.BATCH_SIZE, help="Kích thước batch_size.")
     parser.add_argument('--lr', type=float, default=Config.LEARNING_RATE, help="Learning rate.")
     args = parser.parse_args()
@@ -546,6 +575,7 @@ def run_counting_benchmark():
     print(f"   Device        : {device}")
     print(f"   Seeds         : {args.seeds}")
     print(f"   Epochs        : {args.epochs}")
+    print(f"   Patience      : {args.patience}")
     print(f"   Batch Size    : {args.batch_size}")
     print(f"   CSV Label File: {args.csv_file}")
     print(f"   Image Dir     : {args.image_dir}")
@@ -570,7 +600,6 @@ def run_counting_benchmark():
 
     # 2. Nạp Dataset và chia tập dữ liệu (Train 80%, Val 10%, Test 10%)
     if not os.path.exists(args.csv_file):
-        # Fallback đường dẫn cục bộ nếu không chạy trên Kaggle
         local_csv = os.path.join(os.getcwd(), "labels1.csv")
         local_img = os.path.join(os.getcwd(), "images")
         if os.path.exists(local_csv):
@@ -583,11 +612,9 @@ def run_counting_benchmark():
     n_val = int(0.1 * total_len)
     n_test = total_len - n_train - n_val
 
-    # Đảm bảo chia tập nhất quán
     set_seed(42)
     train_ds, val_ds, test_ds = torch.utils.data.random_split(full_dataset, [n_train, n_val, n_test])
     
-    # Gán transform tách biệt cho Val & Test (không áp dụng Augmentation khi đánh giá)
     val_ds.dataset = copy.deepcopy(full_dataset)
     val_ds.dataset.transform = val_transform
     test_ds.dataset = copy.deepcopy(full_dataset)
@@ -600,7 +627,7 @@ def run_counting_benchmark():
     print(f"📂 Phân chia dữ liệu: Train={n_train}, Val={n_val}, Test={n_test}")
 
     models_to_test = Config.MODELS
-    cfg = {'epochs': args.epochs, 'lr': args.lr}
+    cfg = {'epochs': args.epochs, 'lr': args.lr, 'patience': args.patience}
 
     results = {
         m_name: {
@@ -613,7 +640,7 @@ def run_counting_benchmark():
 
     for seed in args.seeds:
         print(f"\n{'='*70}")
-        print(f"🧪 [SUB-PROBLEM 1 - SEED {seed}] THỬ NGHIỆM 3 MÔ HÌNH (RESNET, EFFICIENTNET, CONVNEXT)")
+        print(f"🧪 [SUB-PROBLEM 1 - SEED {seed}] THỬ NGHIỆM 4 MÔ HÌNH (RESNET, EFFICIENTNET, VIT, CONVNEXT)")
         print(f"{'='*70}")
 
         for m_name in models_to_test:
@@ -625,7 +652,6 @@ def run_counting_benchmark():
                 m_name, train_loader, val_loader, test_loader, cfg, device, seed
             )
 
-            # Đo số tham số, FLOPs và Latency
             p_count = count_parameters(model)
             results[m_name]['params'] = p_count
 
@@ -637,7 +663,6 @@ def run_counting_benchmark():
             lat = measure_inference_latency(model, test_loader, device)
             results[m_name]['inf_latencies'].append(lat)
 
-            # Thu thập chỉ số Test
             results[m_name]['mae_overall'].append(metrics['mae_overall'])
             results[m_name]['mape_overall'].append(metrics['mape_overall'])
             results[m_name]['rmse_overall'].append(metrics['rmse_overall'])
@@ -659,7 +684,6 @@ def run_counting_benchmark():
                 torch.cuda.empty_cache()
             gc.collect()
 
-    # 3. Tổng hợp Bảng so sánh kết quả
     table_overall = []
     table_breakdown = []
 
@@ -669,7 +693,6 @@ def run_counting_benchmark():
         gflops = res['flops_gflops']
         lats = res['inf_latencies']
 
-        # Bảng Tổng quan
         table_overall.append({
             'Model Architecture': m_name.upper(),
             'Params': f"{p_count:,}",
@@ -681,7 +704,6 @@ def run_counting_benchmark():
             'MSE Overall': f"{np.mean(res['mse_overall']):.2f} ± {np.std(res['mse_overall']):.2f}"
         })
 
-        # Bảng Tách riêng Ô tô vs Xe máy
         table_breakdown.append({
             'Model Architecture': m_name.upper(),
             'MAE Ô tô (Car)': f"{np.mean(res['mae_car']):.2f} ± {np.std(res['mae_car']):.2f}",
@@ -705,13 +727,12 @@ def run_counting_benchmark():
     print(f"{'='*110}")
     print(df_breakdown.to_string(index=False))
 
-    # Ghi báo cáo ra file Markdown
     report_path = Config.REPORT_PATH
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(f"# 🚗🏍️ Báo cáo Benchmark Mô hình Đếm Phương tiện (Sub-problem 1)\n\n")
         f.write(f"- **Seeds sử dụng**: `{args.seeds}`\n")
-        f.write(f"- **Cấu hình**: Epochs={args.epochs}, Batch Size={args.batch_size}, LR={args.lr}\n")
-        f.write(f"- **Họ mô hình so sánh**: ResNet (ResNet-50), EfficientNet (EfficientNet-B0), ConvNeXt (ConvNeXt-Tiny)\n\n")
+        f.write(f"- **Cấu hình**: Epochs={args.epochs}, Early Stopping Patience={args.patience}, Batch Size={args.batch_size}, LR={args.lr}\n")
+        f.write(f"- **Họ mô hình so sánh**: ResNet (ResNet-50), EfficientNet (EfficientNet-B4), ViT (ViT-Small), ConvNeXt (ConvNeXt-Tiny)\n\n")
         f.write("## 🏆 1. Bảng So sánh Tổng quan (Params, FLOPs, Latency & Overall Error)\n\n")
         f.write(df_overall.to_markdown(index=False))
         f.write("\n\n---\n\n## 🏍️🚗 2. Bảng So sánh Chi tiết Tách riêng Ô tô (Car) và Xe máy (Motorcycle)\n\n")
@@ -719,19 +740,19 @@ def run_counting_benchmark():
 
     print(f"\n📑 Đã lưu báo cáo chi tiết đếm phương tiện vào tệp: {report_path}")
 
-    # 4. Tự động sinh biểu đồ Giải thích Mô hình Grad-CAM cho Bài báo
-    print(f"\n🎨 Đang khởi tạo biểu đồ Giải thích Mô hình Grad-CAM (Vision Explainability)...")
+    print(f"\n🎨 Đang khởi tạo biểu đồ Giải thích Mô hình Grad-CAM++ (Vision Explainability)...")
     try:
-        sample_img_path = dataset.valid_image_paths[0] if len(dataset.valid_image_paths) > 0 else None
+        sample_img_path = test_ds.dataset.valid_image_paths[0] if hasattr(test_ds.dataset, 'valid_image_paths') and len(test_ds.dataset.valid_image_paths) > 0 else None
         if sample_img_path and os.path.exists(sample_img_path):
             trained_models_dict = {
                 'resnet': build_counting_model('resnet', pretrained=True),
                 'efficientnet': build_counting_model('efficientnet', pretrained=True),
+                'vit': build_counting_model('vit', pretrained=True),
                 'convnext': build_counting_model('convnext', pretrained=True)
             }
             generate_vision_explainability_figures(sample_img_path, trained_models_dict, device, save_dir="paper/fig")
     except Exception as e:
-        print(f"⚠️ Không thể sinh biểu đồ Grad-CAM tự động: {e}")
+        print(f"⚠️ Không thể sinh biểu đồ Grad-CAM++ tự động: {e}")
 
 
 if __name__ == "__main__":
