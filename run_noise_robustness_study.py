@@ -162,7 +162,10 @@ def train_single_noise_experiment(model_name, model_fn, df_train, df_val, df_tes
     if device.type == 'cuda':
         torch.cuda.empty_cache()
     gc.collect()
+    return {'mae': avg_mae, 'rmse': avg_rmse, 'mape': avg_mape}
 
+
+def run_noise_robustness_experiment():
     parser = argparse.ArgumentParser(description="Script Phân tích Độ nhạy & Độ bền vững với Nhiễu Nhận dạng Giai đoạn 1 Cho Tất cả Model.")
     parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024],
                         help="Danh sách seeds thử nghiệm (mặc định: 42 100 2024).")
