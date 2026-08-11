@@ -376,6 +376,8 @@ if TORCH_AVAILABLE:
 
             if L_tilde is None:
                 self.register_buffer('L_tilde', torch.eye(num_nodes))
+            elif isinstance(L_tilde, torch.Tensor):
+                self.register_buffer('L_tilde', L_tilde.detach().clone().to(torch.float32))
             else:
                 self.register_buffer('L_tilde', torch.tensor(L_tilde, dtype=torch.float32))
 
