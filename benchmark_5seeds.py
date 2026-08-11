@@ -223,10 +223,12 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
                     'batch_size': cfg.BATCH_SIZE,
                     'learning_rate': cfg.LEARNING_RATE,
                     'patience': cfg.PATIENCE,
-                    'block_hidden': cfg.BLOCK_HIDDEN,
+                    'block_hidden': getattr(cfg, 'BLOCK_HIDDEN', getattr(cfg, 'GCN_HIDDEN', 64)),
+                    'gcn_hidden': getattr(cfg, 'GCN_HIDDEN', None),
+                    'lstm_hidden': getattr(cfg, 'LSTM_HIDDEN', None),
                     'num_blocks': getattr(cfg, 'NUM_BLOCKS', None),
                     'cheb_K': getattr(cfg, 'CHEB_K', None),
-                    'loss_delta': cfg.LOSS_DELTA
+                    'loss_delta': getattr(cfg, 'LOSS_DELTA', 1.0)
                 },
                 reinit=True
             )

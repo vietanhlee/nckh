@@ -1,8 +1,10 @@
 """
 PTA-STGCN: Periodicity & Missing-Aware Temporal Attention Spatio-Temporal Graph Convolutional Network
-An Improved STGCN Architecture & Full End-to-End Dataset Training Pipeline for Urban Traffic Forecasting.
+An Improved STGCN Architecture & Full End-to-End Multi-Seed Dataset Training Pipeline for Urban Traffic Forecasting.
 
-Dataset & Config Alignment:
+Multi-Seed Benchmark Protocol:
+- Seeds: [42, 100, 2024, 777, 999] (5 Independent Random Seeds matching benchmark_5seeds.py)
+- Epochs: 80 | Patience: 10 | Batch Size: 32 (Matching benchmark_5seeds.py)
 - Graph Topology: Graph_fix_py_3.xlsx (608 nodes)
 - Traffic Time-Series: count_7_7_merg_sort_fix_fill.csv
 - Preprocessing: Double rolling window (w1=3, w2=5), 5-min aggregation
@@ -15,6 +17,7 @@ import gc
 import math
 import time
 import random
+import argparse
 import numpy as np
 import pandas as pd
 
@@ -38,6 +41,8 @@ class Config:
     SAVE_DIR          = "model/"
     PLOT_DIR          = "plots/"
 
+    SEEDS             = [42, 100, 2024, 777, 999] # 5 Independent Random Seeds matching benchmark_5seeds.py
+
     TIME_STEP_MINUTES = 5
     HISTORY_MINUTES   = 120
     HORIZON           = 6
@@ -50,10 +55,10 @@ class Config:
     DROPOUT           = 0.2
     LOSS_DELTA        = 1.0
 
-    BATCH_SIZE        = 32
-    EPOCHS            = 80
+    BATCH_SIZE        = 32  # Batch Size = 32
+    EPOCHS            = 80  # Max Epochs = 80 matching benchmark_5seeds.py
+    PATIENCE          = 10  # Early Stopping Patience = 10 matching benchmark_5seeds.py
     LEARNING_RATE     = 0.001
-    PATIENCE          = 10
     DATA_WINDOW1      = 3
     DATA_WINDOW2      = 5
 
@@ -418,7 +423,7 @@ if TORCH_AVAILABLE:
 
 
 # ============================================================
-# FULL DATASET TRAINING & EVALUATION PIPELINE
+# FULL MULTI-SEED DATASET TRAINING & EVALUATION PIPELINE
 # ============================================================
 
 def train_one_epoch_pta(model, loader, optimizer, loss_fn, device, grad_scaler, scaler):
@@ -494,13 +499,15 @@ def evaluate_pta(model, loader, device, scaler, loss_fn=None):
     return avg_loss, avg_mae
 
 
-def train_pta_stgcn_on_dataset(cfg=Config()):
-    """Vòng lặp Huấn luyện & Đánh giá Thực sự của PTA-STGCN với logging Loss & MAE thực tế"""
-    set_seed(42)
+def train_pta_stgcn_multi_seed(cfg=Config()):
+    """Vòng lặp Huấn luyện & Đánh giá PTA-STGCN trên 5 Seeds ngẫu nhiên độc lập (Epochs=80, Patience=10)"""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("========================================================================")
-    print("  PTA-STGCN: FULL END-TO-END DATASET TRAINING & BENCHMARK PIPELINE")
+    print(f"  PTA-STGCN: MULTI-SEED ({len(cfg.SEEDS)} SEEDS) BENCHMARK PIPELINE")
     print("========================================================================")
+    print(f"   Seeds List : {cfg.SEEDS}")
+    print(f"   Max Epochs : {cfg.EPOCHS} | Patience: {cfg.PATIENCE} (Early Stopping)")
+    print(f"   Batch Size : {cfg.BATCH_SIZE} | Learning Rate: {cfg.LEARNING_RATE}")
     print(f"   Executing on device: {device}")
     print(f"   Config ADJ Path: {cfg.ADJ_PATH}")
     print(f"   Config CSV Path: {cfg.CSV_PATH}")
@@ -543,100 +550,125 @@ def train_pta_stgcn_on_dataset(cfg=Config()):
 
     print(f"   Data partitions: Train={len(train_dataset)}, Val={len(val_dataset)}, Test={len(test_dataset)} batches")
 
-    # 4. Model Initialization
-    L_tilde_tensor = torch.tensor(L_tilde, dtype=torch.float32, device=device)
-    model = PTA_STGCN_Model(
-        num_nodes=num_nodes, in_feat=4, block_hidden=cfg.BLOCK_HIDDEN, num_blocks=cfg.NUM_BLOCKS,
-        T_in=cfg.T_IN, cheb_K=cfg.CHEB_K, horizon=cfg.HORIZON, L_tilde=L_tilde_tensor, dropout=cfg.DROPOUT
-    ).to(device)
-
-    optimizer = optim.AdamW(model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
-    loss_fn = PureHuberLoss(delta=cfg.LOSS_DELTA)
-    grad_scaler = torch.amp.GradScaler('cuda') if device.type == 'cuda' else None
-
-    # 5. Training Loop
-    print("\n🚀 Step 3: Starting Model Training Loop...")
-    best_mae = float('inf')
-    patience_counter = 0
+    seed_results = {
+        'overall_mae': [], 'overall_rmse': [], 'overall_mse': [], 'overall_mape': [],
+        'step_maes': {f't{t_idx+1}': [] for t_idx in range(cfg.HORIZON)}
+    }
 
     os.makedirs(cfg.SAVE_DIR, exist_ok=True)
-    save_model_path = os.path.join(cfg.SAVE_DIR, "pta_stgcn_best.pth")
+    L_tilde_tensor = torch.tensor(L_tilde, dtype=torch.float32, device=device)
 
-    for ep in range(1, cfg.EPOCHS + 1):
-        train_loss, train_mae = train_one_epoch_pta(model, train_loader, optimizer, loss_fn, device, grad_scaler, scaler)
-        val_loss, val_mae = evaluate_pta(model, val_loader, device, scaler, loss_fn=loss_fn)
+    # VÒNG LẶP HUẤN LUYỆN THEO NỐI 5 SEED NGẪU NHIÊN
+    for seed_idx, seed in enumerate(cfg.SEEDS, 1):
+        print(f"\n🌱 [SEED {seed_idx}/{len(cfg.SEEDS)}: {seed}] Bắt đầu huấn luyện mô hình PTA-STGCN...")
+        set_seed(seed)
 
-        scheduler.step(val_loss)
+        model = PTA_STGCN_Model(
+            num_nodes=num_nodes, in_feat=4, block_hidden=cfg.BLOCK_HIDDEN, num_blocks=cfg.NUM_BLOCKS,
+            T_in=cfg.T_IN, cheb_K=cfg.CHEB_K, horizon=cfg.HORIZON, L_tilde=L_tilde_tensor, dropout=cfg.DROPOUT
+        ).to(device)
 
-        # Logging khớp chuẩn định dạng stgcn.py & hybrid.py
-        print(f"Ep {ep:03d} | Loss: {train_loss:.4f} / {val_loss:.4f} | MAE: {train_mae:.2f} / {val_mae:.2f}", end="")
+        optimizer = optim.AdamW(model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=1e-4)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
+        loss_fn = PureHuberLoss(delta=cfg.LOSS_DELTA)
+        grad_scaler = torch.amp.GradScaler('cuda') if device.type == 'cuda' else None
 
-        if val_mae < best_mae:
-            best_mae = val_mae
-            patience_counter = 0
-            torch.save(model.state_dict(), save_model_path)
-            print(" -> Saved Best")
-        else:
-            patience_counter += 1
-            print(f" | Patience: {patience_counter}/{cfg.PATIENCE}")
+        best_mae = float('inf')
+        patience_counter = 0
+        save_model_path = os.path.join(cfg.SAVE_DIR, f"pta_stgcn_seed_{seed}_best.pth")
+
+        for ep in range(1, cfg.EPOCHS + 1):
+            train_loss, train_mae = train_one_epoch_pta(model, train_loader, optimizer, loss_fn, device, grad_scaler, scaler)
+            val_loss, val_mae = evaluate_pta(model, val_loader, device, scaler, loss_fn=loss_fn)
+
+            scheduler.step(val_loss)
+
+            if val_mae < best_mae:
+                best_mae = val_mae
+                patience_counter = 0
+                torch.save(model.state_dict(), save_model_path)
+                status = " -> Saved Best"
+            else:
+                patience_counter += 1
+                status = f" | Patience: {patience_counter}/{cfg.PATIENCE}"
+
+            if ep % 10 == 0 or ep == 1 or "Saved Best" in status:
+                print(f"   Ep {ep:02d}/{cfg.EPOCHS:02d} | Loss: {train_loss:.4f} / {val_loss:.4f} | MAE: {train_mae:.2f} / {val_mae:.2f}{status}")
+
             if patience_counter >= cfg.PATIENCE:
-                print(f"\n⏹ Early Stopping triggered at Epoch {ep}. Best Val MAE: {best_mae:.2f}")
+                print(f"   ⏹ Early Stopping tại Epoch {ep}. Best Val MAE: {best_mae:.2f}")
                 break
 
-    # 6. Evaluation on Test Set
-    print("\n📊 Step 4: Evaluating Best Model Checkpoint on Test Partition...")
-    model.load_state_dict(torch.load(save_model_path))
-    model.eval()
+        # Đánh giá trên tập Test cho Seed này
+        model.load_state_dict(torch.load(save_model_path))
+        model.eval()
 
-    total_mae = 0.0
-    total_mse = 0.0
-    total_mape = 0.0
-    step_maes = [0.0] * cfg.HORIZON
-    count_batches = 0
+        total_mae, total_mse, total_mape = 0.0, 0.0, 0.0
+        step_maes = [0.0] * cfg.HORIZON
+        count_batches = 0
 
-    means = torch.tensor(scaler['mean'], device=device)
-    stds = torch.tensor(scaler['std'], device=device)
+        means = torch.tensor(scaler['mean'], device=device)
+        stds = torch.tensor(scaler['std'], device=device)
 
-    with torch.no_grad():
-        for X, Y in test_loader:
-            X, Y = X.to(device), Y.to(device)
-            pred = model(X)
+        with torch.no_grad():
+            for X, Y in test_loader:
+                X, Y = X.to(device), Y.to(device)
+                pred = model(X)
 
-            y_true = Y * stds + means
-            y_pred = pred * stds + means
+                y_true = Y * stds + means
+                y_pred = pred * stds + means
 
-            err = y_true - y_pred
-            abs_err = torch.abs(err)
-            mask = (y_true > 0.5).float()
+                err = y_true - y_pred
+                abs_err = torch.abs(err)
+                mask = (y_true > 0.5).float()
 
-            total_mae += abs_err.mean().item()
-            total_mse += (err ** 2).mean().item()
-            
-            mape_batch = (abs_err / (y_true + 1e-5)) * mask
-            total_mape += (mape_batch.sum().item() / max(mask.sum().item(), 1.0))
+                total_mae += abs_err.mean().item()
+                total_mse += (err ** 2).mean().item()
+                
+                mape_batch = (abs_err / (y_true + 1e-5)) * mask
+                total_mape += (mape_batch.sum().item() / max(mask.sum().item(), 1.0))
 
-            for t_idx in range(cfg.HORIZON):
-                step_maes[t_idx] += abs_err[:, t_idx, :, :].mean().item()
+                for t_idx in range(cfg.HORIZON):
+                    step_maes[t_idx] += abs_err[:, t_idx, :, :].mean().item()
 
-            count_batches += 1
+                count_batches += 1
 
-    avg_mae = total_mae / count_batches
-    avg_mse = total_mse / count_batches
-    avg_rmse = math.sqrt(avg_mse)
-    avg_mape = total_mape / count_batches
+        seed_mae = total_mae / count_batches
+        seed_mse = total_mse / count_batches
+        seed_rmse = math.sqrt(seed_mse)
+        seed_mape = total_mape / count_batches
 
-    print("------------------------------------------------------------------------")
-    print("📊 BẢNG KẾT QUẢ ĐÁNH GIÁ MÔ HÌNH PTA-STGCN CHÍNH THỨC TRÊN TẬP TEST")
-    print("------------------------------------------------------------------------")
-    print(f"  • MAE Overall (Trung bình 6 bước)    : {avg_mae:.4f} vehicles")
+        seed_results['overall_mae'].append(seed_mae)
+        seed_results['overall_rmse'].append(seed_rmse)
+        seed_results['overall_mse'].append(seed_mse)
+        seed_results['overall_mape'].append(seed_mape)
+
+        for t_idx in range(cfg.HORIZON):
+            seed_results['step_maes'][f't{t_idx+1}'].append(step_maes[t_idx] / count_batches)
+
+        print(f"   ✅ [Seed {seed}] Completed | Test MAE Overall: {seed_mae:.4f} | MAPE: {seed_mape:.2f}% | RMSE: {seed_rmse:.4f}")
+
+    # Báo cáo Tổng hợp Multi-Seed Benchmark
+    print("\n" + "="*95)
+    print(f"🏆 BẢNG KẾT QUẢ MULTI-SEED BENCHMARK PTA-STGCN (TRUNG BÌNH {len(cfg.SEEDS)} SEEDS ± STD)")
+    print("="*95)
+    
+    mae_mean, mae_std = np.mean(seed_results['overall_mae']), np.std(seed_results['overall_mae'])
+    mape_mean, mape_std = np.mean(seed_results['overall_mape']), np.std(seed_results['overall_mape'])
+    rmse_mean, rmse_std = np.mean(seed_results['overall_rmse']), np.std(seed_results['overall_rmse'])
+    mse_mean, mse_std = np.mean(seed_results['overall_mse']), np.std(seed_results['overall_mse'])
+
+    print(f"  * MAE Overall      : {mae_mean:.4f} ± {mae_std:.4f} vehicles")
+    print(f"  * MAPE Overall (%) : {mape_mean:.2f}% ± {mape_std:.2f}%")
+    print(f"  * RMSE Overall     : {rmse_mean:.4f} ± {rmse_std:.4f}")
+    print(f"  * MSE Overall      : {mse_mean:.4f} ± {mse_std:.4f}")
+    print("  ---------------------------------------------------------------------")
     for t_idx in range(cfg.HORIZON):
-        print(f"  • MAE t+{t_idx+1} (Dự báo {(t_idx+1)*5:02d}m tới)       : {step_maes[t_idx] / count_batches:.4f} vehicles")
-    print("  ----------------------------------------------------------------------")
-    print(f"  • RMSE Overall                       : {avg_rmse:.4f}")
-    print(f"  • MSE Overall                        : {avg_mse:.4f}")
-    print(f"  • MAPE Overall (%)                   : {avg_mape:.2f}%")
-    print("------------------------------------------------------------------------\n")
+        t_mean = np.mean(seed_results['step_maes'][f't{t_idx+1}'])
+        t_std = np.std(seed_results['step_maes'][f't{t_idx+1}'])
+        print(f"  * MAE t+{t_idx+1} ({(t_idx+1)*5:02d}m)      : {t_mean:.4f} ± {t_std:.4f} vehicles")
+    print("=====================================================================\n")
+
     return True
 
 
@@ -664,16 +696,33 @@ def compute_metrics_np(y_true, y_pred):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="PTA-STGCN Multi-Seed Training Script")
+    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 22], help="Random seeds list")
+    parser.add_argument('--epochs', type=int, default=80, help="Max epochs per seed (default: 80)")
+    parser.add_argument('--patience', type=int, default=10, help="Early stopping patience (default: 10)")
+    parser.add_argument('--batch_size', type=int, default=32, help="Batch size (default: 32)")
+    parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH/", help="Dataset root directory")
+    args = parser.parse_args()
+
     cfg = Config()
+    cfg.SEEDS = args.seeds
+    cfg.EPOCHS = args.epochs
+    cfg.PATIENCE = args.patience
+    cfg.BATCH_SIZE = args.batch_size
+    cfg.ROOT_DIR = args.root_dir
+    cfg.ADJ_PATH = os.path.join(args.root_dir, "Graph_fix_py_3.xlsx")
+    cfg.CSV_PATH = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
+
     executed_dataset_train = False
-    
     if TORCH_AVAILABLE:
-        executed_dataset_train = train_pta_stgcn_on_dataset(cfg)
+        executed_dataset_train = train_pta_stgcn_multi_seed(cfg)
         
     if not executed_dataset_train:
         print("========================================================================")
-        print("  PTA-STGCN: MODEL VERIFICATION & MULTI-HORIZON BENCHMARK REPORT")
+        print("  PTA-STGCN: MULTI-SEED BENCHMARK VERIFICATION REPORT")
         print("========================================================================")
+        print(f"Seeds List            : {cfg.SEEDS}")
+        print(f"Max Epochs            : {cfg.EPOCHS} | Patience: {cfg.PATIENCE}")
         print(f"Config Root Directory : {cfg.ROOT_DIR}")
         print(f"Graph Adjacency Path  : {cfg.ADJ_PATH}")
         print(f"Time-Series Dataset   : {cfg.CSV_PATH}")
