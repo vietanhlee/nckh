@@ -143,30 +143,55 @@ def evaluate_benchmark_and_pointwise_errors(model, test_loader, scaler, device, 
 
 def run_full_benchmark_and_significance_test():
     parser = argparse.ArgumentParser(description="Script Master Benchmark Sub-problem 2 VÀ Kiểm định Thống kê Wilcoxon.")
-    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024], help="Danh sách seeds thử nghiệm.")
-    parser.add_argument('--epochs', type=int, default=80, help="Số epochs tối đa.")
-    parser.add_argument('--patience', type=int, default=15, help="Early stopping patience.")
-    parser.add_argument('--batch_size', type=int, default=32, help="Batch size.")
-    parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH", help="Thư mục gốc.")
+    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024],
+                        help="Danh sách seeds thử nghiệm (mặc định: 42 100 2024).")
+    parser.add_argument('--epochs', type=int, default=80,
+                        help="Số epochs tối đa (mặc định: 80).")
+    parser.add_argument('--patience', type=int, default=10,
+                        help="Early stopping patience (mặc định: 10).")
+    parser.add_argument('--batch_size', type=int, default=32,
+                        help="Batch size (mặc định: 32).")
+    parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH",
+                        help="Thư mục gốc chứa dữ liệu.")
+    parser.add_argument('--use_wandb', action='store_true', default=True,
+                        help="Tự động khởi tạo và ghi log lên WandB (mặc định: True).")
+    parser.add_argument('--no_wandb', dest='use_wandb', action='store_false',
+                        help="Tắt ghi log WandB.")
+    parser.add_argument('--wandb_project', type=str, default="NCKH-Benmark-5Seed",
+                        help="Tên project trên WandB.")
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    gcn_lstm_cfg = GCNLSTMConfig()
+    gcn_lstm_cfg.GCN_HIDDEN  = 64
+    gcn_lstm_cfg.LSTM_HIDDEN = 160
+    gcn_lstm_cfg.LSTM_LAYERS = 2
+
+    stgcn_cfg = BaselineConfig()
+    stgcn_cfg.BLOCK_HIDDEN   = 80
+    stgcn_cfg.NUM_BLOCKS     = 3
+
     base_cfg = HybridConfig()
-    base_cfg.ROOT_DIR = args.root_dir
-    base_cfg.ADJ_PATH = os.path.join(args.root_dir, "Graph_fix_py_3.xlsx")
-    base_cfg.CSV_PATH = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
-    base_cfg.EPOCHS = args.epochs
-    base_cfg.PATIENCE = args.patience
-    base_cfg.BATCH_SIZE = args.batch_size
+
+    for cfg_inst in [gcn_lstm_cfg, stgcn_cfg, base_cfg]:
+        cfg_inst.ROOT_DIR = args.root_dir
+        cfg_inst.ADJ_PATH = os.path.join(args.root_dir, "Graph_fix_py_3.xlsx")
+        cfg_inst.CSV_PATH = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
+        cfg_inst.SAVE_DIR = "model/"
+        cfg_inst.EPOCHS = args.epochs
+        cfg_inst.PATIENCE = args.patience
+        cfg_inst.BATCH_SIZE = args.batch_size
+        os.makedirs(cfg_inst.SAVE_DIR, exist_ok=True)
 
     if not os.path.exists(base_cfg.CSV_PATH):
         local_dir = os.getcwd()
         alt_adj = os.path.join(local_dir, "Graph_fix_py_3.xlsx")
         alt_csv = os.path.join(local_dir, "count_7_7_merg_sort_fix_fill.csv")
         if os.path.exists(alt_csv):
-            base_cfg.ADJ_PATH = alt_adj
-            base_cfg.CSV_PATH = alt_csv
+            for cfg_inst in [gcn_lstm_cfg, stgcn_cfg, base_cfg]:
+                cfg_inst.ADJ_PATH = alt_adj
+                cfg_inst.CSV_PATH = alt_csv
 
     print("\n[1] Nạp dữ liệu đồ thị và chuỗi thời gian đếm xe...")
     A_raw, nodes = load_adj_from_excel(base_cfg.ADJ_PATH)
@@ -184,12 +209,6 @@ def run_full_benchmark_and_significance_test():
     df_train = df_all.iloc[:n_train]
     df_val = df_all.iloc[n_train:n_train + n_val]
     df_test = df_all.iloc[n_train + n_val:]
-
-    stgcn_cfg = BaselineConfig()
-    stgcn_cfg.EPOCHS, stgcn_cfg.PATIENCE, stgcn_cfg.BATCH_SIZE = args.epochs, args.patience, args.batch_size
-
-    gcn_lstm_cfg = GCNLSTMConfig()
-    gcn_lstm_cfg.EPOCHS, gcn_lstm_cfg.PATIENCE, gcn_lstm_cfg.BATCH_SIZE = args.epochs, args.patience, args.batch_size
 
     models_to_test = {
         'GCN-LSTM': {
@@ -223,7 +242,7 @@ def run_full_benchmark_and_significance_test():
         'GMAN': {
             'cfg': base_cfg,
             'fn': lambda cfg: GMAN(
-                num_nodes=len(nodes), in_channels=4, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=32, heads=4, num_blocks=1
+                num_nodes=len(nodes), in_channels=4, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=64, heads=4, num_blocks=1
             )
         },
         'TA-STGCN (Proposed / Ours)': {
@@ -348,6 +367,72 @@ def run_full_benchmark_and_significance_test():
         f.write("```\n")
 
     print(f"\n📑 Đã lưu báo cáo tổng hợp Master Benchmark vào tệp: {report_path}")
+
+    # 3. Tự động xuất Biểu đồ Đường cong Hội tụ MAE cho TẤT CẢ 6 Mô hình (.pdf và .png)
+    print(f"\n🎨 Đang xuất biểu đồ đường cong hội tụ MAE cho tất cả 6 mô hình (Figure 7)...")
+    try:
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(10, 6), dpi=300)
+        plt.rcParams['font.family'] = 'DejaVu Sans'
+
+        target_models = models_to_test
+        colors = {
+            'GCN-LSTM': '#1f77b4',
+            'STGCN (Baseline)': '#ff7f0e',
+            'GraphWaveNet': '#d62728',
+            'ASTGCN': '#9467bd',
+            'GMAN': '#8c564b',
+            'TA-STGCN (Proposed / Ours)': '#2ca02c'
+        }
+        linestyles = {
+            'GCN-LSTM': '--',
+            'STGCN (Baseline)': '-.',
+            'GraphWaveNet': ':',
+            'ASTGCN': '--',
+            'GMAN': '-.',
+            'TA-STGCN (Proposed / Ours)': '-'
+        }
+
+        for m_name in target_models:
+            if m_name not in metrics_across_seeds:
+                continue
+            histories = metrics_across_seeds[m_name]['val_mae_histories']
+            if not histories:
+                continue
+
+            max_len = max(len(h) for h in histories)
+            padded = []
+            for h in histories:
+                if len(h) < max_len:
+                    h = h + [h[-1]] * (max_len - len(h))
+                padded.append(h)
+
+            mean_curve = np.mean(padded, axis=0)
+            plt.plot(
+                range(1, max_len + 1), mean_curve,
+                label=m_name, linewidth=2.2,
+                color=colors.get(m_name, '#2ca02c'),
+                linestyle=linestyles.get(m_name, '-')
+            )
+
+        plt.xlabel('Training Epochs', fontsize=11, fontweight='bold')
+        plt.ylabel('Validation MAE Overall', fontsize=11, fontweight='bold')
+        plt.title('Validation MAE Convergence Curves Across All 6 Models', fontsize=12, fontweight='bold')
+        plt.legend(frameon=True, facecolor='white', edgecolor='none')
+        plt.grid(True, linestyle='--', alpha=0.6)
+        plt.tight_layout()
+
+        fig_dir = "paper/fig"
+        os.makedirs(fig_dir, exist_ok=True)
+        fig_pdf = os.path.join(fig_dir, "fig_compare_mae_curve_models_graph.pdf")
+        fig_png = os.path.join(fig_dir, "fig_compare_mae_curve_models_graph.png")
+        plt.savefig(fig_pdf, format='pdf', bbox_inches='tight')
+        plt.savefig(fig_png, format='png', bbox_inches='tight', dpi=300)
+        plt.close()
+
+        print(f"🖼️ Đã lưu biểu đồ đường cong hội tụ vào:\n   - PDF Vector: {fig_pdf}\n   - PNG High-Res: {fig_png}")
+    except Exception as e:
+        print(f"⚠️ Không thể sinh biểu đồ hội tụ tự động: {e}")
 
 
 if __name__ == "__main__":

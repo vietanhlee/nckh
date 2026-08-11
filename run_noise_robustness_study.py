@@ -163,27 +163,41 @@ def train_single_noise_experiment(model_name, model_fn, df_train, df_val, df_tes
         torch.cuda.empty_cache()
     gc.collect()
 
-    return {'mae': avg_mae, 'rmse': avg_rmse, 'mape': avg_mape}
-
-
-def run_noise_robustness_experiment():
-    parser = argparse.ArgumentParser(description="Thử nghiệm Phân tích Độ nhạy với Nhiễu Nhận dạng (Noise Sensitivity Analysis).")
-    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024], help="Danh sách các seeds thử nghiệm.")
-    parser.add_argument('--epochs', type=int, default=80, help="Số epochs tối đa cho mỗi mức nhiễu.")
-    parser.add_argument('--patience', type=int, default=15, help="Early stopping patience.")
-    parser.add_argument('--batch_size', type=int, default=32, help="Batch size.")
-    parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH", help="Thư mục gốc.")
+    parser = argparse.ArgumentParser(description="Script Phân tích Độ nhạy & Độ bền vững với Nhiễu Nhận dạng Giai đoạn 1 Cho Tất cả Model.")
+    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024],
+                        help="Danh sách seeds thử nghiệm (mặc định: 42 100 2024).")
+    parser.add_argument('--epochs', type=int, default=80,
+                        help="Số epochs tối đa (mặc định: 80).")
+    parser.add_argument('--patience', type=int, default=10,
+                        help="Early stopping patience (mặc định: 10).")
+    parser.add_argument('--batch_size', type=int, default=32,
+                        help="Batch size (mặc định: 32).")
+    parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH",
+                        help="Thư mục gốc chứa dữ liệu.")
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    gcn_lstm_cfg = GCNLSTMConfig()
+    gcn_lstm_cfg.GCN_HIDDEN  = 64
+    gcn_lstm_cfg.LSTM_HIDDEN = 160
+    gcn_lstm_cfg.LSTM_LAYERS = 2
+
+    stgcn_cfg = BaselineConfig()
+    stgcn_cfg.BLOCK_HIDDEN   = 80
+    stgcn_cfg.NUM_BLOCKS     = 3
+
     base_cfg = HybridConfig()
-    base_cfg.ROOT_DIR = args.root_dir
-    base_cfg.ADJ_PATH = os.path.join(args.root_dir, "Graph_fix_py_3.xlsx")
-    base_cfg.CSV_PATH = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
-    base_cfg.EPOCHS = args.epochs
-    base_cfg.PATIENCE = args.patience
-    base_cfg.BATCH_SIZE = args.batch_size
+
+    for cfg_inst in [gcn_lstm_cfg, stgcn_cfg, base_cfg]:
+        cfg_inst.ROOT_DIR = args.root_dir
+        cfg_inst.ADJ_PATH = os.path.join(args.root_dir, "Graph_fix_py_3.xlsx")
+        cfg_inst.CSV_PATH = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
+        cfg_inst.SAVE_DIR = "model/"
+        cfg_inst.EPOCHS = args.epochs
+        cfg_inst.PATIENCE = args.patience
+        cfg_inst.BATCH_SIZE = args.batch_size
+        os.makedirs(cfg_inst.SAVE_DIR, exist_ok=True)
 
     # Fallback kiểm tra file dữ liệu cục bộ
     if not os.path.exists(base_cfg.CSV_PATH):
@@ -191,8 +205,9 @@ def run_noise_robustness_experiment():
         alt_adj = os.path.join(local_dir, "Graph_fix_py_3.xlsx")
         alt_csv = os.path.join(local_dir, "count_7_7_merg_sort_fix_fill.csv")
         if os.path.exists(alt_csv):
-            base_cfg.ADJ_PATH = alt_adj
-            base_cfg.CSV_PATH = alt_csv
+            for cfg_inst in [gcn_lstm_cfg, stgcn_cfg, base_cfg]:
+                cfg_inst.ADJ_PATH = alt_adj
+                cfg_inst.CSV_PATH = alt_csv
 
     print("\n[1] Nạp ma trận đồ thị và chuỗi thời gian đếm xe gốc...")
     A_raw, nodes = load_adj_from_excel(base_cfg.ADJ_PATH)
@@ -210,12 +225,6 @@ def run_noise_robustness_experiment():
         {'name': 'Level 2: ConvNeXt-Tiny Error (MAE=3.53)', 'mae_noise': 3.53},
         {'name': 'Level 3: Heavy ResNet-50 Error (MAE=5.00)', 'mae_noise': 5.00}
     ]
-
-    stgcn_cfg = BaselineConfig()
-    stgcn_cfg.EPOCHS, stgcn_cfg.PATIENCE, stgcn_cfg.BATCH_SIZE = args.epochs, args.patience, args.batch_size
-
-    gcn_lstm_cfg = GCNLSTMConfig()
-    gcn_lstm_cfg.EPOCHS, gcn_lstm_cfg.PATIENCE, gcn_lstm_cfg.BATCH_SIZE = args.epochs, args.patience, args.batch_size
 
     models_to_test = {
         'GCN-LSTM': {
@@ -249,7 +258,7 @@ def run_noise_robustness_experiment():
         'GMAN': {
             'cfg': base_cfg,
             'fn': lambda cfg: GMAN(
-                num_nodes=len(nodes), in_channels=4, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=32, heads=4, num_blocks=1
+                num_nodes=len(nodes), in_channels=4, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=64, heads=4, num_blocks=1
             )
         },
         'TA-STGCN (Proposed / Ours)': {
