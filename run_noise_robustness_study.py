@@ -237,21 +237,19 @@ def run_noise_robustness_experiment():
         'GraphWaveNet': {
             'cfg': base_cfg,
             'fn': lambda cfg: GraphWaveNet(
-                num_nodes=len(nodes), in_dim=4, out_dim=1, horizon=cfg.HORIZON,
-                supports=[torch.tensor(A_norm, dtype=torch.float32).to(device)]
+                num_nodes=len(nodes), in_dim=4, out_dim=1, blocks=4, layers=2, horizon=cfg.HORIZON
             )
         },
         'ASTGCN': {
             'cfg': base_cfg,
             'fn': lambda cfg: ASTGCN(
-                num_nodes=len(nodes), in_dim=4, out_dim=1, horizon=cfg.HORIZON,
-                L_tilde=torch.tensor(L_tilde, dtype=torch.float32).to(device)
+                num_nodes=len(nodes), in_channels=4, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=64, L_tilde=L_tilde
             )
         },
         'GMAN': {
             'cfg': base_cfg,
             'fn': lambda cfg: GMAN(
-                num_nodes=len(nodes), in_dim=4, out_dim=1, horizon=cfg.HORIZON
+                num_nodes=len(nodes), in_channels=4, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=32, heads=4, num_blocks=1
             )
         },
         'TA-STGCN (Proposed / Ours)': {
