@@ -27,6 +27,7 @@ from stgcn import (
     MultiStepDataset,
     PureHuberLoss
 )
+from benchmark_5seeds import ModelEMA, evaluate_detailed
 
 load_dotenv()
 
@@ -42,54 +43,77 @@ def set_seed(seed):
 
 
 def train_model_for_evaluation(model_name, model_fn, train_loader, val_loader, cfg, device, seed):
-    """Huấn luyện mô hình phục vụ đánh giá Benchmark & Kiểm định Thống kê."""
+    """Huấn luyện mô hình phục vụ đánh giá Benchmark & Kiểm định Thống kê (Khớp 100% với benchmark_5seeds.py)."""
     set_seed(seed)
     model = model_fn(cfg).to(device)
-    criterion = PureHuberLoss(delta=1.0)
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=getattr(cfg, 'WEIGHT_DECAY', 1e-4))
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=getattr(cfg, 'LR_SCHED_FACTOR', 0.5), patience=getattr(cfg, 'LR_SCHED_PATIENCE', 10)
-    )
+    
+    criterion = PureHuberLoss(delta=getattr(cfg, 'LOSS_DELTA', 1.0))
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.LEARNING_RATE)
+    grad_scaler = torch.amp.GradScaler('cuda')
+    
+    use_ema = getattr(cfg, 'USE_EMA', False)
+    ema = ModelEMA(model, decay=getattr(cfg, 'EMA_DECAY', 0.995)) if use_ema else None
+    
+    lr_scheduler = None
+    if getattr(cfg, 'USE_LR_SCHEDULER', False):
+        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', factor=cfg.LR_SCHED_FACTOR,
+            patience=cfg.LR_SCHED_PATIENCE, min_lr=cfg.LR_SCHED_MIN_LR
+        )
+        
+    scaler_stats = {'mean': train_loader.dataset.means, 'std': train_loader.dataset.stds}
+    grad_clip_norm = getattr(cfg, 'GRAD_CLIP_NORM', None)
 
-    best_val_loss = float('inf')
-    patience_counter = 0
+    best_val_mae = float('inf')
+    patience_cnt = 0
     best_weights = copy.deepcopy(model.state_dict())
 
     print(f"⚡ [{model_name}] Đang huấn luyện cho Seed {seed}...")
     for epoch in range(1, cfg.EPOCHS + 1):
         model.train()
-        train_loss = 0.0
         for X_batch, Y_batch in train_loader:
             X_batch, Y_batch = X_batch.to(device), Y_batch.to(device)
             optimizer.zero_grad()
-            pred = model(X_batch)
-            loss = criterion(pred, Y_batch)
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
-            optimizer.step()
-            train_loss += loss.item() * len(X_batch)
-
-        # Validation phase
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for X_batch, Y_batch in val_loader:
-                X_batch, Y_batch = X_batch.to(device), Y_batch.to(device)
+            
+            with torch.amp.autocast('cuda'):
                 pred = model(X_batch)
                 loss = criterion(pred, Y_batch)
-                val_loss += loss.item() * len(X_batch)
+                
+            grad_scaler.scale(loss).backward()
+            
+            if grad_clip_norm is not None:
+                grad_scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
+                
+            grad_scaler.step(optimizer)
+            grad_scaler.update()
+            
+            if ema is not None:
+                ema.update(model)
 
-        val_loss /= len(val_loader.dataset)
-        scheduler.step(val_loss)
-
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            patience_counter = 0
-            best_weights = copy.deepcopy(model.state_dict())
+        # Đánh giá trên tập Validation
+        if ema is not None:
+            raw_state = copy.deepcopy(model.state_dict())
+            model.load_state_dict(ema.shadow)
+            val_metrics = evaluate_detailed(model, val_loader, device, scaler_stats, loss_fn=criterion)
+            model.load_state_dict(raw_state)
         else:
-            patience_counter += 1
+            val_metrics = evaluate_detailed(model, val_loader, device, scaler_stats, loss_fn=criterion)
+            
+        val_mae = val_metrics['mae']
+        val_loss = val_metrics['loss']
+        
+        if lr_scheduler is not None:
+            lr_scheduler.step(val_loss)
 
-        if patience_counter >= cfg.PATIENCE:
+        if val_mae < best_val_mae:
+            best_val_mae = val_mae
+            patience_cnt = 0
+            best_weights = copy.deepcopy(ema.shadow if ema is not None else model.state_dict())
+        else:
+            patience_cnt += 1
+
+        if patience_cnt >= getattr(cfg, 'PATIENCE', 10):
             break
 
     model.load_state_dict(best_weights)
