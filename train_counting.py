@@ -188,9 +188,9 @@ def build_counting_model(model_name: str, num_classes: int = 2, pretrained: bool
             )
     elif 'efficientnet' in name_clean:
         try:
-            model = timm.create_model('efficientnet_b0', pretrained=pretrained, num_classes=num_classes)
+            model = timm.create_model('efficientnet_b4', pretrained=pretrained, num_classes=num_classes)
         except Exception:
-            model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT if pretrained else None)
+            model = models.efficientnet_b4(weights=models.EfficientNet_B4_Weights.DEFAULT if pretrained else None)
             in_features = model.classifier[1].in_features
             model.classifier = nn.Sequential(
                 nn.Dropout(0.2),
