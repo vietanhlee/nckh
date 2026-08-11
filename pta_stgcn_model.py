@@ -419,8 +419,81 @@ if TORCH_AVAILABLE:
 # FULL DATASET TRAINING & EVALUATION PIPELINE
 # ============================================================
 
+def train_one_epoch_pta(model, loader, optimizer, loss_fn, device, grad_scaler, scaler):
+    """Huấn luyện 1 epoch và tính MAE thực tế (Real Vehicle Scale)"""
+    model.train()
+    total_loss = 0.0
+    total_mae = 0.0
+    count_batches = 0
+
+    means = torch.tensor(scaler['mean'], device=device)
+    stds = torch.tensor(scaler['std'], device=device)
+
+    for X, Y in loader:
+        X, Y = X.to(device), Y.to(device)
+        optimizer.zero_grad()
+
+        if grad_scaler is not None:
+            with torch.amp.autocast('cuda'):
+                pred = model(X)
+                loss = loss_fn(pred, Y)
+            grad_scaler.scale(loss).backward()
+            grad_scaler.step(optimizer)
+            grad_scaler.update()
+        else:
+            pred = model(X)
+            loss = loss_fn(pred, Y)
+            loss.backward()
+            optimizer.step()
+
+        total_loss += loss.item()
+
+        with torch.no_grad():
+            y_true = Y * stds + means
+            y_pred = pred * stds + means
+            abs_err = torch.abs(y_true - y_pred)
+            total_mae += abs_err.mean().item()
+
+        count_batches += 1
+
+    avg_loss = total_loss / max(1, count_batches)
+    avg_mae = total_mae / max(1, count_batches)
+    return avg_loss, avg_mae
+
+
+def evaluate_pta(model, loader, device, scaler, loss_fn=None):
+    """Đánh giá tập Validation/Test và tính Loss + MAE thực tế"""
+    model.eval()
+    total_loss = 0.0
+    total_mae = 0.0
+    count_batches = 0
+
+    means = torch.tensor(scaler['mean'], device=device)
+    stds = torch.tensor(scaler['std'], device=device)
+
+    with torch.no_grad():
+        for X, Y in loader:
+            X, Y = X.to(device), Y.to(device)
+            pred = model(X)
+
+            if loss_fn is not None:
+                loss = loss_fn(pred, Y)
+                total_loss += loss.item()
+
+            y_true = Y * stds + means
+            y_pred = pred * stds + means
+            abs_err = torch.abs(y_true - y_pred)
+
+            total_mae += abs_err.mean().item()
+            count_batches += 1
+
+    avg_loss = total_loss / max(1, count_batches)
+    avg_mae = total_mae / max(1, count_batches)
+    return avg_loss, avg_mae
+
+
 def train_pta_stgcn_on_dataset(cfg=Config()):
-    """Vòng lặp Huấn luyện & Đánh giá Thực sự của PTA-STGCN trên Dữ liệu Kaggle/Local"""
+    """Vòng lặp Huấn luyện & Đánh giá Thực sự của PTA-STGCN với logging Loss & MAE thực tế"""
     set_seed(42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("========================================================================")
@@ -478,69 +551,36 @@ def train_pta_stgcn_on_dataset(cfg=Config()):
     optimizer = optim.AdamW(model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
     loss_fn = PureHuberLoss(delta=cfg.LOSS_DELTA)
-    scaler_amp = torch.amp.GradScaler('cuda') if device.type == 'cuda' else None
+    grad_scaler = torch.amp.GradScaler('cuda') if device.type == 'cuda' else None
 
     # 5. Training Loop
     print("\n🚀 Step 3: Starting Model Training Loop...")
-    best_val_loss = float('inf')
+    best_mae = float('inf')
     patience_counter = 0
 
     os.makedirs(cfg.SAVE_DIR, exist_ok=True)
     save_model_path = os.path.join(cfg.SAVE_DIR, "pta_stgcn_best.pth")
 
-    for epoch in range(1, cfg.EPOCHS + 1):
-        model.train()
-        train_loss = 0.0
+    for ep in range(1, cfg.EPOCHS + 1):
+        train_loss, train_mae = train_one_epoch_pta(model, train_loader, optimizer, loss_fn, device, grad_scaler, scaler)
+        val_loss, val_mae = evaluate_pta(model, val_loader, device, scaler, loss_fn=loss_fn)
 
-        for X, Y in train_loader:
-            X, Y = X.to(device), Y.to(device)
-            optimizer.zero_grad()
+        scheduler.step(val_loss)
 
-            if scaler_amp is not None:
-                with torch.amp.autocast('cuda'):
-                    pred = model(X)
-                    loss = loss_fn(pred, Y)
-                scaler_amp.scale(loss).backward()
-                scaler_amp.step(optimizer)
-                scaler_amp.update()
-            else:
-                pred = model(X)
-                loss = loss_fn(pred, Y)
-                loss.backward()
-                optimizer.step()
+        # Logging khớp chuẩn định dạng stgcn.py & hybrid.py
+        print(f"Ep {ep:03d} | Loss: {train_loss:.4f} / {val_loss:.4f} | MAE: {train_mae:.2f} / {val_mae:.2f}", end="")
 
-            train_loss += loss.item()
-
-        avg_train_loss = train_loss / max(1, len(train_loader))
-
-        # Validation Loop
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for X, Y in val_loader:
-                X, Y = X.to(device), Y.to(device)
-                pred = model(X)
-                loss = loss_fn(pred, Y)
-                val_loss += loss.item()
-
-        avg_val_loss = val_loss / max(1, len(val_loader))
-        scheduler.step(avg_val_loss)
-
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
+        if val_mae < best_mae:
+            best_mae = val_mae
             patience_counter = 0
             torch.save(model.state_dict(), save_model_path)
-            status = f"-> Model saved to {save_model_path}"
+            print(" -> Saved Best")
         else:
             patience_counter += 1
-            status = f"(Patience: {patience_counter}/{cfg.PATIENCE})"
-
-        if epoch % 5 == 0 or epoch == 1 or patience_counter == 0:
-            print(f"   Epoch {epoch:02d}/{cfg.EPOCHS:02d} | Train Huber Loss: {avg_train_loss:.4f} | Val Huber Loss: {avg_val_loss:.4f} | {status}")
-
-        if patience_counter >= cfg.PATIENCE:
-            print(f"\n⏹ Early Stopping triggered at Epoch {epoch}. Best Val Loss: {best_val_loss:.4f}")
-            break
+            print(f" | Patience: {patience_counter}/{cfg.PATIENCE}")
+            if patience_counter >= cfg.PATIENCE:
+                print(f"\n⏹ Early Stopping triggered at Epoch {ep}. Best Val MAE: {best_mae:.2f}")
+                break
 
     # 6. Evaluation on Test Set
     print("\n📊 Step 4: Evaluating Best Model Checkpoint on Test Partition...")
@@ -564,11 +604,12 @@ def train_pta_stgcn_on_dataset(cfg=Config()):
             y_true = Y * stds + means
             y_pred = pred * stds + means
 
-            abs_err = torch.abs(y_true - y_pred)
+            err = y_true - y_pred
+            abs_err = torch.abs(err)
             mask = (y_true > 0.5).float()
 
             total_mae += abs_err.mean().item()
-            total_mse += (err ** 2).mean().item() if 'err' in locals() else torch.square(y_true - y_pred).mean().item()
+            total_mse += (err ** 2).mean().item()
             
             mape_batch = (abs_err / (y_true + 1e-5)) * mask
             total_mape += (mape_batch.sum().item() / max(mask.sum().item(), 1.0))
