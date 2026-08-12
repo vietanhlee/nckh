@@ -1,0 +1,24 @@
+# # Core PyTorch Framework
+# torch>=2.0.0
+# torchvision>=0.15.0
+
+# Computer Vision & Model Zoo (Stage 1 Backbones: ResNet, EfficientNet, ViT, ConvNeXt)
+timm>=0.9.0
+Pillow>=9.0.0
+
+# Scientific Computing & Data Processing
+numpy>=1.23.0
+pandas>=1.5.0
+scipy>=1.10.0
+openpyxl>=3.0.0
+
+# Visualization & Explainability (Grad-CAM, Attention Heatmaps)
+matplotlib>=3.6.0
+seaborn>=0.12.0
+
+# Utilities, Profiling & Experiment Tracking
+tqdm>=4.64.0
+python-dotenv>=1.0.0
+wandb>=0.15.0
+thop>=0.1.1
+tabulate>=0.9.0
