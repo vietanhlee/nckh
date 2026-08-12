@@ -2,6 +2,8 @@ import os
 # Cấu hình PyTorch Allocator tránh phân mảnh bộ nhớ CUDA OOM
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
+from scipy.stats import t as t_dist, wilcoxon, friedmanchisquare
+
 import gc
 import copy
 import time
@@ -31,7 +33,7 @@ class Config:
     MODELS = ['resnet', 'efficientnet', 'vit', 'convnext']
 
     # 🧪 Danh sách seeds ngẫu nhiên để đánh giá thống kê (Mean ± Std)
-    SEEDS = [42, 100, 2024]
+    SEEDS = [42, 100, 2024, 22]
 
     # ⚡ Siêu tham số huấn luyện
     EPOCHS = 100
@@ -427,6 +429,7 @@ def compute_counting_metrics(y_true, y_pred):
     - Cho Tổng số lượng phương tiện (Overall)
     - Cho Ô tô (Cars - Index 0)
     - Cho Xe máy (Motorcycles - Index 1)
+    Bổ sung pw_ (pointwise errors) cho Wilcoxon/Friedman tests.
     """
     err = y_true - y_pred
     abs_err = np.abs(err)
@@ -455,10 +458,16 @@ def compute_counting_metrics(y_true, y_pred):
     mask_moto = (y_true[:, 1] > 0.5)
     mape_moto = np.sum((abs_moto / (y_true[:, 1] + 1e-5)) * mask_moto) / max(np.sum(mask_moto), 1.0)
 
+    # Pointwise error arrays for statistical testing
+    pw_overall = np.mean(abs_err, axis=1)  # per-sample MAE
+    pw_car = abs_car
+    pw_moto = abs_moto
+
     return {
         'mae_overall': mae_overall, 'mape_overall': mape_overall, 'rmse_overall': rmse_overall, 'mse_overall': mse_overall,
         'mae_car': mae_car, 'mape_car': mape_car, 'rmse_car': rmse_car, 'mse_car': mse_car,
-        'mae_moto': mae_moto, 'mape_moto': mape_moto, 'rmse_moto': rmse_moto, 'mse_moto': mse_moto
+        'mae_moto': mae_moto, 'mape_moto': mape_moto, 'rmse_moto': rmse_moto, 'mse_moto': mse_moto,
+        'pw_overall': pw_overall, 'pw_car': pw_car, 'pw_moto': pw_moto
     }
 
 
@@ -634,7 +643,8 @@ def run_counting_benchmark():
             'params': 0, 'flops_gflops': 0.0, 'inf_latencies': [],
             'mae_overall': [], 'mape_overall': [], 'rmse_overall': [], 'mse_overall': [],
             'mae_car': [], 'mape_car': [], 'rmse_car': [],
-            'mae_moto': [], 'mape_moto': [], 'rmse_moto': []
+            'mae_moto': [], 'mape_moto': [], 'rmse_moto': [],
+            'pw_overalls': [], 'pw_cars': [], 'pw_motos': []
         } for m_name in models_to_test
     }
 
@@ -676,6 +686,10 @@ def run_counting_benchmark():
             results[m_name]['mape_moto'].append(metrics['mape_moto'])
             results[m_name]['rmse_moto'].append(metrics['rmse_moto'])
 
+            results[m_name]['pw_overalls'].append(metrics['pw_overall'])
+            results[m_name]['pw_cars'].append(metrics['pw_car'])
+            results[m_name]['pw_motos'].append(metrics['pw_moto'])
+
             print(f"   ▶ Seed {seed:>4} | {m_name.upper():<12} (Params: {p_count:,} | FLOPs: {gflops:.3f}G) -> "
                   f"MAE Tổng: {metrics['mae_overall']:.2f} (Ô tô: {metrics['mae_car']:.2f}, Xe máy: {metrics['mae_moto']:.2f})")
 
@@ -683,6 +697,24 @@ def run_counting_benchmark():
             if device.type == 'cuda':
                 torch.cuda.empty_cache()
             gc.collect()
+
+    # --- Hàm format 95% CI giống benchmark_5seeds.py ---
+    def get_ci_str(arr):
+        mean = np.mean(arr)
+        std = np.std(arr, ddof=1) if len(arr) > 1 else 0
+        n = len(arr)
+        t_crit = t_dist.ppf(0.975, df=n-1) if n > 1 else 0
+        margin = t_crit * (std / np.sqrt(n)) if n > 1 else 0
+        return f"{mean:.4f} ± {std:.4f} (95% CI: {mean-margin:.4f}-{mean+margin:.4f})"
+
+    def get_ci_str_pct(arr):
+        arr_pct = [v * 100 for v in arr]
+        mean = np.mean(arr_pct)
+        std = np.std(arr_pct, ddof=1) if len(arr_pct) > 1 else 0
+        n = len(arr_pct)
+        t_crit = t_dist.ppf(0.975, df=n-1) if n > 1 else 0
+        margin = t_crit * (std / np.sqrt(n)) if n > 1 else 0
+        return f"{mean:.2f}% ± {std:.2f}% (95% CI: {mean-margin:.2f}%-{mean+margin:.2f}%)"
 
     table_overall = []
     table_breakdown = []
@@ -697,21 +729,21 @@ def run_counting_benchmark():
             'Model Architecture': m_name.upper(),
             'Params': f"{p_count:,}",
             'FLOPs (GFLOPs)': f"{gflops:.3f}",
-            'Latency (ms/batch)': f"{np.mean(lats):.2f} ± {np.std(lats):.2f}",
-            'MAE Overall': f"{np.mean(res['mae_overall']):.2f} ± {np.std(res['mae_overall']):.2f}",
-            'MAPE Overall (%)': f"{np.mean(res['mape_overall'])*100:.2f}% ± {np.std(res['mape_overall'])*100:.2f}%",
-            'RMSE Overall': f"{np.mean(res['rmse_overall']):.2f} ± {np.std(res['rmse_overall']):.2f}",
-            'MSE Overall': f"{np.mean(res['mse_overall']):.2f} ± {np.std(res['mse_overall']):.2f}"
+            'Latency (ms/batch)': get_ci_str(lats),
+            'MAE Overall': get_ci_str(res['mae_overall']),
+            'MAPE Overall (%)': get_ci_str_pct(res['mape_overall']),
+            'RMSE Overall': get_ci_str(res['rmse_overall']),
+            'MSE Overall': get_ci_str(res['mse_overall'])
         })
 
         table_breakdown.append({
             'Model Architecture': m_name.upper(),
-            'MAE Ô tô (Car)': f"{np.mean(res['mae_car']):.2f} ± {np.std(res['mae_car']):.2f}",
-            'MAPE Ô tô (%)': f"{np.mean(res['mape_car'])*100:.2f}% ± {np.std(res['mape_car'])*100:.2f}%",
-            'RMSE Ô tô': f"{np.mean(res['rmse_car']):.2f} ± {np.std(res['rmse_car']):.2f}",
-            'MAE Xe máy (Moto)': f"{np.mean(res['mae_moto']):.2f} ± {np.std(res['mae_moto']):.2f}",
-            'MAPE Xe máy (%)': f"{np.mean(res['mape_moto'])*100:.2f}% ± {np.std(res['mape_moto'])*100:.2f}%",
-            'RMSE Xe máy': f"{np.mean(res['rmse_moto']):.2f} ± {np.std(res['rmse_moto']):.2f}"
+            'MAE Ô tô (Car)': get_ci_str(res['mae_car']),
+            'MAPE Ô tô (%)': get_ci_str_pct(res['mape_car']),
+            'RMSE Ô tô': get_ci_str(res['rmse_car']),
+            'MAE Xe máy (Moto)': get_ci_str(res['mae_moto']),
+            'MAPE Xe máy (%)': get_ci_str_pct(res['mape_moto']),
+            'RMSE Xe máy': get_ci_str(res['rmse_moto'])
         })
 
     df_overall = pd.DataFrame(table_overall)
@@ -737,6 +769,79 @@ def run_counting_benchmark():
         f.write(df_overall.to_markdown(index=False))
         f.write("\n\n---\n\n## 🏍️🚗 2. Bảng So sánh Chi tiết Tách riêng Ô tô (Car) và Xe máy (Motorcycle)\n\n")
         f.write(df_breakdown.to_markdown(index=False))
+
+        # --- Variance Decomposition Analysis ---
+        f.write("\n\n---\n\n## 📉 Phân tích Variance (Seed Stochasticity)\n\n")
+        f.write("| Model | Seed Variance (Var) | Seed Std (Std) | Tỷ lệ biến động tương đối (Std / Mean) |\n")
+        f.write("|---|---|---|---|\n")
+        for m_name in models_to_test:
+            res = results[m_name]
+            mean_val = np.mean(res['mae_overall'])
+            var_val = np.var(res['mae_overall'], ddof=1) if len(res['mae_overall']) > 1 else 0
+            std_val = np.std(res['mae_overall'], ddof=1) if len(res['mae_overall']) > 1 else 0
+            cv = (std_val / mean_val) * 100 if mean_val > 0 else 0
+            f.write(f"| {m_name.upper()} | {var_val:.4e} | {std_val:.4f} | {cv:.2f}% |\n")
+
+        # --- Friedman Test ---
+        f.write("\n\n## 🔬 Kiểm định Tổng quát Friedman Test\n\n")
+        all_models = list(results.keys())
+        if len(all_models) > 2:
+            all_pw = [np.concatenate(results[m]['pw_overalls']) for m in all_models]
+            try:
+                stat, p_friedman = friedmanchisquare(*all_pw)
+                f.write(f"- **H0:** Tất cả các mô hình có hiệu năng tương đương nhau.\n")
+                f.write(f"- **Friedman Chi-Square Statistic:** {stat:.4f}\n")
+                f.write(f"- **p-value:** {p_friedman:.4e}\n")
+                if p_friedman < 0.05:
+                    f.write(f"\n> ✅ Có sự khác biệt có ý nghĩa thống kê giữa các mô hình ($p < 0.05$).\n\n")
+                else:
+                    f.write(f"\n> ⚠️ Không đủ bằng chứng thống kê ($p \\geq 0.05$).\n\n")
+            except Exception as e:
+                f.write(f"⚠️ Không thể chạy Friedman test: {e}\n\n")
+
+        # --- Wilcoxon Signed-Rank Test (ResNet-50 vs Others) ---
+        baseline_model = 'resnet'
+        f.write("\n## 🔬 Post-Hoc: Wilcoxon Signed-Rank Test & Effect Size (ResNet-50 vs Others)\n\n")
+        f.write("| Baseline vs. | P-value (Overall) | Cohen's d (Overall) | P-value (Car) | Cohen's d (Car) | P-value (Moto) | Cohen's d (Moto) |\n")
+        f.write("|---|---|---|---|---|---|---|\n")
+
+        if baseline_model in results:
+            base_pw = np.concatenate(results[baseline_model]['pw_overalls'])
+            base_pw_car = np.concatenate(results[baseline_model]['pw_cars'])
+            base_pw_moto = np.concatenate(results[baseline_model]['pw_motos'])
+
+            def calc_cohens_dz(base_err, comp_err):
+                diff = comp_err - base_err
+                std_diff = np.std(diff, ddof=1)
+                if std_diff == 0: return 0.0
+                return np.mean(diff) / std_diff
+
+            def format_sig(p, d):
+                sig_star = "***" if p < 0.001 else ("**" if p < 0.01 else ("*" if p < 0.05 else "ns"))
+                return f"{p:.2e}{sig_star}", f"{d:.3f}"
+
+            for m_name in models_to_test:
+                if m_name == baseline_model:
+                    continue
+                comp_pw = np.concatenate(results[m_name]['pw_overalls'])
+                comp_pw_car = np.concatenate(results[m_name]['pw_cars'])
+                comp_pw_moto = np.concatenate(results[m_name]['pw_motos'])
+
+                try:
+                    _, p_tot = wilcoxon(base_pw, comp_pw)
+                    _, p_car = wilcoxon(base_pw_car, comp_pw_car)
+                    _, p_moto = wilcoxon(base_pw_moto, comp_pw_moto)
+                except Exception:
+                    p_tot, p_car, p_moto = 1.0, 1.0, 1.0
+
+                d_tot = calc_cohens_dz(base_pw, comp_pw)
+                d_car = calc_cohens_dz(base_pw_car, comp_pw_car)
+                d_moto = calc_cohens_dz(base_pw_moto, comp_pw_moto)
+
+                p_tot_str, d_tot_str = format_sig(p_tot, d_tot)
+                p_car_str, d_car_str = format_sig(p_car, d_car)
+                p_moto_str, d_moto_str = format_sig(p_moto, d_moto)
+                f.write(f"| {m_name.upper()} | {p_tot_str} | {d_tot_str} | {p_car_str} | {d_car_str} | {p_moto_str} | {d_moto_str} |\n")
 
     print(f"\n📑 Đã lưu báo cáo chi tiết đếm phương tiện vào tệp: {report_path}")
 

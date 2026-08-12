@@ -411,7 +411,7 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
 
 def run_benchmark():
     parser = argparse.ArgumentParser(description="Script huấn luyện 5 Seeds ngẫu nhiên cho 5 mô hình (GCN-LSTM & STGCN).")
-    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 22],
+    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 22, 99],
                         help="Danh sách các seeds ngẫu nhiên (mặc định: 42 100 2024 777 999).")
     parser.add_argument('--model_group', type=str, choices=['all', 'advanced', 'standard', 'ablation'], default='all',
                         help="Nhóm mô hình cần chạy: 'advanced' (GraphWaveNet, ASTGCN, GMAN, STAEformer, MegaCRN, DSTAGNN, AGCRN), 'standard' (GCN_LSTM, STGCN, TA-STGCN), 'ablation' (Các biến thể TA-STGCN), 'all' (Tất cả).")
