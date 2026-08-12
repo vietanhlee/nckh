@@ -6,6 +6,7 @@ import gc
 import copy
 import time
 import random
+import logging
 import argparse
 import numpy as np
 import pandas as pd
@@ -16,6 +17,29 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from dotenv import load_dotenv
 import matplotlib.pyplot as plt
+
+# Thiết lập hệ thống Logging kép (lưu file logs/noise_robustness_study.log và in ra Terminal)
+def setup_logger(log_file="logs/noise_robustness_study.log"):
+    os.makedirs("logs", exist_ok=True)
+    logger = logging.getLogger("NoiseRobustness")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+
+    formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+    fh = logging.FileHandler(log_file, encoding='utf-8')
+    fh.setLevel(logging.INFO)
+    fh.setFormatter(formatter)
+
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(formatter)
+
+    logger.addHandler(fh)
+    logger.addHandler(ch)
+    return logger
+
+logger = setup_logger()
 
 # Import các mô hình từ codebase
 from gcn_lstm import ImprovedGNN_LSTM, Config as GCNLSTMConfig, normalize_adj_sym

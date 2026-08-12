@@ -6,8 +6,8 @@ import gc
 import copy
 import time
 import random
+import logging
 import torch.nn.functional as F
-import copy
 from scipy.stats import wilcoxon, friedmanchisquare, t
 import warnings
 import argparse
@@ -20,6 +20,29 @@ from torch.utils.data import DataLoader
 import torch.amp
 from tqdm.auto import tqdm
 from dotenv import load_dotenv
+
+# Thiết lập hệ thống Logging kép (lưu file logs/benchmark_5seeds.log và in ra Terminal)
+def setup_logger(log_file="logs/benchmark_5seeds.log"):
+    os.makedirs("logs", exist_ok=True)
+    logger = logging.getLogger("Benchmark5Seeds")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+
+    formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+    fh = logging.FileHandler(log_file, encoding='utf-8')
+    fh.setLevel(logging.INFO)
+    fh.setFormatter(formatter)
+
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(formatter)
+
+    logger.addHandler(fh)
+    logger.addHandler(ch)
+    return logger
+
+logger = setup_logger()
 
 # Import các mô hình và cấu hình tương ứng
 from gcn_lstm import ImprovedGNN_LSTM, Config as GCNLSTMConfig, normalize_adj_sym
