@@ -487,11 +487,11 @@ def run_training():
 
     model = ImprovedGNN_LSTM(
         num_nodes=len(nodes),
-        in_feat=4,
+        in_feat=5,
         gcn_hidden=CFG.GCN_HIDDEN,
         lstm_hidden=CFG.LSTM_HIDDEN,
         lstm_layers=CFG.LSTM_LAYERS,
-        output_feat=1,
+        output_feat=2,
         horizon=CFG.HORIZON,
         A_norm=A_norm,
         dropout=CFG.DROPOUT

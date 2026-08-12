@@ -637,6 +637,7 @@ def run_counting_benchmark():
 
     models_to_test = Config.MODELS
     cfg = {'epochs': args.epochs, 'lr': args.lr, 'patience': args.patience}
+    trained_models_dict = {}
 
     results = {
         m_name: {
@@ -661,6 +662,10 @@ def run_counting_benchmark():
             model, metrics = train_single_seed_counting(
                 m_name, train_loader, val_loader, test_loader, cfg, device, seed
             )
+
+            # Lưu lại mô hình đã huấn luyện của seed đầu tiên phục vụ Grad-CAM++ visualization
+            if seed == args.seeds[0]:
+                trained_models_dict[m_name] = copy.deepcopy(model).cpu()
 
             p_count = count_parameters(model)
             results[m_name]['params'] = p_count
@@ -845,17 +850,24 @@ def run_counting_benchmark():
 
     print(f"\n📑 Đã lưu báo cáo chi tiết đếm phương tiện vào tệp: {report_path}")
 
-    print(f"\n🎨 Đang khởi tạo biểu đồ Giải thích Mô hình Grad-CAM++ (Vision Explainability)...")
+    print(f"\n🎨 Đang tự động xuất biểu đồ Giải thích Mô hình Grad-CAM++ (Vision Explainability)...")
     try:
-        sample_img_path = test_ds.dataset.valid_image_paths[0] if hasattr(test_ds.dataset, 'valid_image_paths') and len(test_ds.dataset.valid_image_paths) > 0 else None
+        sample_img_path = None
+        if hasattr(full_dataset, 'data') and len(full_dataset.data) > 0:
+            sample_fn = full_dataset.data.iloc[0]['filename']
+            sample_img_path = os.path.join(args.image_dir, sample_fn)
+
         if sample_img_path and os.path.exists(sample_img_path):
-            trained_models_dict = {
-                'resnet': build_counting_model('resnet', pretrained=True),
-                'efficientnet': build_counting_model('efficientnet', pretrained=True),
-                'vit': build_counting_model('vit', pretrained=True),
-                'convnext': build_counting_model('convnext', pretrained=True)
-            }
+            if not trained_models_dict:
+                trained_models_dict = {
+                    'resnet': build_counting_model('resnet', pretrained=True),
+                    'efficientnet': build_counting_model('efficientnet', pretrained=True),
+                    'vit': build_counting_model('vit', pretrained=True),
+                    'convnext': build_counting_model('convnext', pretrained=True)
+                }
             generate_vision_explainability_figures(sample_img_path, trained_models_dict, device, save_dir="paper/fig")
+        else:
+            print(f"⚠️ Không tìm thấy tệp ảnh giao thông mẫu để sinh Grad-CAM++.")
     except Exception as e:
         print(f"⚠️ Không thể sinh biểu đồ Grad-CAM++ tự động: {e}")
 

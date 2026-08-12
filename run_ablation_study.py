@@ -336,33 +336,33 @@ def run_ablation_benchmark():
     ablation_registry = {
         'TA-STGCN (Full Model)': {
             'build_fn': lambda cfg: Hybrid_STGCN_Model(
-                num_nodes=len(nodes), in_feat=4, block_hidden=64,
-                num_blocks=2, T_in=cfg.T_IN, cheb_K=3, horizon=cfg.HORIZON,
-                output_feat=1, L_tilde=L_tilde, dropout=0.1,
+                num_nodes=len(nodes), in_feat=5, block_hidden=80,
+                num_blocks=3, T_in=cfg.T_IN, cheb_K=3, horizon=cfg.HORIZON,
+                output_feat=2, L_tilde=L_tilde, dropout=0.1,
                 use_temporal_attention=True, attn_num_heads=4, attn_dropout=0.1
             )
         },
         'TA-STGCN w/o Temporal Attention': {
             'build_fn': lambda cfg: Hybrid_STGCN_Model(
-                num_nodes=len(nodes), in_feat=4, block_hidden=64,
-                num_blocks=2, T_in=cfg.T_IN, cheb_K=3, horizon=cfg.HORIZON,
-                output_feat=1, L_tilde=L_tilde, dropout=0.1,
+                num_nodes=len(nodes), in_feat=5, block_hidden=80,
+                num_blocks=3, T_in=cfg.T_IN, cheb_K=3, horizon=cfg.HORIZON,
+                output_feat=2, L_tilde=L_tilde, dropout=0.1,
                 use_temporal_attention=False, attn_num_heads=4, attn_dropout=0.1
             )
         },
         'TA-STGCN w/ Single-Head Attn (h=1)': {
             'build_fn': lambda cfg: Hybrid_STGCN_Model(
-                num_nodes=len(nodes), in_feat=4, block_hidden=64,
-                num_blocks=2, T_in=cfg.T_IN, cheb_K=3, horizon=cfg.HORIZON,
-                output_feat=1, L_tilde=L_tilde, dropout=0.1,
+                num_nodes=len(nodes), in_feat=5, block_hidden=80,
+                num_blocks=3, T_in=cfg.T_IN, cheb_K=3, horizon=cfg.HORIZON,
+                output_feat=2, L_tilde=L_tilde, dropout=0.1,
                 use_temporal_attention=True, attn_num_heads=1, attn_dropout=0.1
             )
         },
         'TA-STGCN w/ Light Hidden Dim (C=32)': {
             'build_fn': lambda cfg: Hybrid_STGCN_Model(
-                num_nodes=len(nodes), in_feat=4, block_hidden=32,
-                num_blocks=2, T_in=cfg.T_IN, cheb_K=3, horizon=cfg.HORIZON,
-                output_feat=1, L_tilde=L_tilde, dropout=0.1,
+                num_nodes=len(nodes), in_feat=5, block_hidden=32,
+                num_blocks=3, T_in=cfg.T_IN, cheb_K=3, horizon=cfg.HORIZON,
+                output_feat=2, L_tilde=L_tilde, dropout=0.1,
                 use_temporal_attention=True, attn_num_heads=4, attn_dropout=0.1
             )
         }

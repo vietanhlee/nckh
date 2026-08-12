@@ -52,13 +52,13 @@ def train_and_visualize():
     # 2. Init model
     model = STGCN_Model(
         num_nodes=len(nodes),
-        in_feat=4,
+        in_feat=5,
         block_hidden=CFG.BLOCK_HIDDEN,
         num_blocks=CFG.NUM_BLOCKS,
         T_in=CFG.T_IN,
         cheb_K=CFG.CHEB_K,
         horizon=CFG.HORIZON,
-        output_feat=1,
+        output_feat=2,
         L_tilde=L_tilde,
         dropout=CFG.DROPOUT,
         use_temporal_attention=True,
@@ -84,7 +84,7 @@ def train_and_visualize():
                 total_loss = 0.0
                 for X, Y in train_loader:
                     X, Y = X.to(device), Y.to(device)
-                    x_last = X[:, -1, :, :1].unsqueeze(1)
+                    x_last = X[:, -1, :, :2].unsqueeze(1)
                     optimizer.zero_grad()
                     pred = model(X)
                     loss = loss_fn(pred, Y, x_last)

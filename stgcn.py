@@ -621,13 +621,13 @@ def run_training():
 
     model = STGCN_Model(
         num_nodes=len(nodes),
-        in_feat=4,
+        in_feat=5,
         block_hidden=CFG.BLOCK_HIDDEN,
         num_blocks=CFG.NUM_BLOCKS,
         T_in=CFG.T_IN,
         cheb_K=CFG.CHEB_K,
         horizon=CFG.HORIZON,
-        output_feat=1,
+        output_feat=2,
         L_tilde=L_tilde,
         dropout=CFG.DROPOUT
     ).to(device)

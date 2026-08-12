@@ -201,13 +201,13 @@ class MultiStepDataset(Dataset):
         self.node_order = node_order
 
         df_sorted = data_df.sort_index(axis=1, level='Node')
-        desired_cols = pd.MultiIndex.from_product([node_order, ['Total Vehicles']], names=['Node', 'Feature'])
+        desired_cols = pd.MultiIndex.from_product([node_order, ['Car Count', 'Bike Count']], names=['Node', 'Feature'])
         self.df = df_sorted.reindex(columns=desired_cols)
 
         self.timestamps = self.df.index
         self.N = len(node_order)
 
-        self.values = self.df.values.astype(float).reshape(-1, self.N, 1)
+        self.values = self.df.values.astype(float).reshape(-1, self.N, 2)
         self.time_feats = add_rich_time_features(self.timestamps)
 
         if scaler is None:
@@ -473,7 +473,7 @@ def train_one_epoch(model, loader, opt, loss_fn, device, scaler_obj, scaler_stat
     pbar = tqdm(loader, desc="   Training", leave=False)
     for X, Y in pbar:
         X, Y = X.to(device), Y.to(device)
-        x_last = X[:, -1, :, :1].unsqueeze(1)
+        x_last = X[:, -1, :, :2].unsqueeze(1)
 
         opt.zero_grad()
         with torch.amp.autocast('cuda'):
@@ -745,13 +745,13 @@ def run_training():
 
     model = STGCN_Model(
         num_nodes=len(nodes),
-        in_feat=4,
+        in_feat=5,
         block_hidden=CFG.BLOCK_HIDDEN,
         num_blocks=CFG.NUM_BLOCKS,
         T_in=CFG.T_IN,
         cheb_K=CFG.CHEB_K,
         horizon=CFG.HORIZON,
-        output_feat=1,
+        output_feat=2,
         L_tilde=L_tilde,
         dropout=CFG.DROPOUT,
         use_temporal_attention=CFG.USE_TEMPORAL_ATTENTION,
