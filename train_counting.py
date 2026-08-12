@@ -57,8 +57,8 @@ class Config:
     SEEDS = [42, 100, 2024, 22, 99]
 
     # ⚡ Siêu tham số huấn luyện
-    EPOCHS = 100
-    PATIENCE = 17 # ⚡ Early Stopping Patience = 17 epochs
+    EPOCHS = 120
+    PATIENCE = 20 # ⚡ Early Stopping Patience = 17 epochs
     BATCH_SIZE = 32
     LEARNING_RATE = 3e-4
     IMG_SIZE = (224, 224)

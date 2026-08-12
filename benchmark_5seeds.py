@@ -276,7 +276,7 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
             print(f"⚠️ Không thể khởi tạo WandB cho {model_name} (Seed {seed}): {e}")
             wandb_run = None
 
-    optimizer = optim.AdamW(model.parameters(), lr=cfg.LEARNING_RATE)
+    optimizer = optim.AdamW(model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=getattr(cfg, 'WEIGHT_DECAY', 1e-4))
     
     # Chọn loss function (chuẩn hóa PureHuberLoss)
     loss_fn = PureHuberLoss(delta=cfg.LOSS_DELTA)
@@ -447,12 +447,14 @@ def run_benchmark():
                         help="Danh sách 5 seeds ngẫu nhiên (mặc định: 42 100 2024 22 99).")
     parser.add_argument('--model_group', type=str, choices=['all', 'advanced', 'standard', 'ablation'], default='all',
                         help="Nhóm mô hình cần chạy (mặc định 'all' tự động chạy tất cả 15 mô hình: SOTA Baselines + TA-STGCN + Tất cả các biến thể Ablation Study).")
-    parser.add_argument('--epochs', type=int, default=90,
+    parser.add_argument('--epochs', type=int, default=120,
                         help="Số epochs chạy tối đa cho mỗi seed (mặc định: 80).")
-    parser.add_argument('--patience', type=int, default=18,
+    parser.add_argument('--patience', type=int, default=20,
                         help="Số patience early stopping (mặc định: 18).")
     parser.add_argument('--batch_size', type=int, default=64,
                         help="Kích thước batch_size (mặc định: 64 tối ưu cho 24GB VRAM GPU).")
+    parser.add_argument('--learning_rate', type=float, default=0.0015,
+                        help="Tốc độ học Learning Rate cho AdamW (mặc định: 0.0015).")
     parser.add_argument('--root_dir', type=str, default="/workspace/GRAPH",
                         help="Thư mục gốc chứa dữ liệu.")
     parser.add_argument('--use_wandb', action='store_true', default=True,
@@ -471,6 +473,7 @@ def run_benchmark():
     print(f"   Epochs        : {args.epochs}")
     print(f"   Patience      : {args.patience}")
     print(f"   Batch Size    : {args.batch_size}")
+    print(f"   Learning Rate : {args.learning_rate}")
     print(f"   WandB Logging : {args.use_wandb} (Project: {args.wandb_project})")
     print(f"============================================================")
 
@@ -493,6 +496,7 @@ def run_benchmark():
         cfg_inst.ADJ_PATH = os.path.join(args.root_dir, "Graph_fix_py_3.xlsx")
         cfg_inst.CSV_PATH = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
         cfg_inst.SAVE_DIR = "model/"
+        cfg_inst.LEARNING_RATE = args.learning_rate
         cfg_inst.EPOCHS = args.epochs
         cfg_inst.PATIENCE = args.patience
         cfg_inst.BATCH_SIZE = args.batch_size

@@ -230,9 +230,9 @@ def run_noise_robustness_experiment():
     parser = argparse.ArgumentParser(description="Script Phân tích Độ nhạy & Độ bền vững với Nhiễu Nhận dạng Giai đoạn 1 Cho Tất cả Model.")
     parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 22, 99],
                         help="Danh sách seeds thử nghiệm (mặc định: [42, 100, 2024, 22, 99]).")
-    parser.add_argument('--epochs', type=int, default=90,
+    parser.add_argument('--epochs', type=int, default=120,
                         help="Số epochs tối đa (mặc định: 90).")
-    parser.add_argument('--patience', type=int, default=18,
+    parser.add_argument('--patience', type=int, default=20,
                         help="Early stopping patience (mặc định: 18).")
     parser.add_argument('--batch_size', type=int, default=64,
                         help="Batch size (mặc định: 64).")
