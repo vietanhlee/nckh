@@ -921,7 +921,7 @@ def run_benchmark():
     plt.xlabel('Epoch')
     plt.ylabel('Validation MAE')
     plt.title('Validation MAE Convergence Curves (Average over Seeds)')
-    plt.legend()
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=9)
     plt.grid(True, linestyle='--', alpha=0.7)
     
     os.makedirs('plots', exist_ok=True)
@@ -968,7 +968,7 @@ def run_benchmark():
     axes[0].set_xticks(x_steps)
     axes[0].set_xticklabels(x_labels)
     axes[0].grid(True, linestyle='--', alpha=0.6)
-    axes[0].legend(fontsize=8, loc='upper left', bbox_to_anchor=(1, 1))
+    axes[0].legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=8)
 
     # Right Subplot: MAPE by Horizon (%)
     for model_name, res in results.items():
@@ -989,7 +989,7 @@ def run_benchmark():
     axes[1].set_xticks(x_steps)
     axes[1].set_xticklabels(x_labels)
     axes[1].grid(True, linestyle='--', alpha=0.6)
-    axes[1].legend(fontsize=8, loc='upper left', bbox_to_anchor=(1, 1))
+    axes[1].legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=8)
 
     plt.tight_layout()
     paper_fig_dir = os.path.join('paper', 'fig')
@@ -1023,7 +1023,7 @@ def run_benchmark():
     ax.set_title('Performance Comparison by Vehicle Category', fontsize=14, fontweight='bold')
     ax.set_xticks(x)
     ax.set_xticklabels(models, rotation=30, ha='right', fontsize=9)
-    ax.legend()
+    ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=10)
     ax.grid(axis='y', linestyle='--', alpha=0.7)
 
     # Attach a text label above each bar, displaying its height.
@@ -1067,7 +1067,7 @@ def run_benchmark():
         ax.set_title('Ablation Study: Component Contribution Analysis', fontsize=13, fontweight='bold')
         ax.set_xticks(x_abl)
         ax.set_xticklabels(ablation_models, rotation=25, ha='right', fontsize=8.5)
-        ax.legend()
+        ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=9)
         ax.grid(axis='y', linestyle='--', alpha=0.6)
 
         def label_abl(rects):
