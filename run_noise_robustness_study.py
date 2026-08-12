@@ -236,8 +236,8 @@ def run_noise_robustness_experiment():
                         help="Early stopping patience (mặc định: 18).")
     parser.add_argument('--batch_size', type=int, default=64,
                         help="Batch size (mặc định: 64).")
-    parser.add_argument('--learning_rate', type=float, default=0.0005,
-                        help="Tốc độ học Learning Rate cho AdamW (mặc định: 0.0005).")
+    parser.add_argument('--learning_rate', type=float, default=0.0008,
+                        help="Tốc độ học Learning Rate cho AdamW (mặc định: 0.0008).")
     parser.add_argument('--root_dir', type=str, default="/workspace/GRAPH",
                         help="Thư mục gốc chứa dữ liệu.")
     args = parser.parse_args()
