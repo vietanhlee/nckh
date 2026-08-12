@@ -281,8 +281,11 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
     patience_cnt = 0
     checkpoint_path = os.path.join(cfg.SAVE_DIR, f"temp_{model_name}_seed_{seed}.pth")
     val_mae_history = []
+    epoch_times = []
 
     for ep in range(1, cfg.EPOCHS + 1):
+        if device.type == 'cuda': torch.cuda.synchronize()
+        t_ep_start = time.time()
         model.train()
         total_loss = 0
 
@@ -361,6 +364,9 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
             except Exception:
                 pass
 
+        if device.type == 'cuda': torch.cuda.synchronize()
+        epoch_times.append(time.time() - t_ep_start)
+
         if patience_cnt >= cfg.PATIENCE:
             print(f"🛑 Early Stopping tại epoch {ep}")
             break
@@ -369,6 +375,7 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
     model.load_state_dict(torch.load(checkpoint_path))
     test_metrics = evaluate_detailed(model, test_loader, device, scaler_stats, loss_fn=loss_fn)
     test_metrics['val_mae_history'] = val_mae_history
+    test_metrics['epoch_sec'] = float(np.mean(epoch_times)) if epoch_times else 0.0
 
     # Log chỉ số Test cuối cùng lên WandB và đóng Run
     if wandb_run is not None:
@@ -411,16 +418,16 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
 def run_benchmark():
     parser = argparse.ArgumentParser(description="Script huấn luyện 5 Seeds ngẫu nhiên cho 5 mô hình (GCN-LSTM & STGCN).")
     parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 22, 99],
-                        help="Danh sách các seeds ngẫu nhiên (mặc định: 42 100 2024 777 999).")
+                        help="Danh sách 5 seeds ngẫu nhiên (mặc định: 42 100 2024 22 99).")
     parser.add_argument('--model_group', type=str, choices=['all', 'advanced', 'standard', 'ablation'], default='all',
                         help="Nhóm mô hình cần chạy (mặc định 'all' tự động chạy tất cả 15 mô hình: SOTA Baselines + TA-STGCN + Tất cả các biến thể Ablation Study).")
-    parser.add_argument('--epochs', type=int, default=80,
-                        help="Số epochs chạy tối đa cho mỗi seed (mặc định: 60).")
+    parser.add_argument('--epochs', type=int, default=90,
+                        help="Số epochs chạy tối đa cho mỗi seed (mặc định: 80).")
     parser.add_argument('--patience', type=int, default=18,
-                        help="Số patience early stopping (mặc định: 50).")
-    parser.add_argument('--batch_size', type=int, default=32,
-                        help="Kích thước batch_size (mặc định: 32 tránh CUDA OOM).")
-    parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH",
+                        help="Số patience early stopping (mặc định: 18).")
+    parser.add_argument('--batch_size', type=int, default=64,
+                        help="Kích thước batch_size (mặc định: 64 tối ưu cho 24GB VRAM GPU).")
+    parser.add_argument('--root_dir', type=str, default="/workspace/GRAPH",
                         help="Thư mục gốc chứa dữ liệu.")
     parser.add_argument('--use_wandb', action='store_true', default=True,
                         help="Tự động khởi tạo và ghi log lên WandB (mặc định: True).")
@@ -432,7 +439,7 @@ def run_benchmark():
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"============================================================")
-    print(f"🚀 CHẠY BENCHMARK {len(args.seeds)} SEEDS (Bao gồm Graph WaveNet, ASTGCN, GMAN)")
+    print(f"🚀 CHẠY BENCHMARK {len(args.seeds)} SEEDS (24GB VRAM Optimized)")
     print(f"   Device        : {device}")
     print(f"   Seeds         : {args.seeds}")
     print(f"   Epochs        : {args.epochs}")
@@ -441,10 +448,10 @@ def run_benchmark():
     print(f"   WandB Logging : {args.use_wandb} (Project: {args.wandb_project})")
     print(f"============================================================")
 
-    # Khởi tạo các Config
+    # Khởi tạo các Config (Cùng hạng cân ~450k-570k params)
     gcn_lstm_cfg = GCNLSTMConfig()
-    gcn_lstm_cfg.GCN_HIDDEN  = 64
-    gcn_lstm_cfg.LSTM_HIDDEN = 160
+    gcn_lstm_cfg.GCN_HIDDEN  = 80
+    gcn_lstm_cfg.LSTM_HIDDEN = 200
     gcn_lstm_cfg.LSTM_LAYERS = 2
 
     stgcn_cfg = BaselineConfig()
@@ -642,6 +649,7 @@ def run_benchmark():
             'params': 0,
             'flops_gflops': 0.0,
             'peak_mem_mb': 0.0,
+            'epoch_sec': [],
             'inf_latencies': [],
             'maes': [], 'car_maes': [], 'bike_maes': [], 'mapes': [], 'rmses': [], 'mses': [],
             'step_maes': {f't{t_idx+1}': [] for t_idx in range(6)},
@@ -670,7 +678,7 @@ def run_benchmark():
             val_ds   = MultiStepDataset(df_val, nodes, cfg.T_IN, cfg.HORIZON, scaler)
             test_ds  = MultiStepDataset(df_test, nodes, cfg.T_IN, cfg.HORIZON, scaler)
 
-            eval_batch_size = min(cfg.BATCH_SIZE, 32)
+            eval_batch_size = cfg.BATCH_SIZE
             train_loader = DataLoader(train_ds, batch_size=cfg.BATCH_SIZE, shuffle=True)
             val_loader   = DataLoader(val_ds, batch_size=eval_batch_size)
             test_loader  = DataLoader(test_ds, batch_size=eval_batch_size)
@@ -705,10 +713,12 @@ def run_benchmark():
             results[model_name]['pw_cars'].append(test_metrics['pw_car'])
             results[model_name]['pw_bikes'].append(test_metrics['pw_bike'])
 
+            results[model_name]['epoch_sec'].append(test_metrics['epoch_sec'])
+
             for t_idx in range(6):
                 results[model_name]['step_maes'][f't{t_idx+1}'].append(test_metrics[f'mae_t{t_idx+1}'])
 
-            print(f"   ▶ Seed {seed:>4} | {model_name:<18} | MAE Total: {test_metrics['mae']:.4f} | Car: {test_metrics['mae_car']:.4f} | Bike: {test_metrics['mae_bike']:.4f}")
+            print(f"   ▶ Seed {seed:>4} | {model_name:<18} | Speed: {test_metrics['epoch_sec']:.2f} s/ep | MAE Total: {test_metrics['mae']:.4f} | Car: {test_metrics['mae_car']:.4f} | Bike: {test_metrics['mae_bike']:.4f}")
 
             # Xoá mô hình khỏi GPU RAM sau mỗi lượt
             del model
@@ -740,6 +750,7 @@ def run_benchmark():
             'Model': model_name,
             'Params': f"{p_count:,}",
             'Peak Mem (MB)': f"{peak_mem:.1f}",
+            'Train Speed (s/ep)': f"{np.mean(res['epoch_sec']):.2f} ± {np.std(res['epoch_sec']):.2f}",
             'MAE Overall': get_ci_str(maes),
             'MAE Car': get_ci_str(car_maes),
             'MAE Bike': get_ci_str(bike_maes),
@@ -791,79 +802,96 @@ def run_benchmark():
 
         # --- Omnibus Test (Friedman Test) ---
         f.write("\n## 🔬 Kiểm định Tổng quát Friedman Test (Omnibus Test)\n\n")
-        f.write("*Trước khi thực hiện các phép thử cặp (Wilcoxon), Friedman Test được chạy trên tất cả các mô hình để xác định xem có sự khác biệt có ý nghĩa thống kê trên toàn cục hay không, nhằm tránh lỗi Multiple Comparisons Problem.*\n\n")
+        f.write("*Trước khi thực hiện các phép thử cặp (Wilcoxon), Friedman Test được chạy trên các mô hình baseline chính (loại trừ các biến thể ablation) để xác định xem có sự khác biệt có ý nghĩa thống kê trên toàn cục hay không, nhằm tránh lỗi Multiple Comparisons Problem.*\n\n")
         
-        all_models = list(results.keys())
-        if len(all_models) > 1:
-            all_pw_totals = [np.concatenate(results[m]['pw_totals']) for m in all_models]
-            # Mẫu có thể quá lớn đối với Friedman, để an toàn ta cắt nhỏ hoặc dùng subsample nếu cần thiết, nhưng Scipy xử lý được.
-            # Tuy nhiên để đảm bảo tốc độ và tránh OOM, scipy xử lý array 180k elements thoải mái.
+        main_models = [m for m in results.keys() if not (m.startswith('TA-STGCN (') and m != 'TA-STGCN')]
+        if len(main_models) > 1:
+            all_pw_totals = [np.concatenate(results[m]['pw_totals']) for m in main_models]
             stat, p_friedman = friedmanchisquare(*all_pw_totals)
             
-            f.write(f"- **H0:** Tất cả các mô hình ({', '.join(all_models)}) có hiệu năng tương đương nhau.\n")
+            f.write(f"- **H0:** Tất cả các mô hình baseline ({', '.join(main_models)}) có hiệu năng tương đương nhau.\n")
             f.write(f"- **Friedman Chi-Square Statistic:** {stat:.4f}\n")
             f.write(f"- **p-value:** {p_friedman:.4e}\n")
             
             if p_friedman < 0.05:
-                f.write(f"\n> ✅ **Kết luận:** Trác nghiệm Friedman cho ra $p < 0.05$. Có sự khác biệt có ý nghĩa thống kê giữa các mô hình. Đủ điều kiện để tiến hành Post-hoc Test (Wilcoxon) bên dưới.\n\n")
+                f.write(f"\n> ✅ **Kết luận:** Trắc nghiệm Friedman cho ra $p < 0.05$. Có sự khác biệt có ý nghĩa thống kê giữa các mô hình baseline. Đủ điều kiện để tiến hành Post-hoc Test (Wilcoxon) bên dưới.\n\n")
             else:
-                f.write(f"\n> ⚠️ **Kết luận:** Trác nghiệm Friedman cho ra $p \\geq 0.05$. Không có đủ bằng chứng thống kê để bác bỏ H0. Không nên tin cậy vào Post-hoc Test.\n\n")
+                f.write(f"\n> ⚠️ **Kết luận:** Trắc nghiệm Friedman cho ra $p \\geq 0.05$. Không có đủ bằng chứng thống kê để bác bỏ H0. Không nên tin cậy vào Post-hoc Test.\n\n")
         else:
-            f.write("⚠️ Không đủ số lượng mô hình (>1) để chạy Friedman Test.\n\n")
+            f.write("⚠️ Không đủ số lượng mô hình baseline (>1) để chạy Friedman Test.\n\n")
 
-        # --- Wilcoxon Signed-Rank Test & Effect Size ---
-        baseline_model = "TA-STGCN"
-        f.write("\n## 🔬 Thống kê Post-Hoc: Wilcoxon Signed-Rank Test & Effect Size (TA-STGCN vs Baselines)\n\n")
+        # --- Wilcoxon Signed-Rank Test & Effect Size (Main Baselines) ---
+        baseline_model = "TA-STGCN" if "TA-STGCN" in results else list(results.keys())[0]
+        f.write(f"\n## 🔬 Thống kê Post-Hoc: Wilcoxon Signed-Rank Test & Effect Size ({baseline_model} vs Main Baselines)\n\n")
         f.write("*Do cỡ mẫu ghép cặp cực lớn ($N \\approx 180,000$), p-value gần như luôn < 0.01. Do đó, báo cáo Effect Size (Cohen's $d_z$) được thêm vào để đánh giá ý nghĩa thực tiễn (Practical Significance).*\n")
-
         f.write("*Công thức Cohen's $d_z = \\frac{\\mu_{\\Delta}}{\\sigma_{\\Delta}}$. Thang đo: >0.2 (Small), >0.5 (Medium), >0.8 (Large).*\n\n")
         
-        if baseline_model in results:
-            target_pw_total = np.concatenate(results[baseline_model]['pw_totals'])
-            target_pw_car = np.concatenate(results[baseline_model]['pw_cars'])
-            target_pw_bike = np.concatenate(results[baseline_model]['pw_bikes'])
-            
-            f.write("| Baseline Model | P-value (Total) | Cohen's d (Total) | P-value (Car) | Cohen's d (Car) | P-value (Bike) | Cohen's d (Bike) |\n")
-            f.write("|---|---|---|---|---|---|---|\n")
-            
-            print(f"\n{'='*110}")
-            print(f"🔬 WILCOXON TEST & EFFECT SIZE (Base: {baseline_model})")
-            print(f"{'='*110}")
-            
-            def calc_cohens_dz(base_err, comp_err):
-                diff = comp_err - base_err
-                std_diff = np.std(diff, ddof=1)
-                if std_diff == 0: return 0.0
-                return np.mean(diff) / std_diff
+        target_pw_total = np.concatenate(results[baseline_model]['pw_totals'])
+        target_pw_car = np.concatenate(results[baseline_model]['pw_cars'])
+        target_pw_bike = np.concatenate(results[baseline_model]['pw_bikes'])
+        
+        f.write("| Baseline Model | P-value (Total) | Cohen's d (Total) | P-value (Car) | Cohen's d (Car) | P-value (Bike) | Cohen's d (Bike) |\n")
+        f.write("|---|---|---|---|---|---|---|\n")
+        
+        print(f"\n{'='*110}")
+        print(f"🔬 WILCOXON TEST & EFFECT SIZE (Base: {baseline_model})")
+        print(f"{'='*110}")
+        
+        def calc_cohens_dz(base_err, comp_err):
+            diff = comp_err - base_err
+            std_diff = np.std(diff, ddof=1)
+            if std_diff == 0: return 0.0
+            return np.mean(diff) / std_diff
 
-            for m_name in results:
-                if m_name == baseline_model: continue
+        def format_sig(p, d):
+            sig_star = "***" if p < 0.001 else ("**" if p < 0.01 else ("*" if p < 0.05 else "ns"))
+            return f"{p:.2e}{sig_star}", f"{d:.3f}"
+
+        for m_name in main_models:
+            if m_name == baseline_model: continue
+            comp_pw_total = np.concatenate(results[m_name]['pw_totals'])
+            comp_pw_car = np.concatenate(results[m_name]['pw_cars'])
+            comp_pw_bike = np.concatenate(results[m_name]['pw_bikes'])
+            
+            _, p_tot = wilcoxon(target_pw_total, comp_pw_total)
+            _, p_car = wilcoxon(target_pw_car, comp_pw_car)
+            _, p_bike = wilcoxon(target_pw_bike, comp_pw_bike)
+            
+            d_tot = calc_cohens_dz(target_pw_total, comp_pw_total)
+            d_car = calc_cohens_dz(target_pw_car, comp_pw_car)
+            d_bike = calc_cohens_dz(target_pw_bike, comp_pw_bike)
+            
+            p_tot_str, d_tot_str = format_sig(p_tot, d_tot)
+            p_car_str, d_car_str = format_sig(p_car, d_car)
+            p_bike_str, d_bike_str = format_sig(p_bike, d_bike)
+            
+            f.write(f"| {m_name} | {p_tot_str} | {d_tot_str} | {p_car_str} | {d_car_str} | {p_bike_str} | {d_bike_str} |\n")
+            print(f"   ▶ {m_name:<16} | p(Total): {p_tot_str} (d={d_tot_str}) | p(Car): {p_car_str} (d={d_car_str}) | p(Bike): {p_bike_str} (d={d_bike_str})")
+
+        # --- Dedicated Ablation Variants Statistical Test ---
+        ablation_models = [m for m in results.keys() if m.startswith('TA-STGCN (') and m != 'TA-STGCN']
+        if ablation_models and "TA-STGCN" in results:
+            f.write(f"\n\n## 🔬 Thống kê Ablation Variants vs. Full Model (TA-STGCN)\n\n")
+            f.write("| Ablation Variant | P-value (Total) | Cohen's d (Total) | P-value (Car) | Cohen's d (Car) | P-value (Bike) | Cohen's d (Bike) |\n")
+            f.write("|---|---|---|---|---|---|---|\n")
+            for m_name in ablation_models:
                 comp_pw_total = np.concatenate(results[m_name]['pw_totals'])
                 comp_pw_car = np.concatenate(results[m_name]['pw_cars'])
                 comp_pw_bike = np.concatenate(results[m_name]['pw_bikes'])
-                
+
                 _, p_tot = wilcoxon(target_pw_total, comp_pw_total)
                 _, p_car = wilcoxon(target_pw_car, comp_pw_car)
                 _, p_bike = wilcoxon(target_pw_bike, comp_pw_bike)
-                
+
                 d_tot = calc_cohens_dz(target_pw_total, comp_pw_total)
                 d_car = calc_cohens_dz(target_pw_car, comp_pw_car)
                 d_bike = calc_cohens_dz(target_pw_bike, comp_pw_bike)
-                
-                # Format sig string
-                def format_sig(p, d):
-                    sig_star = "***" if p < 0.001 else ("**" if p < 0.01 else ("*" if p < 0.05 else "ns"))
-                    return f"{p:.2e}{sig_star}", f"{d:.3f}"
 
                 p_tot_str, d_tot_str = format_sig(p_tot, d_tot)
                 p_car_str, d_car_str = format_sig(p_car, d_car)
                 p_bike_str, d_bike_str = format_sig(p_bike, d_bike)
-                
-                f.write(f"| {m_name} | {p_tot_str} | {d_tot_str} | {p_car_str} | {d_car_str} | {p_bike_str} | {d_bike_str} |\n")
-                print(f"   ▶ {m_name:<16} | p(Total): {p_tot_str} (d={d_tot_str}) | p(Car): {p_car_str} (d={d_car_str}) | p(Bike): {p_bike_str} (d={d_bike_str})")
 
-        else:
-            f.write(f"> ⚠️ Mô hình {baseline_model} không có trong danh sách chạy, bỏ qua thống kê Wilcoxon.\n")
+                f.write(f"| {m_name} | {p_tot_str} | {d_tot_str} | {p_car_str} | {d_car_str} | {p_bike_str} | {d_bike_str} |\n")
 
     print(f"\n📑 Đã lưu báo cáo chi tiết vào tệp: {report_path}")
 
@@ -904,31 +932,26 @@ def run_benchmark():
     x_labels = [f"t+{t}\n({t*5}m)" for t in x_steps]
 
     colors = {
-        'STGCN_Hybrid': '#d62728',       # Bold Red / Ours
-        'STGCN_MixedBlocks': '#ff7f0e',
-        'STGCN (Baseline)': '#1f77b4',
+        'TA-STGCN': '#d62728',       # Bold Red / Ours
+        'STGCN_Baseline': '#1f77b4',
         'GCN_LSTM': '#7f7f7f',
         'Graph_WaveNet': '#2ca02c',
         'ASTGCN': '#9467bd',
-        'GMAN': '#8c564b'
-    }
-    markers = {
-        'STGCN_Hybrid': 'o',
-        'STGCN_MixedBlocks': 's',
-        'STGCN (Baseline)': '^',
-        'GCN_LSTM': 'x',
-        'Graph_WaveNet': 'D',
-        'ASTGCN': 'v',
-        'GMAN': 'p'
+        'GMAN': '#8c564b',
+        'AGCRN': '#e377c2',
+        'STAEformer': '#bcbd22',
+        'MegaCRN': '#17becf',
+        'DSTAGNN': '#8c564b'
     }
 
     # Left Subplot: MAE by Horizon
     for model_name, res in results.items():
         step_maes_mean = [np.mean(res['step_maes'][f't{t}']) for t in range(1, 7)]
         color = colors.get(model_name, '#333333')
-        marker = markers.get(model_name, 'o')
-        linewidth = 2.5 if 'Hybrid' in model_name or 'Ours' in model_name else 1.5
-        linestyle = '-' if 'Hybrid' in model_name or 'Ours' in model_name else '--'
+        is_ours = (model_name == 'TA-STGCN')
+        linewidth = 2.5 if is_ours else 1.5
+        linestyle = '-' if is_ours else '--'
+        marker = 'o' if is_ours else 's'
         
         axes[0].plot(x_steps, step_maes_mean, label=model_name, color=color, 
                      marker=marker, linewidth=linewidth, linestyle=linestyle, markersize=7)
@@ -939,15 +962,16 @@ def run_benchmark():
     axes[0].set_xticks(x_steps)
     axes[0].set_xticklabels(x_labels)
     axes[0].grid(True, linestyle='--', alpha=0.6)
-    axes[0].legend(fontsize=9, loc='upper left')
+    axes[0].legend(fontsize=8, loc='upper left', bbox_to_anchor=(1, 1))
 
     # Right Subplot: MAPE by Horizon (%)
     for model_name, res in results.items():
         step_mapes_mean = [np.mean(res['step_mapes'][f't{t}']) * 100 for t in range(1, 7)]
         color = colors.get(model_name, '#333333')
-        marker = markers.get(model_name, 'o')
-        linewidth = 2.5 if 'Hybrid' in model_name or 'Ours' in model_name else 1.5
-        linestyle = '-' if 'Hybrid' in model_name or 'Ours' in model_name else '--'
+        is_ours = (model_name == 'TA-STGCN')
+        linewidth = 2.5 if is_ours else 1.5
+        linestyle = '-' if is_ours else '--'
+        marker = 'o' if is_ours else 's'
         
         axes[1].plot(x_steps, step_mapes_mean, label=model_name, color=color, 
                      marker=marker, linewidth=linewidth, linestyle=linestyle, markersize=7)
@@ -958,15 +982,20 @@ def run_benchmark():
     axes[1].set_xticks(x_steps)
     axes[1].set_xticklabels(x_labels)
     axes[1].grid(True, linestyle='--', alpha=0.6)
-    axes[1].legend(fontsize=9, loc='upper left')
+    axes[1].legend(fontsize=8, loc='upper left', bbox_to_anchor=(1, 1))
 
     plt.tight_layout()
+    paper_fig_dir = os.path.join('paper', 'fig')
+    os.makedirs(paper_fig_dir, exist_ok=True)
+    
     horizon_png_path = os.path.join('plots', 'error_by_horizon.png')
     horizon_pdf_path = os.path.join('plots', 'error_by_horizon.pdf')
     plt.savefig(horizon_png_path, dpi=300, bbox_inches='tight')
     plt.savefig(horizon_pdf_path, dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(paper_fig_dir, 'error_by_horizon.png'), dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(paper_fig_dir, 'error_by_horizon.pdf'), dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"📉 Đã lưu biểu đồ tăng trưởng sai số Error by Horizon vào: {horizon_png_path} và {horizon_pdf_path}")
+    print(f"📉 Đã lưu biểu đồ tăng trưởng sai số Error by Horizon vào: {horizon_png_path} và paper/fig/")
 
     # Plot Grouped Bar Chart for MAE Total, Car, and Bike
     models = list(results.keys())
@@ -977,7 +1006,7 @@ def run_benchmark():
     x = np.arange(len(models))
     width = 0.25
 
-    fig, ax = plt.subplots(figsize=(14, 7))
+    fig, ax = plt.subplots(figsize=(max(14, len(models) * 0.8), 7))
     rects1 = ax.bar(x - width, mae_totals, width, label='Total Vehicles', color='#1f77b4')
     rects2 = ax.bar(x, mae_cars, width, label='Car', color='#ff7f0e')
     rects3 = ax.bar(x + width, mae_bikes, width, label='Bike', color='#2ca02c')
@@ -985,7 +1014,7 @@ def run_benchmark():
     ax.set_ylabel('Mean Absolute Error (MAE)', fontsize=12, fontweight='bold')
     ax.set_title('Performance Comparison by Vehicle Category', fontsize=14, fontweight='bold')
     ax.set_xticks(x)
-    ax.set_xticklabels(models, rotation=15, ha='right')
+    ax.set_xticklabels(models, rotation=30, ha='right', fontsize=9)
     ax.legend()
     ax.grid(axis='y', linestyle='--', alpha=0.7)
 
@@ -997,7 +1026,7 @@ def run_benchmark():
                         xy=(rect.get_x() + rect.get_width() / 2, height),
                         xytext=(0, 3),  # 3 points vertical offset
                         textcoords="offset points",
-                        ha='center', va='bottom', fontsize=9)
+                        ha='center', va='bottom', fontsize=8)
 
     autolabel(rects1)
     autolabel(rects2)
@@ -1006,8 +1035,50 @@ def run_benchmark():
     plt.tight_layout()
     category_png_path = os.path.join('plots', 'mae_by_category.png')
     plt.savefig(category_png_path, dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(paper_fig_dir, 'mae_by_category.png'), dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(paper_fig_dir, 'mae_by_category.pdf'), dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"📊 Đã lưu biểu đồ so sánh phân loại phương tiện vào: {category_png_path}")
+    print(f"📊 Đã lưu biểu đồ so sánh phân loại phương tiện vào: {category_png_path} và paper/fig/")
+
+    # Dedicated Ablation Study Figure Generator
+    ablation_models = [m for m in models if 'TA-STGCN' in m or m == 'STGCN_Baseline']
+    if len(ablation_models) > 1:
+        fig, ax = plt.subplots(figsize=(10, 5))
+        abl_maes = [np.mean(results[m]['maes']) for m in ablation_models]
+        abl_cars = [np.mean(results[m]['car_maes']) for m in ablation_models]
+        abl_bikes = [np.mean(results[m]['bike_maes']) for m in ablation_models]
+
+        x_abl = np.arange(len(ablation_models))
+        w_abl = 0.25
+
+        r1 = ax.bar(x_abl - w_abl, abl_maes, w_abl, label='Overall MAE', color='#d62728')
+        r2 = ax.bar(x_abl, abl_cars, w_abl, label='Car MAE', color='#ff7f0e')
+        r3 = ax.bar(x_abl + w_abl, abl_bikes, w_abl, label='Bike MAE', color='#1f77b4')
+
+        ax.set_ylabel('Mean Absolute Error (MAE)', fontsize=11, fontweight='bold')
+        ax.set_title('Ablation Study: Component Contribution Analysis', fontsize=13, fontweight='bold')
+        ax.set_xticks(x_abl)
+        ax.set_xticklabels(ablation_models, rotation=25, ha='right', fontsize=8.5)
+        ax.legend()
+        ax.grid(axis='y', linestyle='--', alpha=0.6)
+
+        def label_abl(rects):
+            for rect in rects:
+                h = rect.get_height()
+                ax.annotate(f'{h:.2f}', xy=(rect.get_x() + rect.get_width() / 2, h),
+                            xytext=(0, 2), textcoords="offset points", ha='center', va='bottom', fontsize=7.5)
+
+        label_abl(r1)
+        label_abl(r2)
+        label_abl(r3)
+
+        plt.tight_layout()
+        abl_png_path = os.path.join('plots', 'ablation_breakdown.png')
+        plt.savefig(abl_png_path, dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(paper_fig_dir, 'ablation_breakdown.png'), dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(paper_fig_dir, 'ablation_breakdown.pdf'), dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"🔬 Đã lưu biểu đồ phân tích Ablation Study vào: {abl_png_path} và paper/fig/")
 
 if __name__ == "__main__":
     run_benchmark()

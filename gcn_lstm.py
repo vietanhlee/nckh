@@ -88,8 +88,8 @@ def normalize_adj_sym(A):
     A = A.astype(float)
     A = A + np.eye(A.shape[0])
     d = A.sum(axis=1)
-    d_inv_sqrt = np.power(d, -0.5, where=d>0)
-    d_inv_sqrt[d<=0] = 0
+    d_inv_sqrt = np.zeros_like(d, dtype=float)
+    np.power(d, -0.5, where=d > 0, out=d_inv_sqrt)
     D_inv_sqrt = np.diag(d_inv_sqrt)
     return D_inv_sqrt @ A @ D_inv_sqrt
 
