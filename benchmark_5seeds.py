@@ -7,6 +7,7 @@ import copy
 import time
 import random
 import logging
+import json
 import torch.nn.functional as F
 from scipy.stats import wilcoxon, friedmanchisquare, t
 import warnings
@@ -355,11 +356,16 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
         if lr_scheduler is not None:
             lr_scheduler.step(val_loss)
 
+        clean_name = model_name.replace(" ", "_").replace("(", "").replace(")", "").replace(",", "").replace("=", "_")
+        checkpoint_path = os.path.join(getattr(cfg, 'SAVE_DIR', 'checkpoints'), f"temp_{clean_name}_seed_{seed}.pth")
         if val_mae < best_val_mae:
             best_val_mae = val_mae
             patience_cnt = 0
             save_state = ema.shadow if ema is not None else model.state_dict()
+            os.makedirs(getattr(cfg, 'SAVE_DIR', 'checkpoints'), exist_ok=True)
             torch.save(save_state, checkpoint_path)
+            perm_path = os.path.join(getattr(cfg, 'SAVE_DIR', 'checkpoints'), f"best_{clean_name}_seed_{seed}.pth")
+            torch.save(save_state, perm_path)
             is_best_str = " -> Saved Best"
         else:
             patience_cnt += 1
@@ -679,6 +685,9 @@ def run_benchmark():
         } for model_name in models_registry
     }
 
+    # Tracking Overall Best Model qua tất cả các Seeds cho từng kiến trúc
+    overall_best_mae = {m: float('inf') for m in models_registry}
+
     # VÒNG LẶP NGOÀI: THEO TỪNG SEED
     for seed in args.seeds:
         print(f"\n{'='*65}")
@@ -738,6 +747,18 @@ def run_benchmark():
             for t_idx in range(6):
                 results[model_name]['step_maes'][f't{t_idx+1}'].append(test_metrics[f'mae_t{t_idx+1}'])
 
+            # Kiểm tra và cập nhật Overall Best Model qua tất cả các seed cho mô hình này
+            if test_metrics['mae'] < overall_best_mae[model_name]:
+                overall_best_mae[model_name] = test_metrics['mae']
+                clean_name = model_name.replace(" ", "_").replace("(", "").replace(")", "").replace(",", "").replace("=", "_")
+                save_dir = getattr(cfg, 'SAVE_DIR', 'checkpoints')
+                seed_ckpt = os.path.join(save_dir, f"best_{clean_name}_seed_{seed}.pth")
+                overall_ckpt = os.path.join(save_dir, f"overall_best_{clean_name}.pth")
+                if os.path.exists(seed_ckpt):
+                    import shutil
+                    shutil.copyfile(seed_ckpt, overall_ckpt)
+                    print(f"   🏆 Saved Overall Best Checkpoint for {model_name} (Seed {seed}, Test MAE: {test_metrics['mae']:.4f}) -> {overall_ckpt}")
+
             print(f"   ▶ Seed {seed:>4} | {model_name:<18} | Speed: {test_metrics['epoch_sec']:.2f} s/ep | MAE Total: {test_metrics['mae']:.4f} | Car: {test_metrics['mae_car']:.4f} | Bike: {test_metrics['mae_bike']:.4f}")
 
             # Xoá mô hình khỏi GPU RAM sau mỗi lượt
@@ -785,6 +806,27 @@ def run_benchmark():
 
     summary_df = pd.DataFrame(table_data)
     print(summary_df.to_string(index=False))
+
+    # Lưu dữ liệu thô dạng JSON cấu trúc
+    json_path = "benchmark_5seeds_results.json"
+    json_export = {}
+    for m_name, res in results.items():
+        json_export[m_name] = {
+            'params': res['params'],
+            'peak_mem_mb': res['peak_mem_mb'],
+            'epoch_sec': res['epoch_sec'],
+            'maes': res['maes'],
+            'car_maes': res['car_maes'],
+            'bike_maes': res['bike_maes'],
+            'mapes': res['mapes'],
+            'rmses': res['rmses'],
+            'mses': res['mses'],
+            'step_maes': res['step_maes'],
+            'step_mapes': res['step_mapes']
+        }
+    with open(json_path, "w", encoding="utf-8") as jf:
+        json.dump(json_export, jf, indent=2)
+    print(f"\n💾 Đã lưu dữ liệu thô dạng JSON vào: {json_path}")
 
     # Ghi báo cáo ra file benchmark_5seeds_report.md
     report_path = "benchmark_5seeds_report.md"
