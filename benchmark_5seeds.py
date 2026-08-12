@@ -25,7 +25,6 @@ from dotenv import load_dotenv
 from gcn_lstm import ImprovedGNN_LSTM, Config as GCNLSTMConfig, normalize_adj_sym
 from stgcn import STGCN_Model as Baseline_STGCN_Model, Config as BaselineConfig
 from hybrid import STGCN_Model as Hybrid_STGCN_Model, Config as HybridConfig, HuberSmoothLoss
-from stgcn_mixed_blocks import STGCN_Mixed_Model, Config as MixedConfig
 from advanced_baselines import GraphWaveNet, ASTGCN, GMAN, AGCRN
 from sota_2023_baselines import STAEformerProxy, MegaCRNProxy, DSTAGNNProxy
 
@@ -455,9 +454,8 @@ def run_benchmark():
     hybrid_cfg = HybridConfig()
     hybrid_cfg.BLOCK_HIDDEN = 80
     hybrid_cfg.NUM_BLOCKS = 3
-    mixed_cfg = MixedConfig()
 
-    for cfg_inst in [gcn_lstm_cfg, stgcn_cfg, hybrid_cfg, mixed_cfg]:
+    for cfg_inst in [gcn_lstm_cfg, stgcn_cfg, hybrid_cfg]:
         cfg_inst.ROOT_DIR = args.root_dir
         cfg_inst.ADJ_PATH = os.path.join(args.root_dir, "Graph_fix_py_3.xlsx")
         cfg_inst.CSV_PATH = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
