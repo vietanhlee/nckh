@@ -228,15 +228,15 @@ def train_single_noise_experiment(model_name, model_fn, df_train, df_val, df_tes
 
 def run_noise_robustness_experiment():
     parser = argparse.ArgumentParser(description="Script Phân tích Độ nhạy & Độ bền vững với Nhiễu Nhận dạng Giai đoạn 1 Cho Tất cả Model.")
-    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024],
-                        help="Danh sách seeds thử nghiệm (mặc định: 42 100 2024).")
-    parser.add_argument('--epochs', type=int, default=80,
-                        help="Số epochs tối đa (mặc định: 80).")
-    parser.add_argument('--patience', type=int, default=10,
-                        help="Early stopping patience (mặc định: 10).")
-    parser.add_argument('--batch_size', type=int, default=32,
-                        help="Batch size (mặc định: 32).")
-    parser.add_argument('--root_dir', type=str, default="/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH",
+    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 22, 99],
+                        help="Danh sách seeds thử nghiệm (mặc định: [42, 100, 2024, 22, 99]).")
+    parser.add_argument('--epochs', type=int, default=90,
+                        help="Số epochs tối đa (mặc định: 90).")
+    parser.add_argument('--patience', type=int, default=18,
+                        help="Early stopping patience (mặc định: 18).")
+    parser.add_argument('--batch_size', type=int, default=64,
+                        help="Batch size (mặc định: 64).")
+    parser.add_argument('--root_dir', type=str, default="/workspace/GRAPH",
                         help="Thư mục gốc chứa dữ liệu.")
     args = parser.parse_args()
 

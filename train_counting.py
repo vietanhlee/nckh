@@ -47,14 +47,14 @@ sys.stdout = TeeLogger("logs/train_counting.log")
 # =====================================================================
 class Config:
     # 📂 Đường dẫn tệp CSV nhãn và thư mục ảnh
-    CSV_FILE = "/kaggle/input/datasets/canhdoo/csv-images/traffic_update.csv"
-    IMAGE_DIR = "/kaggle/input/datasets/canhdoo/lane-vehicle/images"
+    CSV_FILE = "/workspace/traffic_update.csv"
+    IMAGE_DIR = "/workspace/images"
 
-    # 🏗️ Danh sách 4 họ mô hình cần chạy benchmark: 'resnet', 'efficientnet', 'vit', 'convnext'
-    MODELS = ['resnet', 'efficientnet', 'vit', 'convnext']
+    # 🏗️ Danh sách 5 họ mô hình cần chạy benchmark: 'resnet', 'efficientnet', 'vit', 'convnext', 'mobilenet'
+    MODELS = ['resnet', 'efficientnet', 'vit', 'convnext', 'mobilenet']
 
     # 🧪 Danh sách seeds ngẫu nhiên để đánh giá thống kê (Mean ± Std)
-    SEEDS = [42, 100, 2024, 22]
+    SEEDS = [42, 100, 2024, 22, 99]
 
     # ⚡ Siêu tham số huấn luyện
     EPOCHS = 100
@@ -247,8 +247,20 @@ def build_counting_model(model_name: str, num_classes: int = 2, pretrained: bool
                 nn.Dropout(0.2),
                 nn.Linear(128, num_classes)
             )
+    elif 'mobilenet' in name_clean:
+        try:
+            model = timm.create_model('mobilenetv3_large_100', pretrained=pretrained, num_classes=num_classes)
+        except Exception:
+            model = models.mobilenet_v3_large(weights=models.MobileNet_V3_Large_Weights.DEFAULT if pretrained else None)
+            in_features = model.classifier[0].in_features
+            model.classifier = nn.Sequential(
+                nn.Linear(in_features, 128),
+                nn.Hardswish(),
+                nn.Dropout(0.2),
+                nn.Linear(128, num_classes)
+            )
     else:
-        raise ValueError(f"Tên mô hình không hợp lệ: {model_name}. Chọn một trong các loại: 'resnet', 'efficientnet', 'vit', 'convnext'")
+        raise ValueError(f"Tên mô hình không hợp lệ: {model_name}. Chọn một trong các loại: 'resnet', 'efficientnet', 'vit', 'convnext', 'mobilenet'")
 
     return model
 
@@ -345,6 +357,11 @@ def get_target_layer(model, model_name):
             return model.stages[-1]
         elif hasattr(model, 'features'):
             return model.features[-1]
+    elif 'mobilenet' in name_lower:
+        if hasattr(model, 'features'):
+            return model.features[-1]
+        elif hasattr(model, 'blocks'):
+            return model.blocks[-1]
 
     for name, module in reversed(list(model.named_modules())):
         if isinstance(module, (nn.Conv2d, nn.BatchNorm2d, nn.LayerNorm)):
@@ -378,15 +395,24 @@ def generate_vision_explainability_figures(sample_img_path, trained_models_dict,
     axes[0].set_title("(a) Traffic Camera Scene\n(Original Input)", fontsize=11, fontweight='bold')
     axes[0].axis('off')
 
-    model_names = ['resnet', 'efficientnet', 'vit', 'convnext']
-    titles = [
-        "(b) ResNet-50\n(Grad-CAM++ Attribution)",
-        "(c) EfficientNet-B4\n(Grad-CAM++ Attribution)",
-        "(d) ViT-Small\n(Grad-CAM++ Attribution)",
-        "(e) ConvNeXt-Tiny (Ours)\n(Grad-CAM++ Attribution)"
-    ]
+    available_models = [m for m in ['resnet', 'efficientnet', 'vit', 'convnext', 'mobilenet'] if m in trained_models_dict]
+    title_dict = {
+        'resnet': "(b) ResNet-50\n(Grad-CAM++)",
+        'efficientnet': "(c) EfficientNet-B4\n(Grad-CAM++)",
+        'vit': "(d) ViT-Small\n(Grad-CAM++)",
+        'convnext': "(e) ConvNeXt-Tiny\n(Grad-CAM++)",
+        'mobilenet': "(f) MobileNet-V3\n(Grad-CAM++)"
+    }
 
-    for idx, m_key in enumerate(model_names):
+    num_cols = 1 + len(available_models)
+    fig, axes = plt.subplots(1, num_cols, figsize=(4 * num_cols, 4.5), dpi=300)
+    plt.rcParams['font.family'] = 'DejaVu Sans'
+
+    axes[0].imshow(raw_img)
+    axes[0].set_title("(a) Traffic Camera Scene\n(Original Input)", fontsize=11, fontweight='bold')
+    axes[0].axis('off')
+
+    for idx, m_key in enumerate(available_models):
         ax = axes[idx + 1]
         model = trained_models_dict[m_key].to(device)
         model.eval()
@@ -401,7 +427,7 @@ def generate_vision_explainability_figures(sample_img_path, trained_models_dict,
 
         ax.imshow(raw_img)
         ax.imshow(cam_arr, cmap='jet', alpha=0.55)
-        ax.set_title(f"{titles[idx]}\nPreds: Cars={preds[0]:.1f}, Bikes={preds[1]:.1f}", fontsize=10, fontweight='bold')
+        ax.set_title(f"{title_dict.get(m_key, m_key)}\nPreds: Cars={preds[0]:.1f}, Bikes={preds[1]:.1f}", fontsize=10, fontweight='bold')
         ax.axis('off')
 
     plt.tight_layout()
@@ -411,7 +437,7 @@ def generate_vision_explainability_figures(sample_img_path, trained_models_dict,
     plt.savefig(fig_png, format='png', bbox_inches='tight', dpi=300)
     plt.close()
 
-    print(f"🖼️ Đã tự động tạo biểu đồ Grad-CAM XAI cho 4 mô hình Vision vào:\n   - {fig_pdf}\n   - {fig_png}")
+    print(f"🖼️ Đã tự động tạo biểu đồ Grad-CAM XAI cho các mô hình Vision vào:\n   - {fig_pdf}\n   - {fig_png}")
 
 
 def measure_inference_latency(model, loader, device, max_batches=20):
