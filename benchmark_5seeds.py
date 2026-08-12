@@ -453,8 +453,8 @@ def run_benchmark():
                         help="Số patience early stopping (mặc định: 18).")
     parser.add_argument('--batch_size', type=int, default=64,
                         help="Kích thước batch_size (mặc định: 64 tối ưu cho 24GB VRAM GPU).")
-    parser.add_argument('--learning_rate', type=float, default=0.001,
-                        help="Tốc độ học Learning Rate cho AdamW (mặc định: 0.001).")
+    parser.add_argument('--learning_rate', type=float, default=0.0008,
+                        help="Tốc độ học Learning Rate cho AdamW (mặc định: 0.0008).")
     parser.add_argument('--root_dir', type=str, default="/workspace/GRAPH",
                         help="Thư mục gốc chứa dữ liệu.")
     parser.add_argument('--use_wandb', action='store_true', default=True,
