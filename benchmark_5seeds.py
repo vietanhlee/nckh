@@ -414,7 +414,7 @@ def run_benchmark():
     parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 22, 99],
                         help="Danh sách các seeds ngẫu nhiên (mặc định: 42 100 2024 777 999).")
     parser.add_argument('--model_group', type=str, choices=['all', 'advanced', 'standard', 'ablation'], default='all',
-                        help="Nhóm mô hình cần chạy: 'advanced' (GraphWaveNet, ASTGCN, GMAN, STAEformer, MegaCRN, DSTAGNN, AGCRN), 'standard' (GCN_LSTM, STGCN, TA-STGCN), 'ablation' (Các biến thể TA-STGCN), 'all' (Tất cả).")
+                        help="Nhóm mô hình cần chạy (mặc định 'all' tự động chạy tất cả 15 mô hình: SOTA Baselines + TA-STGCN + Tất cả các biến thể Ablation Study).")
     parser.add_argument('--epochs', type=int, default=80,
                         help="Số epochs chạy tối đa cho mỗi seed (mặc định: 60).")
     parser.add_argument('--patience', type=int, default=10,
