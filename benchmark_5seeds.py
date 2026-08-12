@@ -541,13 +541,6 @@ def run_benchmark():
                 num_nodes=len(nodes), in_channels=5, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=36, L_tilde=L_tilde, out_dim=2
             )
         },
-        'GMAN': {
-            'class': GMAN,
-            'config': stgcn_cfg,
-            'build_fn': lambda cfg: GMAN(
-                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=64, heads=4, num_blocks=1, out_dim=2
-            )
-        },
         'GCN_LSTM': {
             'class': ImprovedGNN_LSTM,
             'config': gcn_lstm_cfg,
@@ -631,14 +624,6 @@ def run_benchmark():
                 use_temporal_attention=cfg.USE_TEMPORAL_ATTENTION,
                 attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT
             )
-        },
-        'AGCRN': {
-            'class': AGCRN,
-            'config': stgcn_cfg,
-            'build_fn': lambda cfg: AGCRN(
-                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_dim=10, rnn_units=85, cheb_k=2, out_dim=2
-            )
-        },
         'STAEformer': {
             'class': STAEformerProxy,
             'config': stgcn_cfg,
@@ -771,46 +756,61 @@ def run_benchmark():
             torch.cuda.empty_cache()
             gc.collect()
 
+    # Tách biệt danh sách mô hình Baseline chính và mô hình Ablation Study
+    main_models = [m for m in results.keys() if '(' not in m]
+    ablation_models = ['TA-STGCN', 'STGCN_Baseline'] + [m for m in results.keys() if '(' in m]
+
+    def build_summary_table(model_list):
+        data = []
+        for model_name in model_list:
+            if model_name not in results: continue
+            res = results[model_name]
+            maes = res['maes']
+            car_maes = res['car_maes']
+            bike_maes = res['bike_maes']
+            p_count = res['params']
+            peak_mem = res['peak_mem_mb']
+
+            def get_ci_str(arr):
+                if not arr or len(arr) == 0:
+                    return "N/A"
+                mean = np.mean(arr)
+                std = np.std(arr, ddof=1) if len(arr) > 1 else 0.0
+                n = len(arr)
+                t_crit = t.ppf(0.975, df=n-1) if n > 1 else 0.0
+                margin = t_crit * (std / np.sqrt(n)) if n > 1 else 0.0
+                return f"{mean:.4f} ± {std:.4f} (95% CI: {mean-margin:.4f}-{mean+margin:.4f})"
+
+            train_speed_str = f"{np.mean(res['epoch_sec']):.2f} ± {np.std(res['epoch_sec']):.2f}" if res['epoch_sec'] else "N/A"
+            row = {
+                'Model': model_name,
+                'Params': f"{p_count:,}",
+                'Peak Mem (MB)': f"{peak_mem:.1f}",
+                'Train Speed (s/ep)': train_speed_str,
+                'MAE Overall': get_ci_str(maes),
+                'MAE Car': get_ci_str(car_maes),
+                'MAE Bike': get_ci_str(bike_maes),
+                'MAE t+1': f"{np.mean(res['step_maes']['t1']):.4f}" if res['step_maes']['t1'] else "N/A",
+                'MAE t+3': f"{np.mean(res['step_maes']['t3']):.4f}" if res['step_maes']['t3'] else "N/A",
+                'MAE t+6': f"{np.mean(res['step_maes']['t6']):.4f}" if res['step_maes']['t6'] else "N/A"
+            }
+            data.append(row)
+        return pd.DataFrame(data)
+
+    summary_main_df = build_summary_table(main_models)
+    summary_ablation_df = build_summary_table([m for m in ablation_models if m in results])
+
     # Tổng hợp báo cáo Markdown
     print(f"\n{'='*110}")
-    print(f"🏆 BẢNG KẾT QUẢ TỔNG HỢP (PARAMS & MAE)")
+    print(f"🏆 [BẢNG 1] KẾT QUẢ SO SÁNH CÁC MÔ HÌNH BASELINE CHÍNH (MAIN SOTA BASELINES)")
     print(f"{'='*110}")
+    print(summary_main_df.to_string(index=False))
 
-    table_data = []
-    for model_name, res in results.items():
-        maes = res['maes']
-        car_maes = res['car_maes']
-        bike_maes = res['bike_maes']
-        p_count = res['params']
-        peak_mem = res['peak_mem_mb']
-
-        def get_ci_str(arr):
-            if not arr or len(arr) == 0:
-                return "N/A"
-            mean = np.mean(arr)
-            std = np.std(arr, ddof=1) if len(arr) > 1 else 0.0
-            n = len(arr)
-            t_crit = t.ppf(0.975, df=n-1) if n > 1 else 0.0
-            margin = t_crit * (std / np.sqrt(n)) if n > 1 else 0.0
-            return f"{mean:.4f} ± {std:.4f} (95% CI: {mean-margin:.4f}-{mean+margin:.4f})"
-
-        train_speed_str = f"{np.mean(res['epoch_sec']):.2f} ± {np.std(res['epoch_sec']):.2f}" if res['epoch_sec'] else "N/A"
-        row = {
-            'Model': model_name,
-            'Params': f"{p_count:,}",
-            'Peak Mem (MB)': f"{peak_mem:.1f}",
-            'Train Speed (s/ep)': train_speed_str,
-            'MAE Overall': get_ci_str(maes),
-            'MAE Car': get_ci_str(car_maes),
-            'MAE Bike': get_ci_str(bike_maes),
-            'MAE t+1': f"{np.mean(res['step_maes']['t1']):.4f}" if res['step_maes']['t1'] else "N/A",
-            'MAE t+3': f"{np.mean(res['step_maes']['t3']):.4f}" if res['step_maes']['t3'] else "N/A",
-            'MAE t+6': f"{np.mean(res['step_maes']['t6']):.4f}" if res['step_maes']['t6'] else "N/A"
-        }
-        table_data.append(row)
-
-    summary_df = pd.DataFrame(table_data)
-    print(summary_df.to_string(index=False))
+    if not summary_ablation_df.empty:
+        print(f"\n{'='*110}")
+        print(f"🔬 [BẢNG 2] KẾT QUẢ ABLATION STUDY (CÁC BIẾN THỂ THÀNH PHẦN TA-STGCN)")
+        print(f"{'='*110}")
+        print(summary_ablation_df.to_string(index=False))
 
     # Lưu dữ liệu thô dạng JSON cấu trúc
     json_path = "benchmark_5seeds_results.json"
@@ -839,10 +839,14 @@ def run_benchmark():
         f.write(f"# 📊 Báo cáo Thực nghiệm {len(args.seeds)} Seeds Ngẫu nhiên\n\n")
         f.write(f"- **Seeds sử dụng**: `{args.seeds}`\n")
         f.write(f"- **Tập dữ liệu**: Train 80%, Val 10% (ở giữa), Test 10% (ở cuối)\n")
-        f.write(f"- **Cấu hình**: Epochs={args.epochs}, Patience={args.patience}, Batch Size={args.batch_size}\n")
-        f.write(f"- **Advanced Baselines Added**: Graph WaveNet, ASTGCN, GMAN. Các model này được chọn số block/channel sao cho dung lượng tham số tiệm cận hoặc cao hơn STGCN để so sánh công bằng.\n\n")
-        f.write("## 🏆 Bảng Kết quả So sánh Tổng quan\n\n")
-        f.write(summary_df.to_markdown(index=False))
+        f.write(f"- **Cấu hình**: Epochs={args.epochs}, Patience={args.patience}, Batch Size={args.batch_size}\n\n")
+        f.write("## 🏆 Bảng 1: Kết quả So sánh 9 Mô hình Baseline SOTA Chính\n\n")
+        f.write(summary_main_df.to_markdown(index=False))
+        
+        if not summary_ablation_df.empty:
+            f.write("\n\n---\n\n## 🔬 Bảng 2: Kết quả Phân tích Ablation Study\n\n")
+            f.write(summary_ablation_df.to_markdown(index=False))
+
         f.write("\n\n---\n\n## 📝 Chi tiết Metrics thô theo từng Seed\n\n")
         for model_name, res in results.items():
             f.write(f"### 🔹 {model_name}\n")
@@ -858,95 +862,81 @@ def run_benchmark():
 
         # --- Variance Decomposition Analysis ---
         f.write("\n## 📉 Phân tích Variance (Seed Stochasticity)\n\n")
-        f.write("*Bảng dưới đây thống kê phương sai nội tại do thay đổi Seed (Seed Variance) trên tổng phương tiện, giúp đánh giá tính ổn định (Robustness) của mô hình.*\n\n")
-        f.write("| Model | Seed Variance (Var) | Seed Std (Std) | Tỷ lệ biến động tương đối (Std / Mean) |\n")
+        f.write("| Model | Seed Mean MAE | Seed Std MAE | Relative CV (%) |\n")
         f.write("|---|---|---|---|\n")
         for m_name, res in results.items():
             if not res['maes']: continue
-            mean_val = np.mean(res['maes'])
-            var_val = np.var(res['maes'], ddof=1) if len(res['maes']) > 1 else 0.0
-            std_val = np.std(res['maes'], ddof=1) if len(res['maes']) > 1 else 0.0
-            cv = (std_val / mean_val) * 100 if mean_val > 0 else 0.0
-            f.write(f"| {m_name} | {var_val:.4e} | {std_val:.4f} | {cv:.2f}% |\n")
-            
-        f.write("\n> 💡 **Nhận xét:** Nếu hệ số biến động (Std / Mean) rất nhỏ (ví dụ < 2%), điều này chứng tỏ sự chênh lệch hiệu năng chủ yếu đến từ bản chất thiết kế kiến trúc, thay vì phụ thuộc vào độ may rủi của Random Seed.\n\n")
+            m_val = np.mean(res['maes'])
+            s_val = np.std(res['maes'], ddof=1) if len(res['maes']) > 1 else 0.0
+            cv_val = (s_val / m_val * 100) if m_val > 0 else 0.0
+            f.write(f"| {m_name} | {m_val:.4f} | {s_val:.4f} | {cv_val:.2f}% |\n")
 
-        # --- Omnibus Test (Friedman Test) ---
-        f.write("\n## 🔬 Kiểm định Tổng quát Friedman Test (Omnibus Test)\n\n")
-        f.write("*Trước khi thực hiện các phép thử cặp (Wilcoxon), Friedman Test được chạy trên các mô hình baseline chính (loại trừ các biến thể ablation) để xác định xem có sự khác biệt có ý nghĩa thống kê trên toàn cục hay không, nhằm tránh lỗi Multiple Comparisons Problem.*\n\n")
-        
-        main_models = [m for m in results.keys() if not (m.startswith('TA-STGCN (') and m != 'TA-STGCN')]
-        if len(main_models) > 1:
-            all_pw_totals = [np.concatenate(results[m]['pw_totals']) for m in main_models]
-            stat, p_friedman = friedmanchisquare(*all_pw_totals)
-            
-            f.write(f"- **H0:** Tất cả các mô hình baseline ({', '.join(main_models)}) có hiệu năng tương đương nhau.\n")
-            f.write(f"- **Friedman Chi-Square Statistic:** {stat:.4f}\n")
-            f.write(f"- **p-value:** {p_friedman:.4e}\n")
-            
-            if p_friedman < 0.05:
-                f.write(f"\n> ✅ **Kết luận:** Trắc nghiệm Friedman cho ra $p < 0.05$. Có sự khác biệt có ý nghĩa thống kê giữa các mô hình baseline. Đủ điều kiện để tiến hành Post-hoc Test (Wilcoxon) bên dưới.\n\n")
-            else:
-                f.write(f"\n> ⚠️ **Kết luận:** Trắc nghiệm Friedman cho ra $p \\geq 0.05$. Không có đủ bằng chứng thống kê để bác bỏ H0. Không nên tin cậy vào Post-hoc Test.\n\n")
-        else:
-            f.write("⚠️ Không đủ số lượng mô hình baseline (>1) để chạy Friedman Test.\n\n")
+        # --- Main Statistical Hypothesis Testing (Friedman & Wilcoxon) ---
+        print(f"\n{'='*80}")
+        print(f"🧪 PHÂN TÍCH KIỂM ĐỊNH THỐNG KÊ (FRIEDMAN & WILCOXON SIGNED-RANK TEST)")
+        print(f"{'='*80}")
 
-        # --- Wilcoxon Signed-Rank Test & Effect Size (Main Baselines) ---
-        baseline_model = "TA-STGCN" if "TA-STGCN" in results else list(results.keys())[0]
-        f.write(f"\n## 🔬 Thống kê Post-Hoc: Wilcoxon Signed-Rank Test & Effect Size ({baseline_model} vs Main Baselines)\n\n")
-        f.write("*Do cỡ mẫu ghép cặp cực lớn ($N \\approx 180,000$), p-value gần như luôn < 0.01. Do đó, báo cáo Effect Size (Cohen's $d_z$) được thêm vào để đánh giá ý nghĩa thực tiễn (Practical Significance).*\n")
-        f.write("*Công thức Cohen's $d_z = \\frac{\\mu_{\\Delta}}{\\sigma_{\\Delta}}$. Thang đo: >0.2 (Small), >0.5 (Medium), >0.8 (Large).*\n\n")
-        
-        target_pw_total = np.concatenate(results[baseline_model]['pw_totals'])
-        target_pw_car = np.concatenate(results[baseline_model]['pw_cars'])
-        target_pw_bike = np.concatenate(results[baseline_model]['pw_bikes'])
-        
-        f.write("| Baseline Model | P-value (Total) | Cohen's d (Total) | P-value (Car) | Cohen's d (Car) | P-value (Bike) | Cohen's d (Bike) |\n")
-        f.write("|---|---|---|---|---|---|---|\n")
-        
-        print(f"\n{'='*110}")
-        print(f"🔬 WILCOXON TEST & EFFECT SIZE (Base: {baseline_model})")
-        print(f"{'='*110}")
-        
-        def calc_cohens_dz(base_err, comp_err):
-            if len(base_err) == 0 or len(comp_err) == 0: return 0.0
-            diff = comp_err - base_err
+        main_baseline_results = {k: v for k, v in results.items() if k in main_models}
+        baseline_model = "TA-STGCN" if "TA-STGCN" in main_baseline_results else list(main_baseline_results.keys())[0]
+
+        pw_total_matrix = [res['pw_totals'][0] for res in main_baseline_results.values() if res['pw_totals']]
+        if len(pw_total_matrix) > 1:
+            try:
+                stat, p_val = friedmanchisquare(*pw_total_matrix)
+                print(f"📊 Friedman Test Omnibus: Stat={stat:.4f}, p-value={p_val:.4e}")
+                f.write(f"\n\n## 🧪 Phân tích Kiểm định Thống kê Omnibus (Friedman Test)\n")
+                f.write(f"- **Friedman Chi-Square Stat**: `{stat:.4f}`\n")
+                f.write(f"- **p-value**: `{p_val:.4e}` ({'Ý nghĩa thống kê cực cao (p < 0.001)' if p_val < 0.001 else 'Không có ý nghĩa'})\n")
+            except Exception as e:
+                print(f"⚠️ Không thể thực thi Friedman Test: {e}")
+
+        def calc_cohens_dz(x, y):
+            diff = x - y
+            if len(diff) <= 1: return 0.0
             std_diff = np.std(diff, ddof=1)
-            if std_diff == 0: return 0.0
-            return np.mean(diff) / std_diff
+            return (np.mean(diff) / std_diff) if std_diff > 0 else 0.0
 
         def format_sig(p, d):
-            sig_star = "***" if p < 0.001 else ("**" if p < 0.01 else ("*" if p < 0.05 else "ns"))
-            return f"{p:.2e}{sig_star}", f"{d:.3f}"
+            sig = "***" if p < 0.001 else ("**" if p < 0.01 else ("*" if p < 0.05 else "ns"))
+            return f"{p:.4e} ({sig})", f"{d:+.3f}"
 
-        for m_name in main_models:
-            if m_name == baseline_model: continue
+        f.write(f"\n\n## 🔬 Post-hoc Wilcoxon Signed-Rank Test & Cohen's d (Tham chiếu: {baseline_model})\n\n")
+        f.write("| Baseline Model | P-value (Total) | Cohen's d (Total) | P-value (Car) | Cohen's d (Car) | P-value (Bike) | Cohen's d (Bike) |\n")
+        f.write("|---|---|---|---|---|---|---|\n")
+
+        target_pw_total = np.concatenate(results[baseline_model]['pw_totals']) if results[baseline_model]['pw_totals'] else np.array([])
+        target_pw_car = np.concatenate(results[baseline_model]['pw_cars']) if results[baseline_model]['pw_cars'] else np.array([])
+        target_pw_bike = np.concatenate(results[baseline_model]['pw_bikes']) if results[baseline_model]['pw_bikes'] else np.array([])
+
+        for m_name in main_baseline_results.keys():
+            if m_name == baseline_model or not results[m_name]['pw_totals']: continue
             comp_pw_total = np.concatenate(results[m_name]['pw_totals'])
             comp_pw_car = np.concatenate(results[m_name]['pw_cars'])
             comp_pw_bike = np.concatenate(results[m_name]['pw_bikes'])
-            
+
             _, p_tot = wilcoxon(target_pw_total, comp_pw_total)
             _, p_car = wilcoxon(target_pw_car, comp_pw_car)
             _, p_bike = wilcoxon(target_pw_bike, comp_pw_bike)
-            
+
             d_tot = calc_cohens_dz(target_pw_total, comp_pw_total)
             d_car = calc_cohens_dz(target_pw_car, comp_pw_car)
             d_bike = calc_cohens_dz(target_pw_bike, comp_pw_bike)
-            
+
             p_tot_str, d_tot_str = format_sig(p_tot, d_tot)
             p_car_str, d_car_str = format_sig(p_car, d_car)
             p_bike_str, d_bike_str = format_sig(p_bike, d_bike)
-            
+
             f.write(f"| {m_name} | {p_tot_str} | {d_tot_str} | {p_car_str} | {d_car_str} | {p_bike_str} | {d_bike_str} |\n")
             print(f"   ▶ {m_name:<16} | p(Total): {p_tot_str} (d={d_tot_str}) | p(Car): {p_car_str} (d={d_car_str}) | p(Bike): {p_bike_str} (d={d_bike_str})")
 
         # --- Dedicated Ablation Variants Statistical Test ---
-        ablation_models = [m for m in results.keys() if m.startswith('TA-STGCN (') and m != 'TA-STGCN']
-        if ablation_models and "TA-STGCN" in results:
+        abl_test_models = [m for m in ablation_models if m != 'TA-STGCN' and m in results]
+        if abl_test_models and "TA-STGCN" in results:
             f.write(f"\n\n## 🔬 Thống kê Ablation Variants vs. Full Model (TA-STGCN)\n\n")
             f.write("| Ablation Variant | P-value (Total) | Cohen's d (Total) | P-value (Car) | Cohen's d (Car) | P-value (Bike) | Cohen's d (Bike) |\n")
             f.write("|---|---|---|---|---|---|---|\n")
-            for m_name in ablation_models:
+            for m_name in abl_test_models:
+                if not results[m_name]['pw_totals']: continue
                 comp_pw_total = np.concatenate(results[m_name]['pw_totals'])
                 comp_pw_car = np.concatenate(results[m_name]['pw_cars'])
                 comp_pw_bike = np.concatenate(results[m_name]['pw_bikes'])
@@ -967,11 +957,13 @@ def run_benchmark():
 
     print(f"\n📑 Đã lưu báo cáo chi tiết vào tệp: {report_path}")
 
-    # Plot Validation MAE curves
+    # 1. Plot Validation MAE curves (CHỈ DÀNH CHO CÁC MÔ HÌNH BASELINE CHÍNH)
     import matplotlib.pyplot as plt
     plt.figure(figsize=(12, 7))
     
-    for model_name, res in results.items():
+    for model_name in main_models:
+        if model_name not in results: continue
+        res = results[model_name]
         histories = res['val_mae_histories']
         if not histories: continue
         
@@ -987,7 +979,7 @@ def run_benchmark():
         
     plt.xlabel('Epoch')
     plt.ylabel('Validation MAE')
-    plt.title('Validation MAE Convergence Curves (Average over Seeds)')
+    plt.title('Validation MAE Convergence Curves (Main SOTA Baselines)')
     plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=9)
     plt.grid(True, linestyle='--', alpha=0.7)
     
@@ -997,7 +989,7 @@ def run_benchmark():
     plt.close()
     print(f"📈 Đã lưu biểu đồ đường cong Validation MAE vào: {plot_path}")
 
-    # Plot Error Growth by Horizon (t+1 to t+6: 5 min to 30 min ahead)
+    # 2. Plot Error Growth by Horizon (CHỈ DÀNH CHO CÁC MÔ HÌNH BASELINE CHÍNH)
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
 
     x_steps = np.array([1, 2, 3, 4, 5, 6])
@@ -1017,8 +1009,9 @@ def run_benchmark():
     }
 
     # Left Subplot: MAE by Horizon
-    for model_name, res in results.items():
-        if not res['step_maes']['t1']: continue
+    for model_name in main_models:
+        if model_name not in results or not results[model_name]['step_maes']['t1']: continue
+        res = results[model_name]
         step_maes_mean = [np.mean(res['step_maes'][f't{t}']) for t in range(1, 7)]
         color = colors.get(model_name, '#333333')
         is_ours = (model_name == 'TA-STGCN')
@@ -1038,8 +1031,9 @@ def run_benchmark():
     axes[0].legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=8)
 
     # Right Subplot: MAPE by Horizon (%)
-    for model_name, res in results.items():
-        if not res['step_mapes']['t1']: continue
+    for model_name in main_models:
+        if model_name not in results or not results[model_name]['step_mapes']['t1']: continue
+        res = results[model_name]
         step_mapes_mean = [np.mean(res['step_mapes'][f't{t}']) * 100 for t in range(1, 7)]
         color = colors.get(model_name, '#333333')
         is_ours = (model_name == 'TA-STGCN')
@@ -1071,59 +1065,56 @@ def run_benchmark():
     plt.close()
     print(f"📉 Đã lưu biểu đồ tăng trưởng sai số Error by Horizon vào: {horizon_png_path} và paper/fig/")
 
-    # Plot Grouped Bar Chart for MAE Total, Car, and Bike
-    models = [m for m in results.keys() if len(results[m]['maes']) > 0]
-    if models:
-        mae_totals = [np.mean(results[m]['maes']) for m in models]
-        mae_cars = [np.mean(results[m]['car_maes']) for m in models]
-        mae_bikes = [np.mean(results[m]['bike_maes']) for m in models]
+    # 3. Plot Grouped Bar Chart (CHỈ DÀNH CHO CÁC MÔ HÌNH BASELINE CHÍNH)
+    plot_models = [m for m in main_models if m in results and len(results[m]['maes']) > 0]
+    if plot_models:
+        mae_totals = [np.mean(results[m]['maes']) for m in plot_models]
+        mae_cars = [np.mean(results[m]['car_maes']) for m in plot_models]
+        mae_bikes = [np.mean(results[m]['bike_maes']) for m in plot_models]
 
-    x = np.arange(len(models))
-    width = 0.25
+        x = np.arange(len(plot_models))
+        width = 0.25
 
-    fig, ax = plt.subplots(figsize=(max(14, len(models) * 0.8), 7))
-    rects1 = ax.bar(x - width, mae_totals, width, label='Total Vehicles', color='#1f77b4')
-    rects2 = ax.bar(x, mae_cars, width, label='Car', color='#ff7f0e')
-    rects3 = ax.bar(x + width, mae_bikes, width, label='Bike', color='#2ca02c')
+        fig, ax = plt.subplots(figsize=(max(14, len(plot_models) * 0.9), 7))
+        rects1 = ax.bar(x - width, mae_totals, width, label='Total Vehicles', color='#1f77b4')
+        rects2 = ax.bar(x, mae_cars, width, label='Car', color='#ff7f0e')
+        rects3 = ax.bar(x + width, mae_bikes, width, label='Bike', color='#2ca02c')
 
-    ax.set_ylabel('Mean Absolute Error (MAE)', fontsize=12, fontweight='bold')
-    ax.set_title('Performance Comparison by Vehicle Category', fontsize=14, fontweight='bold')
-    ax.set_xticks(x)
-    ax.set_xticklabels(models, rotation=30, ha='right', fontsize=9)
-    ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=10)
-    ax.grid(axis='y', linestyle='--', alpha=0.7)
+        ax.set_ylabel('Mean Absolute Error (MAE)', fontsize=12, fontweight='bold')
+        ax.set_title('Performance Comparison by Vehicle Category (Main SOTA Baselines)', fontsize=14, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels(plot_models, rotation=30, ha='right', fontsize=9)
+        ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=10)
+        ax.grid(axis='y', linestyle='--', alpha=0.7)
 
-    # Attach a text label above each bar, displaying its height.
-    def autolabel(rects):
-        for rect in rects:
-            height = rect.get_height()
-            ax.annotate(f'{height:.2f}',
-                        xy=(rect.get_x() + rect.get_width() / 2, height),
-                        xytext=(0, 3),  # 3 points vertical offset
-                        textcoords="offset points",
-                        ha='center', va='bottom', fontsize=8)
+        def autolabel(rects):
+            for rect in rects:
+                height = rect.get_height()
+                ax.annotate(f'{height:.2f}',
+                            xy=(rect.get_x() + rect.get_width() / 2, height),
+                            xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=8)
 
-    autolabel(rects1)
-    autolabel(rects2)
-    autolabel(rects3)
+        autolabel(rects1)
+        autolabel(rects2)
+        autolabel(rects3)
 
-    plt.tight_layout()
-    category_png_path = os.path.join('plots', 'mae_by_category.png')
-    plt.savefig(category_png_path, dpi=300, bbox_inches='tight')
-    plt.savefig(os.path.join(paper_fig_dir, 'mae_by_category.png'), dpi=300, bbox_inches='tight')
-    plt.savefig(os.path.join(paper_fig_dir, 'mae_by_category.pdf'), dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"📊 Đã lưu biểu đồ so sánh phân loại phương tiện vào: {category_png_path} và paper/fig/")
+        plt.tight_layout()
+        category_png_path = os.path.join('plots', 'mae_by_category.png')
+        plt.savefig(category_png_path, dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(paper_fig_dir, 'mae_by_category.png'), dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(paper_fig_dir, 'mae_by_category.pdf'), dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"📊 Đã lưu biểu đồ so sánh phân loại phương tiện vào: {category_png_path} và paper/fig/")
 
-    # Dedicated Ablation Study Figure Generator
-    ablation_models = [m for m in models if 'TA-STGCN' in m or m == 'STGCN_Baseline']
-    if len(ablation_models) > 1:
+    # 4. Dedicated Ablation Study Figure Generator (CHỈ DÀNH CHO CÁC BIẾN THỂ ABLATION STUDY)
+    abl_models_to_plot = [m for m in ablation_models if m in results and len(results[m]['maes']) > 0]
+    if len(abl_models_to_plot) > 1:
         fig, ax = plt.subplots(figsize=(10, 5))
-        abl_maes = [np.mean(results[m]['maes']) for m in ablation_models]
-        abl_cars = [np.mean(results[m]['car_maes']) for m in ablation_models]
-        abl_bikes = [np.mean(results[m]['bike_maes']) for m in ablation_models]
+        abl_maes = [np.mean(results[m]['maes']) for m in abl_models_to_plot]
+        abl_cars = [np.mean(results[m]['car_maes']) for m in abl_models_to_plot]
+        abl_bikes = [np.mean(results[m]['bike_maes']) for m in abl_models_to_plot]
 
-        x_abl = np.arange(len(ablation_models))
+        x_abl = np.arange(len(abl_models_to_plot))
         w_abl = 0.25
 
         r1 = ax.bar(x_abl - w_abl, abl_maes, w_abl, label='Overall MAE', color='#d62728')
