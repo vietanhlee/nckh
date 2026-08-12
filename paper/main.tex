@@ -846,8 +846,8 @@ To quantify model resilience against perception noise and address two-stage erro
 \begin{enumerate}
     \item \textbf{Level 0 (Clean Baseline, $\Delta \text{MAE} = 0.00$):} Unperturbed input series.
     \item \textbf{Level 1 (Mild Noise, $\Delta \text{MAE} = 1.50$):} Simulates minor perception errors under clear weather conditions.
-    \item \textbf{Level 2 (Moderate Perception Noise, $\Delta \text{MAE} = 3.50$):} Simulates standard Stage 1 vision perception noise margins.
-    \item \textbf{Level 3 (Heavy Perception Noise, $\Delta \text{MAE} = 5.00$):} Simulates severe perception error under adverse weather or camera glare.
+    \item \textbf{Level 2 (Stage 1 Perception Noise, $\Delta \text{MAE} = 3.74$):} Simulates standard Stage 1 vision perception noise margins (matching ResNet-50 Stage 1 MAE $= 3.74$).
+    \item \textbf{Level 3 (Heavy Perception Noise, $\Delta \text{MAE} = 5.50$):} Simulates severe perception error under adverse weather or camera glare.
 \end{enumerate}
 
 Figure~\ref{fig:noise_robustness} illustrates the forecasting performance degradation curves across the four input noise levels.
@@ -855,7 +855,7 @@ Figure~\ref{fig:noise_robustness} illustrates the forecasting performance degrad
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\columnwidth]{fig/noise_robustness_study.pdf}
-\caption{Forecasting MAE performance degradation curves under simulated Stage 1 perception noise levels ($\Delta \text{MAE} \in [0.0, 5.0]$). TA-STGCN maintains a flatter error degradation slope compared to baseline models due to temporal self-attention.}
+\caption{Forecasting MAE performance degradation curves under simulated Stage 1 perception noise levels ($\Delta \text{MAE} \in [0.0, 5.50]$). TA-STGCN maintains a flatter error degradation slope compared to baseline models due to temporal self-attention.}
 \label{fig:noise_robustness}
 \end{figure}
 

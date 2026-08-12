@@ -624,6 +624,7 @@ def run_benchmark():
                 use_temporal_attention=cfg.USE_TEMPORAL_ATTENTION,
                 attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT
             )
+        },
         'STAEformer': {
             'class': STAEformerProxy,
             'config': stgcn_cfg,
@@ -649,10 +650,10 @@ def run_benchmark():
 
     # Lọc danh sách mô hình theo nhóm được yêu cầu
     if args.model_group == 'advanced':
-        advanced_keys = ['Graph_WaveNet', 'ASTGCN', 'GMAN', 'STAEformer', 'MegaCRN', 'DSTAGNN', 'AGCRN']
+        advanced_keys = ['Graph_WaveNet', 'ASTGCN', 'STAEformer', 'MegaCRN', 'DSTAGNN']
         models_registry = {k: v for k, v in models_registry.items() if k in advanced_keys}
     elif args.model_group == 'standard':
-        advanced_keys = ['Graph_WaveNet', 'ASTGCN', 'GMAN', 'STAEformer', 'MegaCRN', 'DSTAGNN', 'AGCRN', 'TA-STGCN (h=1)', 'TA-STGCN (C=32)']
+        advanced_keys = ['Graph_WaveNet', 'ASTGCN', 'STAEformer', 'MegaCRN', 'DSTAGNN', 'TA-STGCN (h=1)', 'TA-STGCN (C=32)']
         models_registry = {k: v for k, v in models_registry.items() if k not in advanced_keys}
     elif args.model_group == 'ablation':
         ablation_keys = ['STGCN_Baseline', 'TA-STGCN', 'TA-STGCN (h=1)', 'TA-STGCN (C=32)', 'TA-STGCN (K=1, No Spatial)', 'TA-STGCN (h=8, 8-Heads)', 'TA-STGCN (Depth=2)']
@@ -1001,8 +1002,6 @@ def run_benchmark():
         'GCN_LSTM': '#7f7f7f',
         'Graph_WaveNet': '#2ca02c',
         'ASTGCN': '#9467bd',
-        'GMAN': '#8c564b',
-        'AGCRN': '#e377c2',
         'STAEformer': '#bcbd22',
         'MegaCRN': '#17becf',
         'DSTAGNN': '#8c564b'

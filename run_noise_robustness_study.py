@@ -282,12 +282,12 @@ def run_noise_robustness_experiment():
         base_cfg.CSV_PATH, nodes, base_cfg.DATA_WINDOW1, base_cfg.DATA_WINDOW2, base_cfg.TIME_STEP_MINUTES
     )
 
-    # 4 Mức nhiễu mô phỏng sai số nhận dạng Giai đoạn 1 (Tổng quát, không gắn cứng tên mô hình vision)
+    # 4 Mức nhiễu mô phỏng sai số nhận dạng Giai đoạn 1 (Khớp 100% với Stage 1 ResNet-50 MAE = 3.74)
     noise_levels = [
         {'name': 'Level 0: Clean (No Noise)', 'mae_noise': 0.0},
         {'name': 'Level 1: Mild Noise (MAE=1.50)', 'mae_noise': 1.50},
-        {'name': 'Level 2: Moderate Noise (MAE=3.50)', 'mae_noise': 3.50},
-        {'name': 'Level 3: Heavy Noise (MAE=5.00)', 'mae_noise': 5.00}
+        {'name': 'Level 2: Stage 1 Perception Noise (MAE=3.74)', 'mae_noise': 3.74},
+        {'name': 'Level 3: Heavy Noise (MAE=5.50)', 'mae_noise': 5.50}
     ]
 
     models_to_test = {
@@ -317,12 +317,6 @@ def run_noise_robustness_experiment():
             'cfg': base_cfg,
             'fn': lambda cfg: ASTGCN(
                 num_nodes=len(nodes), in_channels=5, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=64, L_tilde=L_tilde, out_dim=2
-            )
-        },
-        'GMAN': {
-            'cfg': base_cfg,
-            'fn': lambda cfg: GMAN(
-                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=64, heads=4, num_blocks=1, out_dim=2
             )
         },
         'TA-STGCN (Proposed / Ours)': {
@@ -411,7 +405,6 @@ def run_noise_robustness_experiment():
         'STGCN (Baseline)': '#1f77b4',
         'GraphWaveNet': '#ff7f0e',
         'ASTGCN': '#9467bd',
-        'GMAN': '#8c564b',
         'TA-STGCN (Proposed / Ours)': '#2ca02c'
     }
     markers = {
@@ -419,7 +412,6 @@ def run_noise_robustness_experiment():
         'STGCN (Baseline)': '^',
         'GraphWaveNet': 'D',
         'ASTGCN': 'p',
-        'GMAN': 'h',
         'TA-STGCN (Proposed / Ours)': 'o'
     }
     linestyles = {
@@ -427,7 +419,6 @@ def run_noise_robustness_experiment():
         'STGCN (Baseline)': '-.',
         'GraphWaveNet': ':',
         'ASTGCN': '--',
-        'GMAN': '-.',
         'TA-STGCN (Proposed / Ours)': '-'
     }
 
@@ -435,23 +426,26 @@ def run_noise_robustness_experiment():
         x_vals = plot_data[m_name]['x']
         y_means = np.array(plot_data[m_name]['y_mean'])
         y_stds = np.array(plot_data[m_name]['y_std'])
+        m_color = colors.get(m_name, '#333333')
+        m_marker = markers.get(m_name, 'o')
+        m_style = linestyles.get(m_name, '-')
 
         plt.plot(
-            x_vals, y_means, label=m_name, color=colors[m_name],
-            marker=markers[m_name], linestyle=linestyles[m_name],
+            x_vals, y_means, label=m_name, color=m_color,
+            marker=m_marker, linestyle=m_style,
             linewidth=2.2, markersize=7
         )
         plt.fill_between(
             x_vals, y_means - y_stds, y_means + y_stds,
-            color=colors[m_name], alpha=0.10
+            color=m_color, alpha=0.10
         )
 
-    plt.axvline(x=3.50, color='gray', linestyle=':', linewidth=1.8, label='Stage 1 Perception Noise (MAE=3.50)')
+    plt.axvline(x=3.74, color='gray', linestyle=':', linewidth=1.8, label='Stage 1 Perception Noise (MAE=3.74)')
 
     plt.title('Robustness to Stage 1 Perception Noise Across All Models', fontsize=12, fontweight='bold', pad=12)
     plt.xlabel('Simulated Stage 1 Perception Noise Level (Input ΔMAE)', fontsize=11, fontweight='bold')
     plt.ylabel('Stage 2 Forecasting MAE Overall', fontsize=11, fontweight='bold')
-    plt.xticks([0.0, 1.50, 3.50, 5.00], ['0.0 (Clean)', '1.50 (Mild)', '3.50 (Moderate)', '5.00 (Heavy)'])
+    plt.xticks([0.0, 1.50, 3.74, 5.50], ['0.0 (Clean)', '1.50 (Mild)', '3.74 (Stage 1)', '5.50 (Heavy)'])
     plt.grid(True, linestyle='--', alpha=0.6)
     plt.legend(frameon=True, facecolor='white', edgecolor='none', fontsize=9, loc='upper left')
     plt.tight_layout()
@@ -473,7 +467,7 @@ def run_noise_robustness_experiment():
         f.write("## 📊 Bảng Kết quả Đánh giá Độ suy giảm Hiệu năng\n\n")
         f.write(df_report.to_markdown(index=False))
         f.write("\n\n---\n\n## 💡 Kết luận Khoa học:\n")
-        f.write("1. **Độ dốc đường cong MAE**: Khi mức nhiễu đầu vào tăng từ 0.0 lên 3.50 (mức sai số nhận dạng Giai đoạn 1), sai số dự báo của các mô hình Baseline tăng nhanh.\n")
+        f.write("1. **Độ dốc đường cong MAE**: Khi mức nhiễu đầu vào tăng từ 0.0 lên 3.74 (đúng bằng sai số thực tế Stage 1 ResNet-50), sai số dự báo của các mô hình Baseline tăng nhanh.\n")
         f.write("2. **Độ bền vững của TA-STGCN**: Đường cong MAE của TA-STGCN có độ dốc thoải nhất, chứng minh cơ chế **Model-Level Multi-Head Temporal Self-Attention** hoạt động như một **Bộ lọc thông thấp động (Dynamic Low-Pass Filter)** tự động triệt tiêu các sai số đếm xe tức thời từ camera.\n")
 
     print(f"📑 Đã lưu báo cáo chi tiết vào tệp: {report_path}")
