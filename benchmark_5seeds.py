@@ -541,7 +541,7 @@ def run_benchmark():
             'class': GMAN,
             'config': stgcn_cfg,
             'build_fn': lambda cfg: GMAN(
-                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=128, heads=4, num_blocks=2, out_dim=2
+                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=64, heads=4, num_blocks=1, out_dim=2
             )
         },
         'GCN_LSTM': {
@@ -707,8 +707,9 @@ def run_benchmark():
             val_ds   = MultiStepDataset(df_val, nodes, cfg.T_IN, cfg.HORIZON, scaler)
             test_ds  = MultiStepDataset(df_test, nodes, cfg.T_IN, cfg.HORIZON, scaler)
 
-            eval_batch_size = cfg.BATCH_SIZE
-            train_loader = DataLoader(train_ds, batch_size=cfg.BATCH_SIZE, shuffle=True)
+            curr_batch_size = 32 if "GMAN" in model_name else cfg.BATCH_SIZE
+            eval_batch_size = curr_batch_size
+            train_loader = DataLoader(train_ds, batch_size=curr_batch_size, shuffle=True)
             val_loader   = DataLoader(val_ds, batch_size=eval_batch_size)
             test_loader  = DataLoader(test_ds, batch_size=eval_batch_size)
 
