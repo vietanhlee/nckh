@@ -501,21 +501,21 @@ def run_benchmark():
             'class': GraphWaveNet,
             'config': stgcn_cfg,
             'build_fn': lambda cfg: GraphWaveNet(
-                num_nodes=len(nodes), in_dim=5, out_dim=2, blocks=4, layers=2, horizon=cfg.HORIZON
+                num_nodes=len(nodes), in_dim=5, out_dim=2, residual_channels=40, dilation_channels=40, blocks=4, layers=2, horizon=cfg.HORIZON
             )
         },
         'ASTGCN': {
             'class': ASTGCN,
             'config': stgcn_cfg,
             'build_fn': lambda cfg: ASTGCN(
-                num_nodes=len(nodes), in_channels=5, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=64, L_tilde=L_tilde, out_dim=2
+                num_nodes=len(nodes), in_channels=5, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=36, L_tilde=L_tilde, out_dim=2
             )
         },
         'GMAN': {
             'class': GMAN,
             'config': stgcn_cfg,
             'build_fn': lambda cfg: GMAN(
-                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=64, heads=4, num_blocks=1, out_dim=2
+                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=128, heads=4, num_blocks=2, out_dim=2
             )
         },
         'GCN_LSTM': {
@@ -739,24 +739,27 @@ def run_benchmark():
         peak_mem = res['peak_mem_mb']
 
         def get_ci_str(arr):
+            if not arr or len(arr) == 0:
+                return "N/A"
             mean = np.mean(arr)
-            std = np.std(arr, ddof=1) if len(arr) > 1 else 0
+            std = np.std(arr, ddof=1) if len(arr) > 1 else 0.0
             n = len(arr)
-            t_crit = t.ppf(0.975, df=n-1) if n > 1 else 0
-            margin = t_crit * (std / np.sqrt(n)) if n > 1 else 0
+            t_crit = t.ppf(0.975, df=n-1) if n > 1 else 0.0
+            margin = t_crit * (std / np.sqrt(n)) if n > 1 else 0.0
             return f"{mean:.4f} ± {std:.4f} (95% CI: {mean-margin:.4f}-{mean+margin:.4f})"
 
+        train_speed_str = f"{np.mean(res['epoch_sec']):.2f} ± {np.std(res['epoch_sec']):.2f}" if res['epoch_sec'] else "N/A"
         row = {
             'Model': model_name,
             'Params': f"{p_count:,}",
             'Peak Mem (MB)': f"{peak_mem:.1f}",
-            'Train Speed (s/ep)': f"{np.mean(res['epoch_sec']):.2f} ± {np.std(res['epoch_sec']):.2f}",
+            'Train Speed (s/ep)': train_speed_str,
             'MAE Overall': get_ci_str(maes),
             'MAE Car': get_ci_str(car_maes),
             'MAE Bike': get_ci_str(bike_maes),
-            'MAE t+1': f"{np.mean(res['step_maes']['t1']):.4f}",
-            'MAE t+3': f"{np.mean(res['step_maes']['t3']):.4f}",
-            'MAE t+6': f"{np.mean(res['step_maes']['t6']):.4f}"
+            'MAE t+1': f"{np.mean(res['step_maes']['t1']):.4f}" if res['step_maes']['t1'] else "N/A",
+            'MAE t+3': f"{np.mean(res['step_maes']['t3']):.4f}" if res['step_maes']['t3'] else "N/A",
+            'MAE t+6': f"{np.mean(res['step_maes']['t6']):.4f}" if res['step_maes']['t6'] else "N/A"
         }
         table_data.append(row)
 
@@ -792,10 +795,11 @@ def run_benchmark():
         f.write("| Model | Seed Variance (Var) | Seed Std (Std) | Tỷ lệ biến động tương đối (Std / Mean) |\n")
         f.write("|---|---|---|---|\n")
         for m_name, res in results.items():
+            if not res['maes']: continue
             mean_val = np.mean(res['maes'])
-            var_val = np.var(res['maes'], ddof=1) if len(res['maes']) > 1 else 0
-            std_val = np.std(res['maes'], ddof=1) if len(res['maes']) > 1 else 0
-            cv = (std_val / mean_val) * 100 if mean_val > 0 else 0
+            var_val = np.var(res['maes'], ddof=1) if len(res['maes']) > 1 else 0.0
+            std_val = np.std(res['maes'], ddof=1) if len(res['maes']) > 1 else 0.0
+            cv = (std_val / mean_val) * 100 if mean_val > 0 else 0.0
             f.write(f"| {m_name} | {var_val:.4e} | {std_val:.4f} | {cv:.2f}% |\n")
             
         f.write("\n> 💡 **Nhận xét:** Nếu hệ số biến động (Std / Mean) rất nhỏ (ví dụ < 2%), điều này chứng tỏ sự chênh lệch hiệu năng chủ yếu đến từ bản chất thiết kế kiến trúc, thay vì phụ thuộc vào độ may rủi của Random Seed.\n\n")
@@ -838,6 +842,7 @@ def run_benchmark():
         print(f"{'='*110}")
         
         def calc_cohens_dz(base_err, comp_err):
+            if len(base_err) == 0 or len(comp_err) == 0: return 0.0
             diff = comp_err - base_err
             std_diff = np.std(diff, ddof=1)
             if std_diff == 0: return 0.0
@@ -946,6 +951,7 @@ def run_benchmark():
 
     # Left Subplot: MAE by Horizon
     for model_name, res in results.items():
+        if not res['step_maes']['t1']: continue
         step_maes_mean = [np.mean(res['step_maes'][f't{t}']) for t in range(1, 7)]
         color = colors.get(model_name, '#333333')
         is_ours = (model_name == 'TA-STGCN')
@@ -966,6 +972,7 @@ def run_benchmark():
 
     # Right Subplot: MAPE by Horizon (%)
     for model_name, res in results.items():
+        if not res['step_mapes']['t1']: continue
         step_mapes_mean = [np.mean(res['step_mapes'][f't{t}']) * 100 for t in range(1, 7)]
         color = colors.get(model_name, '#333333')
         is_ours = (model_name == 'TA-STGCN')
@@ -998,10 +1005,11 @@ def run_benchmark():
     print(f"📉 Đã lưu biểu đồ tăng trưởng sai số Error by Horizon vào: {horizon_png_path} và paper/fig/")
 
     # Plot Grouped Bar Chart for MAE Total, Car, and Bike
-    models = list(results.keys())
-    mae_totals = [np.mean(results[m]['maes']) for m in models]
-    mae_cars = [np.mean(results[m]['car_maes']) for m in models]
-    mae_bikes = [np.mean(results[m]['bike_maes']) for m in models]
+    models = [m for m in results.keys() if len(results[m]['maes']) > 0]
+    if models:
+        mae_totals = [np.mean(results[m]['maes']) for m in models]
+        mae_cars = [np.mean(results[m]['car_maes']) for m in models]
+        mae_bikes = [np.mean(results[m]['bike_maes']) for m in models]
 
     x = np.arange(len(models))
     width = 0.25
