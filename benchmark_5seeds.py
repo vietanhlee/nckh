@@ -6,6 +6,10 @@ import gc
 import copy
 import time
 import random
+import torch.nn.functional as F
+import copy
+from scipy.stats import wilcoxon, friedmanchisquare, t
+import warnings
 import argparse
 import numpy as np
 import pandas as pd
@@ -22,7 +26,8 @@ from gcn_lstm import ImprovedGNN_LSTM, Config as GCNLSTMConfig, normalize_adj_sy
 from stgcn import STGCN_Model as Baseline_STGCN_Model, Config as BaselineConfig
 from hybrid import STGCN_Model as Hybrid_STGCN_Model, Config as HybridConfig, HuberSmoothLoss
 from stgcn_mixed_blocks import STGCN_Mixed_Model, Config as MixedConfig
-from advanced_baselines import GraphWaveNet, ASTGCN, GMAN
+from advanced_baselines import GraphWaveNet, ASTGCN, GMAN, AGCRN
+from sota_2023_baselines import STAEformerProxy, MegaCRNProxy, DSTAGNNProxy
 
 # Import tiện ích nạp dữ liệu từ stgcn.py
 from stgcn import (
@@ -124,15 +129,18 @@ class ModelEMA:
 
 
 def evaluate_detailed(model, loader, device, scaler_stats, loss_fn=None):
-    """Đánh giá chi tiết mô hình, bao gồm MAE, MAPE tại cả 6 bước thời gian t+1 đến t+6."""
+    """Đánh giá chi tiết mô hình cho bài toán dự báo phân loại (Car, Bike)."""
     model.eval()
-    total_mae = 0
-    total_mape = 0
+    total_mae, car_mae, bike_mae = 0, 0, 0
+    total_mape, car_mape, bike_mape = 0, 0, 0
     total_mse = 0
     total_loss = 0
+    
     total_step_maes = [0.0] * 6
     total_step_mapes = [0.0] * 6
     count_batches = 0
+
+    pw_total_list, pw_car_list, pw_bike_list = [], [], []
 
     means = torch.tensor(scaler_stats['mean'], device=device)
     stds = torch.tensor(scaler_stats['std'], device=device)
@@ -150,51 +158,63 @@ def evaluate_detailed(model, loader, device, scaler_stats, loss_fn=None):
             y_true = Y * stds + means
             y_pred = pred * stds + means
 
+            # Tính MAE riêng lẻ
             err = y_true - y_pred
-            abs_err = torch.abs(err)  # (B, Horizon=6, Nodes, 1)
-
-            mask = (y_true > 0.5).float() # mask nơi số lượng xe > 0.5 để tránh chia cho 0
-
-            mae_val = abs_err.mean().item()
-            total_mae += mae_val
+            abs_err = torch.abs(err)  # (B, H, N, 2)
             
-            mape_batch = (abs_err / (y_true + 1e-5)) * mask
-            mape_val = mape_batch.sum().item() / max(mask.sum().item(), 1.0)
-            total_mape += mape_val
+            mae_car_batch = abs_err[:, :, :, 0].mean().item()
+            mae_bike_batch = abs_err[:, :, :, 1].mean().item()
+            
+            # Tính MAE tổng phương tiện
+            y_true_total = y_true.sum(dim=-1) # (B, H, N)
+            y_pred_total = y_pred.sum(dim=-1)
+            err_total = y_true_total - y_pred_total
+            abs_err_total = torch.abs(err_total)
+            mae_total_batch = abs_err_total.mean().item()
 
-            # MAE và MAPE tại từng mốc bước thời gian từ t+1 đến t+6 (index 0 đến 5)
-            for t_idx in range(6):
-                total_step_maes[t_idx] += abs_err[:, t_idx, :, :].mean().item()
-                mask_t = mask[:, t_idx, :, :]
-                total_step_mapes[t_idx] += (mape_batch[:, t_idx, :, :].sum().item() / max(mask_t.sum().item(), 1.0))
+            pw_total_list.append(abs_err_total.cpu().numpy().flatten())
+            pw_car_list.append(abs_err[:, :, :, 0].cpu().numpy().flatten())
+            pw_bike_list.append(abs_err[:, :, :, 1].cpu().numpy().flatten())
+            
+            total_mae += mae_total_batch
+            car_mae += mae_car_batch
+            bike_mae += mae_bike_batch
 
-            sq_err = err ** 2
+            # Mape tổng
+            mask_total = (y_true_total > 0.5).float()
+            mape_batch_total = (abs_err_total / (y_true_total + 1e-5)) * mask_total
+            total_mape += mape_batch_total.sum().item() / max(mask_total.sum().item(), 1.0)
+            
+            sq_err = err_total ** 2
             total_mse += sq_err.mean().item()
 
-            count_batches += 1
+            # Horizon MAE cho tổng phương tiện
+            for t_idx in range(6):
+                total_step_maes[t_idx] += abs_err_total[:, t_idx, :].mean().item()
+                mask_t = mask_total[:, t_idx, :]
+                total_step_mapes[t_idx] += (mape_batch_total[:, t_idx, :].sum().item() / max(mask_t.sum().item(), 1.0))
 
-            # Dọn dẹp GPU Memory tức thì cho batch vừa tính
-            del X, Y, pred, y_true, y_pred, err, abs_err, mask, mape_batch
+            count_batches += 1
+            del X, Y, pred, y_true, y_pred, err, abs_err, err_total, abs_err_total
 
     if count_batches == 0:
-        res = {'mae': 9999.0, 'mape': 9999.0, 'mse': 9999.0, 'rmse': 9999.0, 'loss': 9999.0}
+        res = {'mae': 9999.0, 'mae_car': 9999.0, 'mae_bike': 9999.0, 'mape': 9999.0, 'mse': 9999.0, 'rmse': 9999.0, 'loss': 9999.0, 'pw_total': np.array([]), 'pw_car': np.array([]), 'pw_bike': np.array([])}
         for t_idx in range(6):
             res[f'mae_t{t_idx+1}'] = 9999.0
             res[f'mape_t{t_idx+1}'] = 9999.0
         return res
 
-    avg_mae = total_mae / count_batches
-    avg_mape = total_mape / count_batches
-    avg_mse = total_mse / count_batches
-    avg_loss = total_loss / count_batches
-    avg_rmse = np.sqrt(avg_mse)
-
     res = {
-        'mae': avg_mae,
-        'mape': avg_mape,
-        'mse': avg_mse,
-        'rmse': avg_rmse,
-        'loss': avg_loss
+        'mae': total_mae / count_batches,
+        'mae_car': car_mae / count_batches,
+        'mae_bike': bike_mae / count_batches,
+        'mape': total_mape / count_batches,
+        'mse': total_mse / count_batches,
+        'rmse': np.sqrt(total_mse / count_batches),
+        'loss': total_loss / count_batches,
+        'pw_total': np.concatenate(pw_total_list),
+        'pw_car': np.concatenate(pw_car_list),
+        'pw_bike': np.concatenate(pw_bike_list)
     }
     for t_idx in range(6):
         res[f'mae_t{t_idx+1}'] = total_step_maes[t_idx] / count_batches
@@ -238,11 +258,8 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
 
     optimizer = optim.AdamW(model.parameters(), lr=cfg.LEARNING_RATE)
     
-    # Chọn loss function
-    if model_name == "STGCN_Hybrid":
-        loss_fn = HuberSmoothLoss(delta=cfg.LOSS_DELTA, smooth_weight=cfg.SMOOTH_LOSS_WEIGHT)
-    else:
-        loss_fn = PureHuberLoss(delta=cfg.LOSS_DELTA)
+    # Chọn loss function (chuẩn hóa PureHuberLoss)
+    loss_fn = PureHuberLoss(delta=cfg.LOSS_DELTA)
 
     grad_scaler = torch.amp.GradScaler('cuda')
 
@@ -396,8 +413,8 @@ def run_benchmark():
     parser = argparse.ArgumentParser(description="Script huấn luyện 5 Seeds ngẫu nhiên cho 5 mô hình (GCN-LSTM & STGCN).")
     parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 22],
                         help="Danh sách các seeds ngẫu nhiên (mặc định: 42 100 2024 777 999).")
-    parser.add_argument('--model_group', type=str, choices=['all', 'advanced', 'standard'], default='all',
-                        help="Nhóm mô hình cần chạy: 'advanced' (GraphWaveNet, ASTGCN, GMAN), 'standard' (GCN_LSTM, STGCN, STGCN_Hybrid, STGCN_MixedBlocks), 'all' (Tất cả).")
+    parser.add_argument('--model_group', type=str, choices=['all', 'advanced', 'standard', 'ablation'], default='all',
+                        help="Nhóm mô hình cần chạy: 'advanced' (GraphWaveNet, ASTGCN, GMAN, STAEformer, MegaCRN, DSTAGNN, AGCRN), 'standard' (GCN_LSTM, STGCN, TA-STGCN), 'ablation' (Các biến thể TA-STGCN), 'all' (Tất cả).")
     parser.add_argument('--epochs', type=int, default=80,
                         help="Số epochs chạy tối đa cho mỗi seed (mặc định: 60).")
     parser.add_argument('--patience', type=int, default=10,
@@ -436,6 +453,8 @@ def run_benchmark():
     stgcn_cfg.NUM_BLOCKS     = 3
 
     hybrid_cfg = HybridConfig()
+    hybrid_cfg.BLOCK_HIDDEN = 80
+    hybrid_cfg.NUM_BLOCKS = 3
     mixed_cfg = MixedConfig()
 
     for cfg_inst in [gcn_lstm_cfg, stgcn_cfg, hybrid_cfg, mixed_cfg]:
@@ -471,69 +490,153 @@ def run_benchmark():
 
     print(f"   - Dataset size: Train={len(df_train)}, Val={len(df_val)}, Test={len(df_test)}")
 
-    # Đăng ký thử nghiệm các mô hình (Các mô hình Advanced Baselines được chạy trước để phát hiện lỗi sớm)
+    # Đăng ký thử nghiệm các mô hình
     models_registry = {
         'Graph_WaveNet': {
             'class': GraphWaveNet,
             'config': stgcn_cfg,
             'build_fn': lambda cfg: GraphWaveNet(
-                num_nodes=len(nodes), in_dim=4, out_dim=1, blocks=4, layers=2, horizon=cfg.HORIZON
+                num_nodes=len(nodes), in_dim=5, out_dim=2, blocks=4, layers=2, horizon=cfg.HORIZON
             )
         },
         'ASTGCN': {
             'class': ASTGCN,
             'config': stgcn_cfg,
             'build_fn': lambda cfg: ASTGCN(
-                num_nodes=len(nodes), in_channels=4, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=64, L_tilde=L_tilde
+                num_nodes=len(nodes), in_channels=5, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=64, L_tilde=L_tilde, out_dim=2
             )
         },
         'GMAN': {
             'class': GMAN,
             'config': stgcn_cfg,
             'build_fn': lambda cfg: GMAN(
-                num_nodes=len(nodes), in_channels=4, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=64, heads=4, num_blocks=1
+                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=64, heads=4, num_blocks=1, out_dim=2
             )
         },
         'GCN_LSTM': {
             'class': ImprovedGNN_LSTM,
             'config': gcn_lstm_cfg,
             'build_fn': lambda cfg: ImprovedGNN_LSTM(
-                num_nodes=len(nodes), in_feat=4, gcn_hidden=cfg.GCN_HIDDEN,
+                num_nodes=len(nodes), in_feat=5, gcn_hidden=cfg.GCN_HIDDEN,
                 lstm_hidden=cfg.LSTM_HIDDEN, lstm_layers=cfg.LSTM_LAYERS,
-                horizon=cfg.HORIZON, output_feat=1, A_norm=A_norm, dropout=cfg.DROPOUT
+                horizon=cfg.HORIZON, output_feat=2, A_norm=A_norm, dropout=cfg.DROPOUT
             )
         },
-        'STGCN (Baseline)': {
+        'STGCN_Baseline': {
             'class': Baseline_STGCN_Model,
             'config': stgcn_cfg,
             'build_fn': lambda cfg: Baseline_STGCN_Model(
-                num_nodes=len(nodes), in_feat=4, block_hidden=cfg.BLOCK_HIDDEN,
+                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
                 num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
-                horizon=cfg.HORIZON, output_feat=1, L_tilde=L_tilde, dropout=cfg.DROPOUT
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT
             )
         },
         'TA-STGCN': {
             'class': Hybrid_STGCN_Model,
             'config': hybrid_cfg,
             'build_fn': lambda cfg: Hybrid_STGCN_Model(
-                num_nodes=len(nodes), in_feat=4, block_hidden=cfg.BLOCK_HIDDEN,
+                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
                 num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
-                horizon=cfg.HORIZON, output_feat=1, L_tilde=L_tilde, dropout=cfg.DROPOUT,
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
                 use_temporal_attention=cfg.USE_TEMPORAL_ATTENTION,
                 attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT
+            )
+        },
+        'TA-STGCN (h=1)': {
+            'class': Hybrid_STGCN_Model,
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: Hybrid_STGCN_Model(
+                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
+                num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
+                use_temporal_attention=cfg.USE_TEMPORAL_ATTENTION,
+                attn_num_heads=1, attn_dropout=cfg.ATTN_DROPOUT
+            )
+        },
+        'TA-STGCN (C=32)': {
+            'class': Hybrid_STGCN_Model,
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: Hybrid_STGCN_Model(
+                num_nodes=len(nodes), in_feat=5, block_hidden=32,
+                num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
+                use_temporal_attention=cfg.USE_TEMPORAL_ATTENTION,
+                attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT
+            )
+        },
+        'TA-STGCN (K=1, No Spatial)': {
+            'class': Hybrid_STGCN_Model,
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: Hybrid_STGCN_Model(
+                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
+                num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=1,
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
+                use_temporal_attention=cfg.USE_TEMPORAL_ATTENTION,
+                attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT
+            )
+        },
+        'TA-STGCN (h=8, 8-Heads)': {
+            'class': Hybrid_STGCN_Model,
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: Hybrid_STGCN_Model(
+                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
+                num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
+                use_temporal_attention=cfg.USE_TEMPORAL_ATTENTION,
+                attn_num_heads=8, attn_dropout=cfg.ATTN_DROPOUT
+            )
+        },
+        'TA-STGCN (Depth=2)': {
+            'class': Hybrid_STGCN_Model,
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: Hybrid_STGCN_Model(
+                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
+                num_blocks=2, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
+                use_temporal_attention=cfg.USE_TEMPORAL_ATTENTION,
+                attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT
+            )
+        },
+        'AGCRN': {
+            'class': AGCRN,
+            'config': stgcn_cfg,
+            'build_fn': lambda cfg: AGCRN(
+                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_dim=10, rnn_units=85, cheb_k=2, out_dim=2
+            )
+        },
+        'STAEformer': {
+            'class': STAEformerProxy,
+            'config': stgcn_cfg,
+            'build_fn': lambda cfg: STAEformerProxy(
+                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=144, heads=4, out_dim=2
+            )
+        },
+        'MegaCRN': {
+            'class': MegaCRNProxy,
+            'config': stgcn_cfg,
+            'build_fn': lambda cfg: MegaCRNProxy(
+                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=180, out_dim=2
+            )
+        },
+        'DSTAGNN': {
+            'class': DSTAGNNProxy,
+            'config': stgcn_cfg,
+            'build_fn': lambda cfg: DSTAGNNProxy(
+                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=200, heads=4, out_dim=2
             )
         }
     }
 
     # Lọc danh sách mô hình theo nhóm được yêu cầu
     if args.model_group == 'advanced':
-        advanced_keys = ['Graph_WaveNet', 'ASTGCN', 'GMAN']
+        advanced_keys = ['Graph_WaveNet', 'ASTGCN', 'GMAN', 'STAEformer', 'MegaCRN', 'DSTAGNN', 'AGCRN']
         models_registry = {k: v for k, v in models_registry.items() if k in advanced_keys}
-        print("📌 Chạy nhóm Advanced Baselines: Graph_WaveNet, ASTGCN, GMAN")
     elif args.model_group == 'standard':
-        advanced_keys = ['Graph_WaveNet', 'ASTGCN', 'GMAN']
+        advanced_keys = ['Graph_WaveNet', 'ASTGCN', 'GMAN', 'STAEformer', 'MegaCRN', 'DSTAGNN', 'AGCRN', 'TA-STGCN (h=1)', 'TA-STGCN (C=32)']
         models_registry = {k: v for k, v in models_registry.items() if k not in advanced_keys}
-        print("📌 Chạy nhóm Standard Models: GCN_LSTM, STGCN (Baseline), TA-STGCN")
+    elif args.model_group == 'ablation':
+        ablation_keys = ['STGCN_Baseline', 'TA-STGCN', 'TA-STGCN (h=1)', 'TA-STGCN (C=32)', 'TA-STGCN (K=1, No Spatial)', 'TA-STGCN (h=8, 8-Heads)', 'TA-STGCN (Depth=2)']
+        models_registry = {k: v for k, v in models_registry.items() if k in ablation_keys}
 
     # Lưu kết quả theo mô hình
     results = {
@@ -542,17 +645,18 @@ def run_benchmark():
             'flops_gflops': 0.0,
             'peak_mem_mb': 0.0,
             'inf_latencies': [],
-            'maes': [], 'mapes': [], 'rmses': [], 'mses': [],
+            'maes': [], 'car_maes': [], 'bike_maes': [], 'mapes': [], 'rmses': [], 'mses': [],
             'step_maes': {f't{t_idx+1}': [] for t_idx in range(6)},
             'step_mapes': {f't{t_idx+1}': [] for t_idx in range(6)},
-            'val_mae_histories': []
+            'val_mae_histories': [],
+            'pw_totals': [], 'pw_cars': [], 'pw_bikes': []
         } for model_name in models_registry
     }
 
     # VÒNG LẶP NGOÀI: THEO TỪNG SEED
     for seed in args.seeds:
         print(f"\n{'='*65}")
-        print(f"🌱 [SEED {seed}] BẮT ĐẦU CHẠY CẢ 4 MÔ HÌNH THỬ NGHIỆM")
+        print(f"🌱 [SEED {seed}] BẮT ĐẦU CHẠY CÁC MÔ HÌNH THỬ NGHIỆM")
         print(f"{'='*65}")
 
         # VÒNG LẶP TRONG: CHẠY LẦN LƯỢT CÁC MÔ HÌNH VỚI SEED NÀY
@@ -593,17 +697,20 @@ def run_benchmark():
             results[model_name]['peak_mem_mb'] = max(results[model_name]['peak_mem_mb'], peak_mem_mb)
 
             results[model_name]['maes'].append(test_metrics['mae'])
+            results[model_name]['car_maes'].append(test_metrics['mae_car'])
+            results[model_name]['bike_maes'].append(test_metrics['mae_bike'])
             results[model_name]['mapes'].append(test_metrics['mape'])
             results[model_name]['rmses'].append(test_metrics['rmse'])
             results[model_name]['mses'].append(test_metrics['mse'])
             results[model_name]['val_mae_histories'].append(test_metrics['val_mae_history'])
+            results[model_name]['pw_totals'].append(test_metrics['pw_total'])
+            results[model_name]['pw_cars'].append(test_metrics['pw_car'])
+            results[model_name]['pw_bikes'].append(test_metrics['pw_bike'])
 
             for t_idx in range(6):
                 results[model_name]['step_maes'][f't{t_idx+1}'].append(test_metrics[f'mae_t{t_idx+1}'])
-                results[model_name]['step_mapes'][f't{t_idx+1}'].append(test_metrics[f'mape_t{t_idx+1}'])
 
-            print(f"   ▶ Seed {seed:>4} | {model_name:<18} (Params: {params_count:,} | Mem: {peak_mem_mb:.1f}MB) -> "
-                  f"MAE: {test_metrics['mae']:.4f} (MAPE: {test_metrics['mape']:.2%})")
+            print(f"   ▶ Seed {seed:>4} | {model_name:<18} | MAE Total: {test_metrics['mae']:.4f} | Car: {test_metrics['mae_car']:.4f} | Bike: {test_metrics['mae_bike']:.4f}")
 
             # Xoá mô hình khỏi GPU RAM sau mỗi lượt
             del model
@@ -612,28 +719,35 @@ def run_benchmark():
 
     # Tổng hợp báo cáo Markdown
     print(f"\n{'='*110}")
-    print(f"🏆 BẢNG KẾT QUẢ TỔNG HỢP (PARAMS & MAE/MAPE MEAN ± STD QUA {len(args.seeds)} SEEDS)")
+    print(f"🏆 BẢNG KẾT QUẢ TỔNG HỢP (PARAMS & MAE)")
     print(f"{'='*110}")
 
     table_data = []
     for model_name, res in results.items():
-        maes, mapes, rmses, mses = res['maes'], res['mapes'], res['rmses'], res['mses']
-        inf_lats = res['inf_latencies']
+        maes = res['maes']
+        car_maes = res['car_maes']
+        bike_maes = res['bike_maes']
         p_count = res['params']
-        flops_g = res['flops_gflops']
         peak_mem = res['peak_mem_mb']
+
+        def get_ci_str(arr):
+            mean = np.mean(arr)
+            std = np.std(arr, ddof=1) if len(arr) > 1 else 0
+            n = len(arr)
+            t_crit = t.ppf(0.975, df=n-1) if n > 1 else 0
+            margin = t_crit * (std / np.sqrt(n)) if n > 1 else 0
+            return f"{mean:.4f} ± {std:.4f} (95% CI: {mean-margin:.4f}-{mean+margin:.4f})"
 
         row = {
             'Model': model_name,
             'Params': f"{p_count:,}",
             'Peak Mem (MB)': f"{peak_mem:.1f}",
-            'MAE Overall': f"{np.mean(maes):.4f} ± {np.std(maes):.4f}",
-            'MAPE Overall': f"{np.mean(mapes)*100:.2f}% ± {np.std(mapes)*100:.2f}%",
+            'MAE Overall': get_ci_str(maes),
+            'MAE Car': get_ci_str(car_maes),
+            'MAE Bike': get_ci_str(bike_maes),
             'MAE t+1': f"{np.mean(res['step_maes']['t1']):.4f}",
             'MAE t+3': f"{np.mean(res['step_maes']['t3']):.4f}",
-            'MAE t+6': f"{np.mean(res['step_maes']['t6']):.4f}",
-            'RMSE': f"{np.mean(rmses):.4f}",
-            'MSE': f"{np.mean(mses):.4f}"
+            'MAE t+6': f"{np.mean(res['step_maes']['t6']):.4f}"
         }
         table_data.append(row)
 
@@ -654,12 +768,104 @@ def run_benchmark():
         for model_name, res in results.items():
             f.write(f"### 🔹 {model_name}\n")
             f.write(f"- **Trainable Parameters**: {res['params']:,}\n")
-            f.write(f"- **MAE Overall**: {res['maes']}\n")
+            f.write(f"- **MAE Total**: {res['maes']}\n")
+            f.write(f"- **MAE Car**: {res['car_maes']}\n")
+            f.write(f"- **MAE Bike**: {res['bike_maes']}\n")
             f.write(f"- **MAPE Overall**: {res['mapes']}\n")
             for t_idx in range(6):
                 f.write(f"- **MAE t+{t_idx+1} ({(t_idx+1)*5}m)**: {res['step_maes'][f't{t_idx+1}']}\n")
             f.write(f"- **RMSE Overall**: {res['rmses']}\n")
             f.write(f"- **MSE Overall**: {res['mses']}\n\n")
+
+        # --- Variance Decomposition Analysis ---
+        f.write("\n## 📉 Phân tích Variance (Seed Stochasticity)\n\n")
+        f.write("*Bảng dưới đây thống kê phương sai nội tại do thay đổi Seed (Seed Variance) trên tổng phương tiện, giúp đánh giá tính ổn định (Robustness) của mô hình.*\n\n")
+        f.write("| Model | Seed Variance (Var) | Seed Std (Std) | Tỷ lệ biến động tương đối (Std / Mean) |\n")
+        f.write("|---|---|---|---|\n")
+        for m_name, res in results.items():
+            mean_val = np.mean(res['maes'])
+            var_val = np.var(res['maes'], ddof=1) if len(res['maes']) > 1 else 0
+            std_val = np.std(res['maes'], ddof=1) if len(res['maes']) > 1 else 0
+            cv = (std_val / mean_val) * 100 if mean_val > 0 else 0
+            f.write(f"| {m_name} | {var_val:.4e} | {std_val:.4f} | {cv:.2f}% |\n")
+            
+        f.write("\n> 💡 **Nhận xét:** Nếu hệ số biến động (Std / Mean) rất nhỏ (ví dụ < 2%), điều này chứng tỏ sự chênh lệch hiệu năng chủ yếu đến từ bản chất thiết kế kiến trúc, thay vì phụ thuộc vào độ may rủi của Random Seed.\n\n")
+
+        # --- Omnibus Test (Friedman Test) ---
+        f.write("\n## 🔬 Kiểm định Tổng quát Friedman Test (Omnibus Test)\n\n")
+        f.write("*Trước khi thực hiện các phép thử cặp (Wilcoxon), Friedman Test được chạy trên tất cả các mô hình để xác định xem có sự khác biệt có ý nghĩa thống kê trên toàn cục hay không, nhằm tránh lỗi Multiple Comparisons Problem.*\n\n")
+        
+        all_models = list(results.keys())
+        if len(all_models) > 1:
+            all_pw_totals = [np.concatenate(results[m]['pw_totals']) for m in all_models]
+            # Mẫu có thể quá lớn đối với Friedman, để an toàn ta cắt nhỏ hoặc dùng subsample nếu cần thiết, nhưng Scipy xử lý được.
+            # Tuy nhiên để đảm bảo tốc độ và tránh OOM, scipy xử lý array 180k elements thoải mái.
+            stat, p_friedman = friedmanchisquare(*all_pw_totals)
+            
+            f.write(f"- **H0:** Tất cả các mô hình ({', '.join(all_models)}) có hiệu năng tương đương nhau.\n")
+            f.write(f"- **Friedman Chi-Square Statistic:** {stat:.4f}\n")
+            f.write(f"- **p-value:** {p_friedman:.4e}\n")
+            
+            if p_friedman < 0.05:
+                f.write(f"\n> ✅ **Kết luận:** Trác nghiệm Friedman cho ra $p < 0.05$. Có sự khác biệt có ý nghĩa thống kê giữa các mô hình. Đủ điều kiện để tiến hành Post-hoc Test (Wilcoxon) bên dưới.\n\n")
+            else:
+                f.write(f"\n> ⚠️ **Kết luận:** Trác nghiệm Friedman cho ra $p \\geq 0.05$. Không có đủ bằng chứng thống kê để bác bỏ H0. Không nên tin cậy vào Post-hoc Test.\n\n")
+        else:
+            f.write("⚠️ Không đủ số lượng mô hình (>1) để chạy Friedman Test.\n\n")
+
+        # --- Wilcoxon Signed-Rank Test & Effect Size ---
+        baseline_model = "TA-STGCN"
+        f.write("\n## 🔬 Thống kê Post-Hoc: Wilcoxon Signed-Rank Test & Effect Size (TA-STGCN vs Baselines)\n\n")
+        f.write("*Do cỡ mẫu ghép cặp cực lớn ($N \\approx 180,000$), p-value gần như luôn < 0.01. Do đó, báo cáo Effect Size (Cohen's $d_z$) được thêm vào để đánh giá ý nghĩa thực tiễn (Practical Significance).*\n")
+
+        f.write("*Công thức Cohen's $d_z = \\frac{\\mu_{\\Delta}}{\\sigma_{\\Delta}}$. Thang đo: >0.2 (Small), >0.5 (Medium), >0.8 (Large).*\n\n")
+        
+        if baseline_model in results:
+            target_pw_total = np.concatenate(results[baseline_model]['pw_totals'])
+            target_pw_car = np.concatenate(results[baseline_model]['pw_cars'])
+            target_pw_bike = np.concatenate(results[baseline_model]['pw_bikes'])
+            
+            f.write("| Baseline Model | P-value (Total) | Cohen's d (Total) | P-value (Car) | Cohen's d (Car) | P-value (Bike) | Cohen's d (Bike) |\n")
+            f.write("|---|---|---|---|---|---|---|\n")
+            
+            print(f"\n{'='*110}")
+            print(f"🔬 WILCOXON TEST & EFFECT SIZE (Base: {baseline_model})")
+            print(f"{'='*110}")
+            
+            def calc_cohens_dz(base_err, comp_err):
+                diff = comp_err - base_err
+                std_diff = np.std(diff, ddof=1)
+                if std_diff == 0: return 0.0
+                return np.mean(diff) / std_diff
+
+            for m_name in results:
+                if m_name == baseline_model: continue
+                comp_pw_total = np.concatenate(results[m_name]['pw_totals'])
+                comp_pw_car = np.concatenate(results[m_name]['pw_cars'])
+                comp_pw_bike = np.concatenate(results[m_name]['pw_bikes'])
+                
+                _, p_tot = wilcoxon(target_pw_total, comp_pw_total)
+                _, p_car = wilcoxon(target_pw_car, comp_pw_car)
+                _, p_bike = wilcoxon(target_pw_bike, comp_pw_bike)
+                
+                d_tot = calc_cohens_dz(target_pw_total, comp_pw_total)
+                d_car = calc_cohens_dz(target_pw_car, comp_pw_car)
+                d_bike = calc_cohens_dz(target_pw_bike, comp_pw_bike)
+                
+                # Format sig string
+                def format_sig(p, d):
+                    sig_star = "***" if p < 0.001 else ("**" if p < 0.01 else ("*" if p < 0.05 else "ns"))
+                    return f"{p:.2e}{sig_star}", f"{d:.3f}"
+
+                p_tot_str, d_tot_str = format_sig(p_tot, d_tot)
+                p_car_str, d_car_str = format_sig(p_car, d_car)
+                p_bike_str, d_bike_str = format_sig(p_bike, d_bike)
+                
+                f.write(f"| {m_name} | {p_tot_str} | {d_tot_str} | {p_car_str} | {d_car_str} | {p_bike_str} | {d_bike_str} |\n")
+                print(f"   ▶ {m_name:<16} | p(Total): {p_tot_str} (d={d_tot_str}) | p(Car): {p_car_str} (d={d_car_str}) | p(Bike): {p_bike_str} (d={d_bike_str})")
+
+        else:
+            f.write(f"> ⚠️ Mô hình {baseline_model} không có trong danh sách chạy, bỏ qua thống kê Wilcoxon.\n")
 
     print(f"\n📑 Đã lưu báo cáo chi tiết vào tệp: {report_path}")
 
@@ -764,6 +970,46 @@ def run_benchmark():
     plt.close()
     print(f"📉 Đã lưu biểu đồ tăng trưởng sai số Error by Horizon vào: {horizon_png_path} và {horizon_pdf_path}")
 
+    # Plot Grouped Bar Chart for MAE Total, Car, and Bike
+    models = list(results.keys())
+    mae_totals = [np.mean(results[m]['maes']) for m in models]
+    mae_cars = [np.mean(results[m]['car_maes']) for m in models]
+    mae_bikes = [np.mean(results[m]['bike_maes']) for m in models]
+
+    x = np.arange(len(models))
+    width = 0.25
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    rects1 = ax.bar(x - width, mae_totals, width, label='Total Vehicles', color='#1f77b4')
+    rects2 = ax.bar(x, mae_cars, width, label='Car', color='#ff7f0e')
+    rects3 = ax.bar(x + width, mae_bikes, width, label='Bike', color='#2ca02c')
+
+    ax.set_ylabel('Mean Absolute Error (MAE)', fontsize=12, fontweight='bold')
+    ax.set_title('Performance Comparison by Vehicle Category', fontsize=14, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(models, rotation=15, ha='right')
+    ax.legend()
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+    # Attach a text label above each bar, displaying its height.
+    def autolabel(rects):
+        for rect in rects:
+            height = rect.get_height()
+            ax.annotate(f'{height:.2f}',
+                        xy=(rect.get_x() + rect.get_width() / 2, height),
+                        xytext=(0, 3),  # 3 points vertical offset
+                        textcoords="offset points",
+                        ha='center', va='bottom', fontsize=9)
+
+    autolabel(rects1)
+    autolabel(rects2)
+    autolabel(rects3)
+
+    plt.tight_layout()
+    category_png_path = os.path.join('plots', 'mae_by_category.png')
+    plt.savefig(category_png_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"📊 Đã lưu biểu đồ so sánh phân loại phương tiện vào: {category_png_path}")
 
 if __name__ == "__main__":
     run_benchmark()

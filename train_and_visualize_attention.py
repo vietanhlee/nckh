@@ -251,5 +251,115 @@ def train_and_visualize():
 
     print("="*85)
 
+    # D. MÔ PHỎNG VÒNG ĐỜI TẮC ĐƯỜNG (TRAFFIC EVENT LIFECYCLE) BẰNG DỮ LIỆU THẬT
+    print("\n" + "="*85)
+    print("🚗 PHÂN TÍCH VÒNG ĐỜI TẮC ĐƯỜNG BẰNG DỮ LIỆU ATTENTION THẬT")
+    print("="*85)
+    
+    event_periods = {
+        'Phase I: Congestion Onset (16:30 - 17:15)': {'range': (16.5, 17.25), 'idx': -1, 'color': '#d9534f', 'subtitle': '(a) Rapid Focus on Recent Momentum'},
+        'Phase II: Congestion Peak (17:15 - 18:15)': {'range': (17.25, 18.25), 'idx': -1, 'color': '#f0ad4e', 'subtitle': '(b) Distributed Queue History Focus'},
+        'Phase III: Congestion Dissipation (18:15 - 19:00)': {'range': (18.25, 19.0), 'idx': -1, 'color': '#5cb85c', 'subtitle': '(c) Recovery & Baseline Balancing'}
+    }
+
+    for i in range(len(test_ds)):
+        hour = test_ds.time_feats[i, -1] * 24.0
+        for pkey, pinfo in event_periods.items():
+            if pinfo['idx'] == -1:
+                low, high = pinfo['range']
+                if low <= hour <= high:
+                    pinfo['idx'] = i
+
+    for pkey, pinfo in event_periods.items():
+        if pinfo['idx'] == -1:
+            pinfo['idx'] = len(test_ds) // 2
+
+    event_matrices = {pkey: get_attn_matrix(pinfo['idx']) for pkey, pinfo in event_periods.items()}
+    
+    # D1. Vẽ 3-Subplot Heatmap 24x24
+    fig, axes = plt.subplots(1, 3, figsize=(22, 6))
+    for i, (pkey, pinfo) in enumerate(event_periods.items()):
+        mat = event_matrices[pkey]
+        sns.heatmap(mat, ax=axes[i], cmap='viridis', cbar_kws={'label': 'Weight'})
+        axes[i].set_title(pkey, fontsize=12, fontweight='bold')
+        axes[i].set_xlabel('Historical Key Steps (Past Mins)', fontsize=10, labelpad=6)
+        axes[i].set_ylabel('Current Query Steps (Current Mins)', fontsize=10, labelpad=6)
+        axes[i].set_xticks(tick_indices)
+        axes[i].set_xticklabels(time_ticks, rotation=45, ha='right')
+        axes[i].set_yticks(tick_indices)
+        axes[i].set_yticklabels(time_ticks)
+
+    plt.tight_layout()
+    event_heatmap_png = os.path.join(CFG.PLOT_DIR, 'traffic_events_real_heatmap.png')
+    plt.savefig(event_heatmap_png, dpi=300, bbox_inches='tight')
+    if os.path.exists(paper_fig_dir):
+        plt.savefig(os.path.join(paper_fig_dir, 'traffic_events_real_heatmap.pdf'), dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"🖼️ Saved Real Data Traffic Event Heatmaps (24x24) to {event_heatmap_png}")
+
+    # D1.5. Vẽ 3-Subplot Difference Heatmap (Target - Night OffPeak) cho Traffic Events
+    fig, axes = plt.subplots(1, 3, figsize=(22, 6))
+    for i, (pkey, pinfo) in enumerate(event_periods.items()):
+        mat = event_matrices[pkey]
+        # Trừ đi ma trận Off-Peak (đã được tính toán ở phần trên)
+        diff_mat = mat - attn_offpeak
+        
+        sns.heatmap(diff_mat, ax=axes[i], cmap='coolwarm', center=0, cbar_kws={'label': 'Δ Weight'})
+        axes[i].set_title(f"Difference: {pkey} - OffPeak", fontsize=12, fontweight='bold')
+        axes[i].set_xlabel('Historical Key Steps (Past Mins)', fontsize=10, labelpad=6)
+        axes[i].set_ylabel('Current Query Steps (Current Mins)', fontsize=10, labelpad=6)
+        axes[i].set_xticks(tick_indices)
+        axes[i].set_xticklabels(time_ticks, rotation=45, ha='right')
+        axes[i].set_yticks(tick_indices)
+        axes[i].set_yticklabels(time_ticks)
+
+    plt.tight_layout()
+    event_diff_png = os.path.join(CFG.PLOT_DIR, 'traffic_events_real_difference.png')
+    plt.savefig(event_diff_png, dpi=300, bbox_inches='tight')
+    if os.path.exists(paper_fig_dir):
+        plt.savefig(os.path.join(paper_fig_dir, 'traffic_events_real_difference.pdf'), dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"🖼️ Saved Real Data Traffic Event Difference Heatmaps (24x24) to {event_diff_png}")
+
+    # D2. Vẽ 3-Subplot 1D Bar Chart (Dùng hàng cuối cùng - Query tại thời điểm hiện tại t)
+    plt.rcParams['font.sans-serif'] = 'DejaVu Sans'
+    plt.rcParams['axes.edgecolor'] = '#333333'
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4), sharey=True)
+    T_in = CFG.T_IN
+    
+    for i, (pkey, pinfo) in enumerate(event_periods.items()):
+        ax = axes[i]
+        # Trọng số của Query cuối cùng đối chiếu với các Key trong quá khứ
+        weights_1d = event_matrices[pkey][-1, :] 
+        weights_1d = weights_1d / np.sum(weights_1d) # Normalize
+        
+        bars = ax.bar(range(T_in), weights_1d, color=pinfo['color'], alpha=0.85, edgecolor='black', linewidth=0.8)
+        ax.set_title(pkey, fontsize=10.5, fontweight='bold', pad=10)
+        ax.set_xticks(range(0, T_in, 4))
+        ax.set_xticklabels([f"t-{(T_in-j)*5}m" for j in range(0, T_in, 4)], rotation=45, fontsize=8.5)
+        ax.grid(axis='y', linestyle='--', alpha=0.5)
+        
+        # Highlight top 3 steps
+        top3_idx = np.argsort(weights_1d)[-3:]
+        for idx in top3_idx:
+            bars[idx].set_alpha(1.0)
+            bars[idx].set_edgecolor('red')
+            bars[idx].set_linewidth(1.5)
+
+        ax.text(0.5, 0.88, pinfo['subtitle'], transform=ax.transAxes,
+                ha='center', va='center', fontsize=9, style='italic',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.85, edgecolor='gray'))
+
+    axes[0].set_ylabel("Temporal Attention Weight", fontsize=10.5, fontweight='bold')
+    fig.supxlabel("Historical Observation Steps (Lookback Window)", fontsize=10.5, fontweight='bold', y=-0.05)
+    plt.tight_layout()
+    
+    event_bar_png = os.path.join(CFG.PLOT_DIR, 'traffic_events_real_barchart.png')
+    plt.savefig(event_bar_png, dpi=300, bbox_inches='tight')
+    if os.path.exists(paper_fig_dir):
+        plt.savefig(os.path.join(paper_fig_dir, 'traffic_events_real_barchart.pdf'), dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"📊 Saved Real Data Traffic Event Bar Charts (1D) to {event_bar_png}")
+
 if __name__ == "__main__":
     train_and_visualize()

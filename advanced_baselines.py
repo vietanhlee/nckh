@@ -272,10 +272,12 @@ class ASTGCNBlock(nn.Module):
         return F.relu(x_out)
 
 class ASTGCN(nn.Module):
-    def __init__(self, num_nodes, in_channels, K, num_blocks, T_in, horizon, block_channels=64, L_tilde=None):
+    def __init__(self, num_nodes, in_channels, K, num_blocks, T_in, horizon, block_channels=64, L_tilde=None, out_dim=2):
         super(ASTGCN, self).__init__()
+        self.out_dim = out_dim
+        self.horizon = horizon
         self.blocks = nn.ModuleList([ASTGCNBlock(num_nodes, in_channels if i==0 else block_channels, K, T_in, block_channels) for i in range(num_blocks)])
-        self.final_conv = nn.Conv2d(T_in, horizon, kernel_size=(1, block_channels))
+        self.final_conv = nn.Conv2d(T_in, horizon * out_dim, kernel_size=(1, block_channels))
         self.cheb_polynomials = []
         
         if L_tilde is not None:
@@ -297,10 +299,11 @@ class ASTGCN(nn.Module):
         cheb_poly = [p.to(x.device) for p in self.cheb_polynomials]
         for block in self.blocks:
             x = block(x, cheb_poly)
-        # x: (B, N, C_out, T) -> permute to (B, T, N, C_out)
         x = x.permute(0, 3, 1, 2) # (B, T, N, C_out)
-        out = self.final_conv(x).squeeze(-1) # (B, horizon, N)
-        return out.unsqueeze(-1) # (B, horizon, N, 1)
+        out = self.final_conv(x).squeeze(-1) # (B, horizon*out_dim, N)
+        B, _, N = out.shape
+        out = out.view(B, self.horizon, self.out_dim, N).permute(0, 1, 3, 2)
+        return out # (B, horizon, N, out_dim)
 
 
 # ============================================================
@@ -375,7 +378,7 @@ class GMANBlock(nn.Module):
         return x
 
 class GMAN(nn.Module):
-    def __init__(self, num_nodes, in_channels, T_in, horizon, embed_size=32, heads=4, num_blocks=1):
+    def __init__(self, num_nodes, in_channels, T_in, horizon, embed_size=32, heads=4, num_blocks=1, out_dim=2):
         super(GMAN, self).__init__()
         self.fc_in = nn.Linear(in_channels, embed_size)
         self.blocks = nn.ModuleList([GMANBlock(embed_size, heads) for _ in range(num_blocks)])
@@ -384,7 +387,7 @@ class GMAN(nn.Module):
         self.fc_out = nn.Sequential(
             nn.Linear(embed_size, embed_size),
             nn.ReLU(),
-            nn.Linear(embed_size, 1)
+            nn.Linear(embed_size, out_dim)
         )
         
         # Time embeddings
@@ -409,3 +412,70 @@ class GMAN(nn.Module):
         
         out = self.fc_out(future) # (B, Horizon, N, 1)
         return out
+
+
+# ============================================================
+# 4. AGCRN (Bai et al., NeurIPS 2020)
+# Adaptive Graph Convolutional Recurrent Network
+# ============================================================
+class AVWGCN(nn.Module):
+    def __init__(self, dim_in, dim_out, cheb_k, embed_dim):
+        super(AVWGCN, self).__init__()
+        self.cheb_k = cheb_k
+        self.weights_pool = nn.Parameter(torch.FloatTensor(embed_dim, cheb_k, dim_in, dim_out))
+        self.bias_pool = nn.Parameter(torch.FloatTensor(embed_dim, dim_out))
+        nn.init.xavier_normal_(self.weights_pool)
+        nn.init.zeros_(self.bias_pool)
+
+    def forward(self, x, node_embeddings):
+        node_num = node_embeddings.shape[0]
+        supports = F.softmax(F.relu(torch.mm(node_embeddings, node_embeddings.transpose(0, 1))), dim=1)
+        support_set = [torch.eye(node_num).to(supports.device), supports]
+        for k in range(2, self.cheb_k):
+            support_set.append(torch.matmul(2 * supports, support_set[-1]) - support_set[-2])
+        supports = torch.stack(support_set, dim=0)
+        weights = torch.einsum('nd,dkio->nkio', node_embeddings, self.weights_pool)
+        bias = torch.matmul(node_embeddings, self.bias_pool)
+        x_g = torch.einsum("knm, bmc -> bknc", supports, x)
+        x_g = x_g.permute(0, 2, 1, 3)
+        out = torch.einsum('bnki,nkio->bno', x_g, weights) + bias
+        return out
+
+class AGCRNCell(nn.Module):
+    def __init__(self, node_num, dim_in, dim_out, cheb_k, embed_dim):
+        super(AGCRNCell, self).__init__()
+        self.node_num = node_num
+        self.hidden_dim = dim_out
+        self.gate = AVWGCN(dim_in + self.hidden_dim, 2 * dim_out, cheb_k, embed_dim)
+        self.update = AVWGCN(dim_in + self.hidden_dim, dim_out, cheb_k, embed_dim)
+
+    def forward(self, x, state, node_embeddings):
+        input_and_state = torch.cat((x, state), dim=-1)
+        z_r = torch.sigmoid(self.gate(input_and_state, node_embeddings))
+        z, r = torch.split(z_r, self.hidden_dim, dim=-1)
+        candidate = torch.cat((x, z * state), dim=-1)
+        hc = torch.tanh(self.update(candidate, node_embeddings))
+        h = r * state + (1 - r) * hc
+        return h
+
+class AGCRN(nn.Module):
+    def __init__(self, num_nodes, in_channels, T_in, horizon, embed_dim=10, rnn_units=64, cheb_k=2, out_dim=2):
+        super(AGCRN, self).__init__()
+        self.num_node = num_nodes
+        self.horizon = horizon
+        self.out_dim = out_dim
+        self.hidden_dim = rnn_units
+        self.node_embeddings = nn.Parameter(torch.randn(num_nodes, embed_dim), requires_grad=True)
+        self.encoder = AGCRNCell(num_nodes, in_channels, rnn_units, cheb_k, embed_dim)
+        self.end_conv = nn.Conv2d(1, horizon * out_dim, kernel_size=(1, rnn_units), bias=True)
+
+    def forward(self, x):
+        B, T, N, F_in = x.shape
+        init_state = torch.zeros(B, N, self.hidden_dim, device=x.device)
+        current_state = init_state
+        for t in range(T):
+            current_state = self.encoder(x[:, t, :, :], current_state, self.node_embeddings)
+        out = current_state.unsqueeze(1)
+        out = self.end_conv(out).squeeze(-1).view(B, self.horizon, self.out_dim, N).permute(0, 1, 3, 2)
+        return out
+

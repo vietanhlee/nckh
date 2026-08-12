@@ -43,22 +43,59 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
 
 
-def add_gaussian_noise_to_df(df, nodes, target_mae_noise, seed=42):
+def add_realistic_perception_noise(df, nodes, target_mae_noise, seed=42):
     """
-    Bơm nhiễu Gauss N(0, sigma^2) vào chuỗi thời gian đếm xe để mô phỏng sai số nhận dạng Giai đoạn 1.
-    Với nhiễu Gauss trung bình 0, E[|epsilon|] = sigma * sqrt(2/pi) => sigma = target_mae_noise * sqrt(pi/2).
+    Tiêm nhiễu nhận dạng (perception noise) thực tế:
+    1. Bất đối xứng (Asymmetric): Thiên vị đếm thiếu (undercounting) do che khuất (occlusion).
+    2. Không đồng phương sai (Heteroscedastic): Sai số tỷ lệ thuận với lượng xe thực tế.
     """
     if target_mae_noise <= 0.0:
         return df.copy()
 
     set_seed(seed)
     df_noisy = df.copy()
-    sigma = target_mae_noise * np.sqrt(np.pi / 2.0)
-
+    
+    # Tính mean volume trên toàn mạng để chuẩn hóa tỷ lệ nhiễu
+    all_y = []
+    for node in nodes:
+        if node in df.columns:
+            all_y.extend(df[node].values)
+    all_y = np.array(all_y)
+    mean_volume = max(np.mean(all_y), 1.0)
+    
     for node in nodes:
         if node in df_noisy.columns:
-            noise = np.random.normal(0, sigma, size=len(df_noisy))
-            df_noisy[node] = np.maximum(0.0, df_noisy[node].values + noise)
+            y = df_noisy[node].values
+            
+            # Độ lớn nhiễu cơ bản tỷ lệ với lưu lượng (y / mean_volume)
+            # scale_i trung bình xấp xỉ target_mae_noise
+            scale_i = target_mae_noise * (np.maximum(y, 1.0) / mean_volume)
+            
+            # Sinh nhiễu từ phân bố Gamma (đuôi dài, phương sai thay đổi)
+            noise_magnitude = np.random.gamma(shape=2.0, scale=scale_i / 2.0)
+            
+            # 80% đếm thiếu (âm), 20% đếm dư (dương)
+            sign = np.random.choice([-1, 1], size=len(y), p=[0.8, 0.2])
+            
+            noise = sign * noise_magnitude
+            df_noisy[node] = np.maximum(0.0, y + noise)
+
+    # Re-calibrate lại chính xác MAE toàn cục để khớp với target_mae_noise
+    # (vì sự lệch chuẩn có thể làm MAE tổng thể thay đổi)
+    all_noise = []
+    for node in nodes:
+        if node in df.columns:
+            all_noise.extend(df_noisy[node].values - df[node].values)
+    current_mae = np.mean(np.abs(all_noise))
+    
+    if current_mae > 0:
+        correction_factor = target_mae_noise / current_mae
+        for node in nodes:
+            if node in df_noisy.columns:
+                y = df[node].values
+                y_noisy = df_noisy[node].values
+                noise = y_noisy - y
+                df_noisy[node] = np.maximum(0.0, y + noise * correction_factor)
 
     return df_noisy
 
@@ -143,14 +180,17 @@ def train_single_noise_experiment(model_name, model_fn, df_train, df_val, df_tes
             y_true = Y_batch * stds + means
             y_pred = pred * stds + means
 
-            err = y_true - y_pred
+            # Tính tổng phương tiện (Car + Bike)
+            y_true_total = y_true.sum(dim=-1)
+            y_pred_total = y_pred.sum(dim=-1)
+
+            err = y_true_total - y_pred_total
             abs_err = torch.abs(err)
-            mask = (y_true > 0.5).float()
+            mask = (y_true_total > 0.5).float()
 
             total_mae += abs_err.mean().item()
             total_mse += (err ** 2).mean().item()
-            mape_batch = (abs_err / (y_true + 1e-5)) * mask
-            total_mape += (mape_batch.sum().item() / max(mask.sum().item(), 1.0))
+            total_mape += (abs_err / (y_true_total + 1e-5) * mask).sum().item() / max(mask.sum().item(), 1.0)
             count_batches += 1
 
     avg_mae = total_mae / max(1, count_batches)
@@ -233,43 +273,43 @@ def run_noise_robustness_experiment():
         'GCN-LSTM': {
             'cfg': gcn_lstm_cfg,
             'fn': lambda cfg: ImprovedGNN_LSTM(
-                num_nodes=len(nodes), in_feat=4, gcn_hidden=cfg.GCN_HIDDEN,
+                num_nodes=len(nodes), in_feat=5, gcn_hidden=cfg.GCN_HIDDEN,
                 lstm_hidden=cfg.LSTM_HIDDEN, lstm_layers=cfg.LSTM_LAYERS,
-                horizon=cfg.HORIZON, output_feat=1, A_norm=A_norm, dropout=cfg.DROPOUT
+                horizon=cfg.HORIZON, output_feat=2, A_norm=A_norm, dropout=cfg.DROPOUT
             )
         },
         'STGCN (Baseline)': {
             'cfg': stgcn_cfg,
             'fn': lambda cfg: Baseline_STGCN_Model(
-                num_nodes=len(nodes), in_feat=4, block_hidden=cfg.BLOCK_HIDDEN,
+                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
                 num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
-                horizon=cfg.HORIZON, output_feat=1, L_tilde=L_tilde, dropout=cfg.DROPOUT
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT
             )
         },
         'GraphWaveNet': {
             'cfg': base_cfg,
             'fn': lambda cfg: GraphWaveNet(
-                num_nodes=len(nodes), in_dim=4, out_dim=1, blocks=4, layers=2, horizon=cfg.HORIZON
+                num_nodes=len(nodes), in_dim=5, out_dim=2, blocks=4, layers=2, horizon=cfg.HORIZON
             )
         },
         'ASTGCN': {
             'cfg': base_cfg,
             'fn': lambda cfg: ASTGCN(
-                num_nodes=len(nodes), in_channels=4, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=64, L_tilde=L_tilde
+                num_nodes=len(nodes), in_channels=5, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=64, L_tilde=L_tilde, out_dim=2
             )
         },
         'GMAN': {
             'cfg': base_cfg,
             'fn': lambda cfg: GMAN(
-                num_nodes=len(nodes), in_channels=4, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=64, heads=4, num_blocks=1
+                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=64, heads=4, num_blocks=1, out_dim=2
             )
         },
         'TA-STGCN (Proposed / Ours)': {
             'cfg': base_cfg,
             'fn': lambda cfg: Hybrid_STGCN_Model(
-                num_nodes=len(nodes), in_feat=4, block_hidden=cfg.BLOCK_HIDDEN,
+                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
                 num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
-                horizon=cfg.HORIZON, output_feat=1, L_tilde=L_tilde, dropout=cfg.DROPOUT,
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
                 use_temporal_attention=True, attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT
             )
         }
@@ -285,9 +325,9 @@ def run_noise_robustness_experiment():
 
     for n_info in noise_levels:
         noise_mae = n_info['mae_noise']
-        print(f"\n⚡ [{n_info['name']}] Bơm nhiễu Gauss tương ứng MAE = {noise_mae} vào chuỗi dữ liệu...")
+        print(f"\n⚡ [{n_info['name']}] Bơm nhiễu bất đối xứng (Heteroscedastic Gamma) tương ứng MAE = {noise_mae} vào chuỗi dữ liệu...")
 
-        df_noisy = add_gaussian_noise_to_df(df_raw, nodes, noise_mae, seed=42)
+        df_noisy = add_realistic_perception_noise(df_raw, nodes, noise_mae, seed=42)
 
         n_total = len(df_noisy)
         n_train = int(0.8 * n_total)
