@@ -61,6 +61,16 @@ class GradCAMPlusPlus:
         gradients = self.gradients.data[0] # (C, H, W)
         activations = self.activations.data[0] # (C, H, W)
 
+        # Xử lý riêng cho kiến trúc ViT (Vision Transformer) có dạng (SeqLen, EmbedDim)
+        if len(activations.shape) == 2:
+            seq_len, channels = activations.shape
+            grid_size = int(np.sqrt(seq_len - 1))
+            if grid_size * grid_size == seq_len - 1: # Chắc chắn có CLS token
+                activations = activations[1:].transpose(0, 1).reshape(channels, grid_size, grid_size)
+                gradients = gradients[1:].transpose(0, 1).reshape(channels, grid_size, grid_size)
+            else:
+                return np.zeros((14, 14)), output.data.cpu().numpy()[0] # Dummy fallback
+
         # Tính đạo hàm cấp 2 và cấp 3
         g2 = gradients.pow(2)
         g3 = gradients.pow(3)
