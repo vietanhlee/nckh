@@ -25,8 +25,8 @@ class STAEformerProxy(nn.Module):
         self.spat_attn = nn.TransformerEncoderLayer(d_model=embed_size, nhead=heads, dim_feedforward=embed_size*2, batch_first=True)
         
         self.fc_out = nn.Sequential(
-            nn.Linear(embed_size, embed_size),
-            nn.ReLU(),
+            nn.Linear(embed_size * 2, embed_size),
+            nn.GELU(),
             nn.Linear(embed_size, horizon * out_dim)
         )
         
@@ -48,10 +48,10 @@ class STAEformerProxy(nn.Module):
         x_s = self.spat_attn(x_s)
         x = x_s.reshape(B, T, N, self.embed_size)
         
-        # Pooling over time to predict future
-        x_pool = x.mean(dim=1) # (B, N, D)
+        # Combine last step + temporal mean pooling for rich features
+        x_feat = torch.cat([x[:, -1, :, :], x.mean(dim=1)], dim=-1) # (B, N, D*2)
         
-        out = self.fc_out(x_pool) # (B, N, H * out_dim)
+        out = self.fc_out(x_feat) # (B, N, H * out_dim)
         out = out.view(B, N, self.horizon, -1).transpose(1, 2) # (B, H, N, out_dim)
         return out
 
@@ -120,12 +120,12 @@ class DSTAGNNProxy(nn.Module):
         self.temp_attn = nn.TransformerEncoderLayer(d_model=embed_size, nhead=heads, dim_feedforward=embed_size*2, batch_first=True)
         
         # Chebyshev-like GCN
-        self.gcn_w1 = nn.Linear(embed_size, embed_size)
-        self.gcn_w2 = nn.Linear(embed_size, embed_size)
+        self.gcn_w1 = nn.Linear(embed_size * 2, embed_size * 2)
+        self.gcn_w2 = nn.Linear(embed_size * 2, embed_size * 2)
         
         self.fc_out = nn.Sequential(
-            nn.Linear(embed_size, embed_size),
-            nn.ReLU(),
+            nn.Linear(embed_size * 2, embed_size),
+            nn.GELU(),
             nn.Linear(embed_size, horizon * out_dim)
         )
         
@@ -137,10 +137,10 @@ class DSTAGNNProxy(nn.Module):
         # Temporal Attention
         x_t = x.transpose(1, 2).reshape(B * N, T, -1)
         x_t = self.temp_attn(x_t)
-        x_repr = x_t.reshape(B, N, T, -1).mean(dim=2) # (B, N, D)
+        x_t_seq = x_t.reshape(B, N, T, -1)
+        x_repr = torch.cat([x_t_seq[:, :, -1, :], x_t_seq.mean(dim=2)], dim=-1) # (B, N, D*2)
         
         # Dynamic Spatial Aware Graph (batch-wise)
-        # Cosine similarity between node representations
         x_norm = F.normalize(x_repr, p=2, dim=-1)
         A_dyn = torch.bmm(x_norm, x_norm.transpose(1, 2)) # (B, N, N)
         A_dyn = F.softmax(A_dyn, dim=-1)
@@ -148,7 +148,7 @@ class DSTAGNNProxy(nn.Module):
         # Dynamic GCN
         h1 = self.gcn_w1(x_repr)
         h2 = torch.bmm(A_dyn, self.gcn_w2(x_repr))
-        h = F.relu(h1 + h2) # (B, N, D)
+        h = F.relu(h1 + h2) # (B, N, D*2)
         
         out = self.fc_out(h) # (B, N, H * out_dim)
         out = out.view(B, N, self.horizon, -1).transpose(1, 2) # (B, H, N, out_dim)

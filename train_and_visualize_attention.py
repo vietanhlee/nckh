@@ -145,7 +145,7 @@ def train_and_visualize():
     
     # 4. Định nghĩa 5 khung giờ (1 mốc làm mốc chuẩn Off-Peak + 4 mốc so sánh)
     periods = {
-        'Night_OffPeak': {'range': (2.0, 4.0), 'title': 'Night Off-Peak (02:00 - 04:00)', 'short': 'Off-Peak', 'idx': -1, 'type': 'min'},
+        'Night_OffPeak': {'range': (0.0, 5.0), 'title': 'Night Off-Peak (00:00 - 05:00)', 'short': 'Off-Peak', 'idx': -1, 'type': 'min'},
         'Morning_Peak': {'range': (7.5, 9.5), 'title': 'Morning Peak (07:30 - 09:30)', 'short': 'Morning Peak', 'idx': -1, 'type': 'max'},
         'Noon_Normal': {'range': (11.5, 13.5), 'title': 'Noon Normal (11:30 - 13:30)', 'short': 'Noon Normal', 'idx': -1, 'type': 'median'},
         'Evening_Peak': {'range': (16.5, 18.5), 'title': 'Evening Peak (16:30 - 18:30)', 'short': 'Evening Peak', 'idx': -1, 'type': 'max'},
