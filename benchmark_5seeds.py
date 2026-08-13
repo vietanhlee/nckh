@@ -43,8 +43,7 @@ class TeeLogger:
 sys.stdout = TeeLogger("logs/benchmark_5seeds.log")
 
 # Import các mô hình và cấu hình tương ứng
-from gcn_lstm import ImprovedGNN_LSTM, Config as GCNLSTMConfig, normalize_adj_sym
-from stgcn import STGCN_Model as Baseline_STGCN_Model, Config as BaselineConfig
+from stgcn import STGCN_Model as Baseline_STGCN_Model, Config as BaselineConfig, normalize_adj_sym
 from hybrid import STGCN_Model as Hybrid_STGCN_Model, Config as HybridConfig, HuberSmoothLoss
 from advanced_baselines import GraphWaveNet, ASTGCN, GMAN, AGCRN
 from sota_2023_baselines import STAEformerProxy, MegaCRNProxy, DSTAGNNProxy
