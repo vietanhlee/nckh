@@ -235,11 +235,9 @@ def generate_vision_explainability_figures(image_path, save_dir="paper/fig", dev
             plt.tight_layout()
             single_pdf = os.path.join(save_dir, f"gradcam_{m_key}.pdf")
             single_png = os.path.join(save_dir, f"gradcam_{m_key}.png")
-            plots_single_png = os.path.join("plots", f"gradcam_{m_key}.png")
 
             plt.savefig(single_pdf, format='pdf', bbox_inches='tight')
             plt.savefig(single_png, format='png', bbox_inches='tight', dpi=300)
-            plt.savefig(plots_single_png, format='png', bbox_inches='tight', dpi=300)
             plt.close(fig_single)
             print(f"   🖼️ Đã lưu hình riêng mô hình {m_name} vào: {single_png} & {single_pdf}")
 
@@ -253,18 +251,15 @@ def generate_vision_explainability_figures(image_path, save_dir="paper/fig", dev
     plt.tight_layout()
     pdf_path = os.path.join(save_dir, "vision_explainability_gradcam.pdf")
     png_path = os.path.join(save_dir, "vision_explainability_gradcam.png")
-    plots_png_path = os.path.join("plots", "vision_explainability_gradcam.png")
 
     plt.savefig(pdf_path, format='pdf', bbox_inches='tight')
     plt.savefig(png_path, format='png', bbox_inches='tight', dpi=300)
-    plt.savefig(plots_png_path, format='png', bbox_inches='tight', dpi=300)
     plt.close()
 
     print(f"\n============================================================")
     print(f"🖼️ Đã xuất biểu đồ Grad-CAM++ chất lượng IEEE công phu vào:")
     print(f"   - PDF (IEEE Paper) : {pdf_path}")
     print(f"   - PNG (IEEE Paper) : {png_path}")
-    print(f"   - PNG (Plots)      : {plots_png_path}")
     print(f"============================================================")
 
 
