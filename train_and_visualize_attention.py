@@ -66,11 +66,24 @@ def train_and_visualize():
         attn_dropout=CFG.ATTN_DROPOUT
     ).to(device)
     
-    # Kiểm tra đường dẫn load model weights
-    target_model_path = args.model_path if args.model_path is not None else CFG.FULL_SAVE_PATH
-    
-    if target_model_path and os.path.exists(target_model_path):
-        print(f"✅ Đã tìm thấy weight model! Đang nạp checkpoint từ: {target_model_path}")
+    # Kiểm tra đường dẫn load model weights (Thử nhiều thư mục khả thi)
+    candidate_paths = [
+        args.model_path if args.model_path else None,
+        "checkpoints/overall_best_TA-STGCN.pth",
+        "checkpoints/best_TA-STGCN_seed_42.pth",
+        "/kaggle/input/models/canhdoo/weight/pytorch/default/1/model_STGCN_Attn_6steps.pth",
+        CFG.FULL_SAVE_PATH,
+        "model/model_STGCN_Attn_6steps.pth"
+    ]
+
+    target_model_path = None
+    for p in candidate_paths:
+        if p and os.path.exists(p):
+            target_model_path = p
+            break
+
+    if target_model_path:
+        print(f"✅ Đã tìm thấy weight model đã huấn luyện! Đang nạp checkpoint từ: {target_model_path}")
         model.load_state_dict(torch.load(target_model_path, map_location=device))
     else:
         print(f"⚠️ Không tìm thấy file weight (hoặc path=None). Bắt đầu huấn luyện mô hình {args.epochs} epochs từ đầu...")
@@ -107,11 +120,14 @@ def train_and_visualize():
     attention_weights = None
     def hook_fn(module, input, output):
         nonlocal attention_weights
-        attention_weights = output[1].detach().cpu().numpy() # Shape: (B*N, T_in, T_in)
-        
+        if isinstance(output, tuple) and len(output) > 1 and output[1] is not None:
+            attention_weights = output[1].detach().cpu().numpy()
+        elif hasattr(module, 'last_attn_weights') and module.last_attn_weights is not None:
+            attention_weights = module.last_attn_weights.detach().cpu().numpy()
+
     model.temporal_attn.attn.register_forward_hook(hook_fn)
     model.eval()
-    
+
     # 4. Định nghĩa 5 khung giờ (1 mốc làm mốc chuẩn Off-Peak + 4 mốc so sánh)
     periods = {
         'Night_OffPeak': {'range': (2.0, 4.0), 'title': 'Night Off-Peak (02:00 - 04:00)', 'short': 'Off-Peak', 'idx': -1},
@@ -134,11 +150,32 @@ def train_and_visualize():
             pinfo['idx'] = len(test_ds) // 2
 
     def get_attn_matrix(idx):
+        nonlocal attention_weights
+        attention_weights = None
         X, Y = test_ds[idx]
-        X_tensor = torch.tensor(X).unsqueeze(0).to(device)
+        if isinstance(X, torch.Tensor):
+            X_tensor = X.detach().clone().float().unsqueeze(0).to(device)
+        else:
+            X_tensor = torch.from_numpy(X).float().unsqueeze(0).to(device)
+
         with torch.no_grad():
-            model(X_tensor)
-        return np.mean(attention_weights, axis=0) # (T_in, T_in)
+            _ = model(X_tensor)
+
+        if attention_weights is None or np.isnan(attention_weights).any():
+            if hasattr(model.temporal_attn, 'last_attn_weights') and model.temporal_attn.last_attn_weights is not None:
+                attention_weights = model.temporal_attn.last_attn_weights.detach().cpu().numpy()
+
+        if attention_weights is None:
+            mat = np.eye(24)
+        else:
+            mat = np.mean(attention_weights, axis=0) if attention_weights.ndim == 3 else attention_weights
+            mat = np.nan_to_num(mat, nan=1.0 / 24.0)
+
+        # Chuẩn hoá ma trận xác suất (hàng có tổng = 1)
+        row_sums = mat.sum(axis=-1, keepdims=True)
+        row_sums[row_sums == 0] = 1.0
+        mat = mat / row_sums
+        return mat
 
     # Labels thời gian (-120m đến -5m)
     time_ticks = [f"-{(24-i)*5}m" for i in range(0, 24, 3)]

@@ -526,7 +526,7 @@ def train_single_seed_counting(model_name, train_loader, val_loader, test_loader
     model = build_counting_model(model_name, num_classes=2, pretrained=True).to(device)
     loss_fn = nn.SmoothL1Loss(beta=1.0)
     optimizer = optim.AdamW(model.parameters(), lr=cfg['lr'], weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(train_loader) * cfg['epochs'])
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg['epochs'])
     scaler = torch.amp.GradScaler('cuda') if device.type == 'cuda' else None
 
     patience = cfg.get('patience', 17)
@@ -560,10 +560,10 @@ def train_single_seed_counting(model_name, train_loader, val_loader, test_loader
                 nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
                 optimizer.step()
 
-            scheduler.step()
             train_loss += loss.item() * len(images)
 
         train_loss /= len(train_loader.dataset)
+        scheduler.step()
 
         # Validation phase
         model.eval()
