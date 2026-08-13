@@ -429,8 +429,12 @@ def generate_vision_explainability_figures(sample_img_path, trained_models_dict,
         cam_img = Image.fromarray((cam_mask * 255).astype(np.uint8)).resize((orig_w, orig_h), resample=Image.BILINEAR)
         cam_arr = np.array(cam_img) / 255.0
 
+        # Lọc bỏ nhiễu nền (< 0.15): Giữ ảnh gốc trong suốt 100% ở phông nền, chỉ rực màu (Vàng/Đỏ) tại khu vực phương tiện
+        cam_display = cam_arr.copy()
+        cam_display[cam_display < 0.15] = np.nan
+
         ax.imshow(raw_img)
-        ax.imshow(cam_arr, cmap='jet', alpha=0.55)
+        ax.imshow(cam_display, cmap='jet', alpha=0.65, vmin=0.15, vmax=1.0)
         ax.set_title(f"{title_dict.get(m_key, m_key)} (Grad-CAM++)", fontsize=10, fontweight='bold')
         ax.axis('off')
 
@@ -442,7 +446,7 @@ def generate_vision_explainability_figures(sample_img_path, trained_models_dict,
         axes_single[0].axis('off')
 
         axes_single[1].imshow(raw_img)
-        axes_single[1].imshow(cam_arr, cmap='jet', alpha=0.55)
+        axes_single[1].imshow(cam_display, cmap='jet', alpha=0.65, vmin=0.15, vmax=1.0)
         m_title = title_dict.get(m_key, m_key)
         axes_single[1].set_title(f"(b) {m_title} Grad-CAM++ Attribution", fontsize=12, fontweight='bold', pad=8)
         axes_single[1].axis('off')
