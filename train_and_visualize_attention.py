@@ -70,24 +70,7 @@ def train_and_visualize():
     
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True)
     
-    # 2. Init model
-    model = STGCN_Model(
-        num_nodes=len(nodes),
-        in_feat=5,
-        block_hidden=CFG.BLOCK_HIDDEN,
-        num_blocks=CFG.NUM_BLOCKS,
-        T_in=CFG.T_IN,
-        cheb_K=CFG.CHEB_K,
-        horizon=CFG.HORIZON,
-        output_feat=2,
-        L_tilde=L_tilde,
-        dropout=CFG.DROPOUT,
-        use_temporal_attention=True,
-        attn_num_heads=4,
-        attn_dropout=CFG.ATTN_DROPOUT
-    ).to(device)
-    
-    # Kiểm tra đường dẫn load model weights
+    # 2. Kiểm tra đường dẫn load model weights và tự động phát hiện kích thước channels trong Checkpoint
     candidate_paths = [
         args.model_path if args.model_path else None,
         "checkpoints/overall_best_TA-STGCN.pth",
@@ -100,18 +83,49 @@ def train_and_visualize():
 
     target_model_path = None
     state_dict = None
+    block_hidden = CFG.BLOCK_HIDDEN
+    num_blocks = CFG.NUM_BLOCKS
 
     for p in candidate_paths:
         if p and os.path.exists(p):
             target_model_path = p
             break
     
-    if target_model_path and os.path.exists(target_model_path):
+    if target_model_path:
         print(f"✅ Đã tìm thấy weight model! Đang nạp checkpoint từ: {target_model_path}")
         try:
-            model.load_state_dict(torch.load(target_model_path, map_location=device))
+            state_dict = torch.load(target_model_path, map_location=device)
+            if 'blocks.0.sconv.linears.0.weight' in state_dict:
+                block_hidden = state_dict['blocks.0.sconv.linears.0.weight'].shape[0]
+                print(f"   ℹ️ Tự động phát hiện kích thước channel trong Checkpoint: BLOCK_HIDDEN = {block_hidden}")
         except Exception as e:
-            print(f"⚠️ Không thể nạp checkpoint ({e}), tự động train lại mô hình...")
+            print(f"⚠️ Không thể đọc file checkpoint ({e})")
+            target_model_path = None
+            state_dict = None
+
+    # Khởi tạo mô hình phù hợp 100% với cấu hình checkpoint
+    model = STGCN_Model(
+        num_nodes=len(nodes),
+        in_feat=5,
+        block_hidden=block_hidden,
+        num_blocks=num_blocks,
+        T_in=CFG.T_IN,
+        cheb_K=CFG.CHEB_K,
+        horizon=CFG.HORIZON,
+        output_feat=2,
+        L_tilde=L_tilde,
+        dropout=CFG.DROPOUT,
+        use_temporal_attention=True,
+        attn_num_heads=4,
+        attn_dropout=CFG.ATTN_DROPOUT
+    ).to(device)
+
+    if state_dict is not None:
+        try:
+            model.load_state_dict(state_dict)
+            print(f"🎉 Đã nạp thành công 100% trọng số checkpoint!")
+        except Exception as e:
+            print(f"⚠️ Nạp state_dict thất bại ({e}), chuyển sang huấn luyện lại mô hình...")
             target_model_path = None
 
     if target_model_path is None:
