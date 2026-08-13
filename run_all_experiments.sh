@@ -79,7 +79,7 @@ git fetch --all && git reset --hard origin/main
 # 📍 THỬ NGHIỆM 2: TEMPORAL ATTENTION WEIGHT INTERPRETABILITY & HEATMAPS
 # ------------------------------------------------------------------------------
 echo -e "\n${YELLOW}[2/4] 🧠 Đang chạy Temporal Attention Interpretability & Heatmap Analysis ...${NC}"
-git pull
+git fetch --all && git reset --hard origin/main
 python train_and_visualize_attention.py --root_dir "${DATA_ROOT}" ${ATTENTION_ARGS}
 
 echo -e "${GREEN}✅ [2/4] Hoàn thành Temporal Attention Analysis! Ma trận Attention đã lưu vào paper/fig/${NC}"
@@ -88,7 +88,7 @@ echo -e "${GREEN}✅ [2/4] Hoàn thành Temporal Attention Analysis! Ma trận A
 # 📍 THỬ NGHIỆM 3: STAGE 1 VISION PERCEPTION BENCHMARK (COUNTING & GRAD-CAM++)
 # ------------------------------------------------------------------------------
 echo -e "\n${YELLOW}[3/4] 📸 Đang chạy Stage 1: Vision Perception Benchmark & Grad-CAM++ ...${NC}"
-git pull
+git fetch --all && git reset --hard origin/main
 python train_counting.py ${COUNTING_ARGS}
 
 echo -e "${GREEN}✅ [3/4] Hoàn thành Stage 1! Báo cáo đã lưu tại counting_benchmark_report.md và paper/fig/${NC}"
@@ -97,7 +97,7 @@ echo -e "${GREEN}✅ [3/4] Hoàn thành Stage 1! Báo cáo đã lưu tại count
 # 📍 THỬ NGHIỆM 4: STAGE 3 NOISE ROBUSTNESS STUDY
 # ------------------------------------------------------------------------------
 echo -e "\n${YELLOW}[4/4] 🌪️ Đang chạy Stage 3: Noise Robustness Study (Phân tích độ bền vững với nhiễu) ...${NC}"
-git pull
+git fetch --all && git reset --hard origin/main
 python run_noise_robustness_study.py --root_dir "${DATA_ROOT}" ${BENCHMARK_ARGS}
 
 echo -e "${GREEN}✅ [4/4] Hoàn thành Stage 3! Kết quả đã được lưu tại noise_robustness_report.md và paper/fig/${NC}"
