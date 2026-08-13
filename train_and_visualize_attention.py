@@ -49,23 +49,6 @@ def train_and_visualize():
     
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True)
     
-    # 2. Init model
-    model = STGCN_Model(
-        num_nodes=len(nodes),
-        in_feat=5,
-        block_hidden=CFG.BLOCK_HIDDEN,
-        num_blocks=CFG.NUM_BLOCKS,
-        T_in=CFG.T_IN,
-        cheb_K=CFG.CHEB_K,
-        horizon=CFG.HORIZON,
-        output_feat=2,
-        L_tilde=L_tilde,
-        dropout=CFG.DROPOUT,
-        use_temporal_attention=True,
-        attn_num_heads=4,
-        attn_dropout=CFG.ATTN_DROPOUT
-    ).to(device)
-    
     # Kiểm tra đường dẫn load model weights (Thử nhiều thư mục khả thi)
     candidate_paths = [
         args.model_path if args.model_path else None,
@@ -77,6 +60,10 @@ def train_and_visualize():
     ]
 
     target_model_path = None
+    state_dict = None
+    block_hidden = CFG.BLOCK_HIDDEN
+    num_blocks = CFG.NUM_BLOCKS
+
     for p in candidate_paths:
         if p and os.path.exists(p):
             target_model_path = p
@@ -84,7 +71,31 @@ def train_and_visualize():
 
     if target_model_path:
         print(f"✅ Đã tìm thấy weight model đã huấn luyện! Đang nạp checkpoint từ: {target_model_path}")
-        model.load_state_dict(torch.load(target_model_path, map_location=device))
+        state_dict = torch.load(target_model_path, map_location=device)
+        # Tự động phát hiện kích thước channels ẩn trong checkpoint để tránh RuntimeError size mismatch
+        if 'blocks.0.sconv.linears.0.weight' in state_dict:
+            block_hidden = state_dict['blocks.0.sconv.linears.0.weight'].shape[0]
+            print(f"   ℹ️ Tự động phát hiện kích thước channel trong Checkpoint: BLOCK_HIDDEN = {block_hidden}")
+
+    # 2. Init model với kích thước channel tương thích 100%
+    model = STGCN_Model(
+        num_nodes=len(nodes),
+        in_feat=5,
+        block_hidden=block_hidden,
+        num_blocks=num_blocks,
+        T_in=CFG.T_IN,
+        cheb_K=CFG.CHEB_K,
+        horizon=CFG.HORIZON,
+        output_feat=2,
+        L_tilde=L_tilde,
+        dropout=CFG.DROPOUT,
+        use_temporal_attention=True,
+        attn_num_heads=4,
+        attn_dropout=CFG.ATTN_DROPOUT
+    ).to(device)
+
+    if state_dict is not None:
+        model.load_state_dict(state_dict)
     else:
         print(f"⚠️ Không tìm thấy file weight (hoặc path=None). Bắt đầu huấn luyện mô hình {args.epochs} epochs từ đầu...")
         optimizer = optim.AdamW(model.parameters(), lr=CFG.LEARNING_RATE)

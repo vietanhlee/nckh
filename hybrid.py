@@ -58,8 +58,8 @@ class Config:
 
     # --- MODEL ---
     CHEB_K       = 3        # Bậc đa thức Chebyshev (tăng từ 2 → bắt quan hệ xa hơn trên graph)
-    NUM_BLOCKS   = 3        # Số lượng STGCN blocks (2 blocks)
-    BLOCK_HIDDEN = 64       # Số channels ẩn trong mỗi block (tăng từ 32 → capacity lớn hơn)
+    NUM_BLOCKS   = 3        # Số lượng STGCN blocks (3 blocks)
+    BLOCK_HIDDEN = 80       # Số channels ẩn trong mỗi block (chuẩn 80 channels ~455k params)
     DROPOUT      = 0.25     # Giảm nhẹ (model lớn hơn cần ít regularization hơn)
 
     # --- TRAIN ---
