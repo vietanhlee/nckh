@@ -357,7 +357,9 @@ def get_target_layer(model, model_name):
         if hasattr(model, 'layer4'):
             return model.layer4[-1]
     elif 'efficientnet' in name_lower:
-        if hasattr(model, 'conv_head'):
+        if hasattr(model, 'features'):
+            return model.features[-1]
+        elif hasattr(model, 'conv_head'):
             return model.conv_head
         elif hasattr(model, 'blocks'):
             return model.blocks[-1]
@@ -969,8 +971,15 @@ def run_counting_benchmark():
     try:
         sample_img_path = None
         if hasattr(full_dataset, 'data') and len(full_dataset.data) > 0:
-            sample_fn = full_dataset.data.iloc[0]['filename']
+            df = full_dataset.data.copy()
+            # Tìm các cột chứa nhãn số lượng xe
+            veh_cols = [c for c in df.columns if c.lower() not in ['filename', 'file_name', 'image', 'image_name', 'img', 'name']]
+            # Tính tổng số lượng xe để tìm ảnh đông nhất
+            df['total_veh'] = df[veh_cols].sum(axis=1)
+            best_idx = df['total_veh'].idxmax()
+            sample_fn = df.loc[best_idx, full_dataset.fn_col]
             sample_img_path = os.path.join(args.image_dir, sample_fn)
+            print(f"🔍 Đã chọn tự động ảnh đông phương tiện nhất: {sample_fn} ({df.loc[best_idx, 'total_veh']} xe)")
 
         if sample_img_path and os.path.exists(sample_img_path):
             if not trained_models_dict:

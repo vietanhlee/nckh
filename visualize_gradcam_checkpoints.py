@@ -118,19 +118,37 @@ def build_counting_model(model_name, num_classes=2, pretrained=True):
 
 
 def get_target_layer(model, model_name):
-    model_name = model_name.lower()
-    if model_name in ['resnet', 'resnet50']:
-        return model.layer4[-1]
-    elif model_name in ['efficientnet', 'efficientnet_b4']:
-        return getattr(model, 'conv_head', model.blocks[-1])
-    elif model_name in ['vit', 'vit_small']:
-        return model.blocks[-1].norm1
-    elif model_name in ['convnext', 'convnext_tiny']:
-        return model.stages[-1].blocks[-1]
-    elif model_name in ['mobilenet', 'mobilenet_v3']:
-        return getattr(model, 'conv_head', model.blocks[-1])
-    else:
-        raise ValueError(f"Không xác định được target layer cho mô hình '{model_name}'")
+    name_lower = model_name.lower()
+    if 'resnet' in name_lower:
+        if hasattr(model, 'layer4'):
+            return model.layer4[-1]
+    elif 'efficientnet' in name_lower:
+        if hasattr(model, 'features'):
+            return model.features[-1]
+        elif hasattr(model, 'conv_head'):
+            return model.conv_head
+        elif hasattr(model, 'blocks'):
+            return model.blocks[-1]
+    elif 'vit' in name_lower:
+        if hasattr(model, 'blocks'):
+            return model.blocks[-1]
+        elif hasattr(model, 'encoder'):
+            return model.encoder.layers[-1]
+    elif 'convnext' in name_lower:
+        if hasattr(model, 'stages'):
+            return model.stages[-1]
+        elif hasattr(model, 'features'):
+            return model.features[-1]
+    elif 'mobilenet' in name_lower:
+        if hasattr(model, 'features'):
+            return model.features[-1]
+        elif hasattr(model, 'blocks'):
+            return model.blocks[-1]
+            
+    for name, module in reversed(list(model.named_modules())):
+        if isinstance(module, (torch.nn.Conv2d, torch.nn.Linear)):
+            return module
+    return list(model.children())[-1]
 
 
 # ------------------------------------------------------------------------------
@@ -276,18 +294,42 @@ def main():
 
     target_img = args.image_path
     if not target_img or not os.path.exists(target_img):
-        # Tự động tìm kiếm file ảnh mẫu trong hệ thống
-        candidates = []
-        for d in [args.image_dir, "images", "data", "/workspace/images", "."]:
-            found = glob.glob(os.path.join(d, "*.jpg")) + glob.glob(os.path.join(d, "*.png"))
-            if found:
-                candidates.extend(found)
-        if candidates:
-            target_img = candidates[0]
-            print(f"🔍 Tự động phát hiện tệp ảnh giao thông mẫu: {target_img}")
-        else:
-            print("❌ Không tìm thấy ảnh giao thông (.jpg / .png) nào trong hệ thống.")
-            return
+        # Ưu tiên đọc CSV để tìm ảnh đông xe nhất
+        csv_path = "/workspace/GRAPH/count_7_7_merg_sort_fix_fill.csv"
+        if os.path.exists(csv_path):
+            import pandas as pd
+            try:
+                df = pd.read_csv(csv_path)
+                fn_col = None
+                for c in ['filename', 'file_name', 'image', 'image_name', 'img', 'name']:
+                    if c in df.columns:
+                        fn_col = c
+                        break
+                if fn_col:
+                    veh_cols = [c for c in df.columns if c.lower() not in ['filename', 'file_name', 'image', 'image_name', 'img', 'name']]
+                    df['total_veh'] = df[veh_cols].sum(axis=1)
+                    best_idx = df['total_veh'].idxmax()
+                    best_fn = df.loc[best_idx, fn_col]
+                    best_path = os.path.join(args.image_dir, best_fn)
+                    if os.path.exists(best_path):
+                        target_img = best_path
+                        print(f"🔍 Đã tự động chọn ảnh đông xe nhất từ CSV: {best_fn} ({df.loc[best_idx, 'total_veh']} xe)")
+            except Exception as e:
+                print(f"⚠️ Lỗi khi đọc CSV tìm ảnh đông xe: {e}")
+
+        if not target_img:
+            # Fallback: tìm bừa một ảnh
+            candidates = []
+            for d in [args.image_dir, "images", "data", "/workspace/images", "."]:
+                found = glob.glob(os.path.join(d, "*.jpg")) + glob.glob(os.path.join(d, "*.png"))
+                if found:
+                    candidates.extend(found)
+            if candidates:
+                target_img = candidates[0]
+                print(f"🔍 Tự động phát hiện tệp ảnh giao thông mẫu ngẫu nhiên: {target_img}")
+            else:
+                print("❌ Không tìm thấy ảnh giao thông (.jpg / .png) nào trong hệ thống.")
+                return
 
     generate_vision_explainability_figures(target_img, save_dir="paper/fig", device=device)
 
