@@ -972,18 +972,26 @@ def run_counting_benchmark():
         sample_img_path = None
         if hasattr(full_dataset, 'data') and len(full_dataset.data) > 0:
             df = full_dataset.data.copy()
-            # Tìm các cột chứa nhãn số lượng xe
-            veh_cols = [c for c in df.columns if c.lower() not in ['filename', 'file_name', 'image', 'image_name', 'img', 'name']]
-            # Tính tổng số lượng xe để tìm ảnh đông nhất
-            df['total_veh'] = df[veh_cols].sum(axis=1)
-            best_idx = df['total_veh'].idxmax()
-            # Tìm cột filename
+            if 'Total Vehicles' in df.columns:
+                best_idx = df['Total Vehicles'].idxmax()
+                total_count = df.loc[best_idx, 'Total Vehicles']
+            elif 'Car Count' in df.columns and 'Bike Count' in df.columns:
+                df['total_veh'] = df['Car Count'] + df['Bike Count']
+                best_idx = df['total_veh'].idxmax()
+                total_count = df.loc[best_idx, 'total_veh']
+            else:
+                num_df = df.select_dtypes(include=['number'])
+                num_df = num_df.drop(columns=[c for c in ['STT', 'stt', 'id', 'ID'] if c in num_df.columns], errors='ignore')
+                df['total_veh'] = num_df.sum(axis=1)
+                best_idx = df['total_veh'].idxmax()
+                total_count = df.loc[best_idx, 'total_veh']
+                
             fn_col = [c for c in df.columns if c.lower() in ['filename', 'file_name', 'image', 'image_name', 'img', 'name']]
             fn_col = fn_col[0] if fn_col else df.columns[0]
             
             sample_fn = df.loc[best_idx, fn_col]
             sample_img_path = os.path.join(args.image_dir, sample_fn)
-            print(f"🔍 Đã chọn tự động ảnh đông phương tiện nhất: {sample_fn} ({df.loc[best_idx, 'total_veh']} xe)")
+            print(f"🔍 Đã chọn tự động ảnh đông phương tiện nhất: {sample_fn} ({total_count} xe)")
 
         if sample_img_path and os.path.exists(sample_img_path):
             if not trained_models_dict:
