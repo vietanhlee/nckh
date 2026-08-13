@@ -321,19 +321,21 @@ class STGCNBlock(nn.Module):
 
 class TemporalAttention(nn.Module):
     """
-    Multi-Head Temporal Self-Attention với Pre-LayerNorm hóa (Pre-LN)
-    giúp training cực kỳ ổn định, đảm bảo residual connection hoạt động chuẩn xác.
+    Multi-Head Temporal Self-Attention đặt SAU các khối ST-Conv.
+    Thay vì GRU chỉ "mượt hoá" tuần tự, Attention nhìn được toàn bộ
+    cửa sổ thời gian (T_in bước) và tự học bước nào quan trọng nhất.
+    Residual connection đảm bảo không bao giờ tệ hơn baseline STGCN.
+    Cấu trúc: Multi-Head Attention + FFN (giống 1 Transformer block).
     """
     def __init__(self, in_channels, num_heads=4, dropout=0.1):
         super().__init__()
-        self.norm1 = nn.LayerNorm(in_channels)
         self.attn = nn.MultiheadAttention(
             embed_dim=in_channels,
             num_heads=num_heads,
             dropout=dropout,
             batch_first=True
         )
-        self.norm2 = nn.LayerNorm(in_channels)
+        self.norm1 = nn.LayerNorm(in_channels)
         self.ffn = nn.Sequential(
             nn.Linear(in_channels, in_channels * 4),
             nn.GELU(),
@@ -341,20 +343,20 @@ class TemporalAttention(nn.Module):
             nn.Linear(in_channels * 4, in_channels),
             nn.Dropout(dropout)
         )
+        self.norm2 = nn.LayerNorm(in_channels)
 
     def forward(self, x):
         # x: (B*N, T, C)
-        norm_x = self.norm1(x)
         try:
             with torch.nn.attention.sdpa_kernel(backends=[torch.nn.attention.SDPBackend.MATH]):
-                attn_out, attn_weights = self.attn(norm_x, norm_x, norm_x, need_weights=True, average_attn_weights=True)
+                attn_out, attn_weights = self.attn(x, x, x, need_weights=True, average_attn_weights=True)
         except Exception:
-            attn_out, attn_weights = self.attn(norm_x, norm_x, norm_x, need_weights=True, average_attn_weights=True)
+            attn_out, attn_weights = self.attn(x, x, x, need_weights=True, average_attn_weights=True)
             
         self.last_attn_weights = attn_weights
-        x = x + attn_out
-        x = x + self.ffn(self.norm2(x))
-        return x
+        x = self.norm1(x + attn_out)       # residual + LayerNorm
+        ffn_out = self.ffn(x)
+        return self.norm2(x + ffn_out)      # (B*N, T, C) - giữ nguyên chiều
 
 
 class STGCN_Model(nn.Module):
