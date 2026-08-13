@@ -203,13 +203,7 @@ def generate_vision_explainability_figures(image_path, save_dir="paper/fig", dev
             ax.imshow(cam_norm, cmap='jet', alpha=0.48)
             
             sub_labels = ['(b)', '(c)', '(d)', '(e)', '(f)']
-            pred_car, pred_moto = max(0, preds[0]), max(0, preds[1])
             ax.set_title(f"{sub_labels[idx-1]} {m_name} (Grad-CAM++)", fontsize=11, fontweight='bold', pad=8)
-
-            # Khung text dự báo
-            text_str = f"Pred: {pred_car:.1f} Cars | {pred_moto:.1f} Motos"
-            ax.text(0.03, 0.05, text_str, transform=ax.transAxes, fontsize=9.5, fontweight='bold',
-                    color='white', bbox=dict(boxstyle='round,pad=0.3', facecolor='black', alpha=0.75, edgecolor='none'))
 
             # --- VẼ NỔI 1 HÌNH ĐỘC LẬP CHO RIÊNG MÔ HÌNH NÀY (2 SUBPLOT: ẢNH GỐC & GRAD-CAM++) ---
             fig_single, axes_single = plt.subplots(1, 2, figsize=(12, 5.5), dpi=300)
@@ -223,8 +217,6 @@ def generate_vision_explainability_figures(image_path, save_dir="paper/fig", dev
             axes_single[1].imshow(img_raw)
             axes_single[1].imshow(cam_norm, cmap='jet', alpha=0.48)
             axes_single[1].set_title(f"(b) {m_name} Grad-CAM++ Feature Attribution", fontsize=12, fontweight='bold', pad=8)
-            axes_single[1].text(0.03, 0.05, text_str, transform=axes_single[1].transAxes, fontsize=10.5, fontweight='bold',
-                                color='white', bbox=dict(boxstyle='round,pad=0.4', facecolor='black', alpha=0.75, edgecolor='none'))
             axes_single[1].axis('off')
 
             plt.tight_layout()

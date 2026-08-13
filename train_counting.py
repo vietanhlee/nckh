@@ -428,7 +428,7 @@ def generate_vision_explainability_figures(sample_img_path, trained_models_dict,
 
         ax.imshow(raw_img)
         ax.imshow(cam_arr, cmap='jet', alpha=0.55)
-        ax.set_title(f"{title_dict.get(m_key, m_key)}\nPreds: Cars={preds[0]:.1f}, Bikes={preds[1]:.1f}", fontsize=10, fontweight='bold')
+        ax.set_title(f"{title_dict.get(m_key, m_key)} (Grad-CAM++)", fontsize=10, fontweight='bold')
         ax.axis('off')
 
         # --- VẼ NỔI 1 HÌNH ĐỘC LẬP CHO RIÊNG MÔ HÌNH NÀY (2 SUBPLOT: ẢNH GỐC & GRAD-CAM++) ---
@@ -442,9 +442,6 @@ def generate_vision_explainability_figures(sample_img_path, trained_models_dict,
         axes_single[1].imshow(cam_arr, cmap='jet', alpha=0.55)
         m_title = title_dict.get(m_key, m_key)
         axes_single[1].set_title(f"(b) {m_title} Grad-CAM++ Attribution", fontsize=12, fontweight='bold', pad=8)
-        text_str = f"Preds: {max(0, preds[0]):.1f} Cars | {max(0, preds[1]):.1f} Bikes"
-        axes_single[1].text(0.03, 0.05, text_str, transform=axes_single[1].transAxes, fontsize=10.5, fontweight='bold',
-                            color='white', bbox=dict(boxstyle='round,pad=0.4', facecolor='black', alpha=0.75, edgecolor='none'))
         axes_single[1].axis('off')
 
         plt.tight_layout()
