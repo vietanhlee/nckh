@@ -174,8 +174,10 @@ def load_timeseries_double_rolling(csv_path, node_list, window1=3, window2=5, st
     else:
         node_list = sorted(df['STT'].unique())
 
-    pivot = df.pivot_table(index='Timestamp', columns='STT', values='Total Vehicles', aggfunc='mean')
-    pivot = pivot.reindex(columns=node_list)
+    feature_cols = ['Car Count', 'Bike Count']
+    pivot = df.pivot_table(index='Timestamp', columns='STT', values=feature_cols, aggfunc='mean')
+    pivot = pivot.swaplevel(0, 1, axis=1)          # (Feature, STT) -> (STT, Feature)
+    pivot = pivot.reindex(columns=pd.MultiIndex.from_product([node_list, feature_cols]))
 
     pivot_1min = pivot.resample('1min').mean().interpolate(method='linear', limit=30).fillna(0.0)
 
@@ -185,7 +187,7 @@ def load_timeseries_double_rolling(csv_path, node_list, window1=3, window2=5, st
     resample_rule = f'{step_minutes}min'
     pivot_final = smooth_2.asfreq(resample_rule).fillna(0.0)
 
-    pivot_final.columns = pd.MultiIndex.from_product([pivot_final.columns, ['Total Vehicles']], names=['Node', 'Feature'])
+    pivot_final.columns = pivot_final.columns.set_names(['Node', 'Feature'])
 
     print(f"   Double Rolling Data loaded. Shape: {pivot_final.shape}")
     return pivot_final
@@ -346,13 +348,8 @@ class TemporalAttention(nn.Module):
     def forward(self, x):
         # x: (B*N, T, C)
         try:
-            if hasattr(torch.nn.attention, 'sdpa_kernel'):
-                from torch.nn.attention import SDPBackend, sdpa_kernel
-                with sdpa_kernel(SDPBackend.MATH):
-                    attn_out, attn_weights = self.attn(x, x, x, need_weights=True, average_attn_weights=True)
-            else:
-                with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=False):
-                    attn_out, attn_weights = self.attn(x, x, x, need_weights=True, average_attn_weights=True)
+            with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=False):
+                attn_out, attn_weights = self.attn(x, x, x, need_weights=True, average_attn_weights=True)
         except Exception:
             attn_out, attn_weights = self.attn(x, x, x, need_weights=True, average_attn_weights=True)
             
@@ -614,9 +611,11 @@ def plot_training_history(train_losses, val_losses, train_maes, val_maes, save_d
     plt.tight_layout()
 
     os.makedirs(save_dir, exist_ok=True)
-    save_path = os.path.join(save_dir, f"{tag}_training_history.png")
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f"📊 Đã lưu biểu đồ lịch sử huấn luyện vào: {save_path}")
+    save_png = os.path.join(save_dir, f"{tag}_training_history.png")
+    save_pdf = os.path.join(save_dir, f"{tag}_training_history.pdf")
+    plt.savefig(save_png, dpi=300, bbox_inches='tight')
+    plt.savefig(save_pdf, dpi=300, bbox_inches='tight')
+    print(f"📊 Đã lưu biểu đồ lịch sử huấn luyện vào:\n   - {save_png}\n   - {save_pdf}")
 
     if use_wandb:
         try:
@@ -665,24 +664,45 @@ def visualize_last_step(model, loader, device, scaler, cfg, node_list=None, save
 
     for node_idx in node_list:
         if node_idx >= total_nodes_avail: continue
-        gt_node = y_true[:, node_idx, 0]
-        pred_node = y_pred[:, node_idx, 0]
-        mae_node = np.mean(np.abs(gt_node - pred_node))
-        print(f"Node {node_idx} | MAE: {mae_node:.2f}")
+        
+        gt_car = y_true[:, node_idx, 0]
+        pred_car = y_pred[:, node_idx, 0]
+        gt_bike = y_true[:, node_idx, 1] if y_true.shape[-1] > 1 else None
+        pred_bike = y_pred[:, node_idx, 1] if y_pred.shape[-1] > 1 else None
+        
+        mae_car = np.mean(np.abs(gt_car - pred_car))
+        if gt_bike is not None:
+            mae_bike = np.mean(np.abs(gt_bike - pred_bike))
+            print(f"Node {node_idx} | MAE Car: {mae_car:.2f} | MAE Bike: {mae_bike:.2f}")
+        else:
+            print(f"Node {node_idx} | MAE: {mae_car:.2f}")
 
-        plt.figure(figsize=(12, 6))
-        plt.plot(gt_node, label='Ground Truth', color='black', alpha=0.7)
-        plt.plot(pred_node, label=f'Pred +{cfg.PRED_MINUTES}m', color='red', linestyle='--', alpha=0.9)
-        plt.title(f"Node {node_idx} - MAE: {mae_node:.2f} - Prediction {cfg.PRED_MINUTES} mins ahead")
-        plt.ylabel("Total Vehicles Count")
+        plt.figure(figsize=(14, 7))
+        
+        # Plot Car
+        plt.plot(gt_car, label='Car (Ground Truth)', color='black', alpha=0.7)
+        plt.plot(pred_car, label=f'Car (Pred +{cfg.PRED_MINUTES}m)', color='red', linestyle='--', alpha=0.9)
+        
+        # Plot Bike if available
+        if gt_bike is not None:
+            plt.plot(gt_bike, label='Bike (Ground Truth)', color='blue', alpha=0.7)
+            plt.plot(pred_bike, label=f'Bike (Pred +{cfg.PRED_MINUTES}m)', color='orange', linestyle='--', alpha=0.9)
+            plt.title(f"Node {node_idx} - MAE Car: {mae_car:.2f}, MAE Bike: {mae_bike:.2f} (Prediction {cfg.PRED_MINUTES} mins ahead)")
+        else:
+            plt.title(f"Node {node_idx} - MAE: {mae_car:.2f} - Prediction {cfg.PRED_MINUTES} mins ahead")
+            
+        plt.ylabel("Vehicles Count")
         plt.xlabel("Time Steps")
         plt.legend()
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
 
-        save_path = os.path.join(save_dir, f"{cfg.MODEL_TAG.lower()}_node_{node_idx}_pred_{cfg.PRED_MINUTES}m.png")
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"   🖼️ Đã lưu biểu đồ Node {node_idx} vào: {save_path}")
+        save_png = os.path.join(save_dir, f"{cfg.MODEL_TAG.lower()}_node_{node_idx}_pred_{cfg.PRED_MINUTES}m.png")
+        save_pdf = os.path.join(save_dir, f"{cfg.MODEL_TAG.lower()}_node_{node_idx}_pred_{cfg.PRED_MINUTES}m.pdf")
+        
+        plt.savefig(save_png, dpi=300, bbox_inches='tight')
+        plt.savefig(save_pdf, dpi=300, bbox_inches='tight')
+        print(f"   🖼️ Đã lưu biểu đồ Node {node_idx} vào:\n      - {save_png}\n      - {save_pdf}")
 
         try:
             plt.show()
@@ -900,6 +920,23 @@ def run_training():
     print(f"FINAL TEST MSE   : {test_metrics['mse']:.4f}")
     print(f"FINAL TEST RMSE  : {test_metrics['rmse']:.4f}")
     print("="*40)
+
+    # LƯU KẾT QUẢ BENCHMARK VÀO FILE TEXT
+    benchmark_file = os.path.join(CFG.SAVE_DIR, f"benchmark_{CFG.MODEL_TAG.lower()}_{CFG.HORIZON}steps.txt")
+    with open(benchmark_file, "w", encoding="utf-8") as f:
+        f.write("="*40 + "\n")
+        f.write(" 🏆 FINAL TEST BENCHMARK 🏆 \n")
+        f.write("="*40 + "\n")
+        f.write(f"Model          : {CFG.MODEL_TAG}\n")
+        f.write(f"Horizon        : {CFG.HORIZON} steps\n")
+        f.write(f"FINAL TEST LOSS: {test_metrics['loss']:.4f}\n")
+        f.write(f"FINAL TEST MAE : {test_metrics['mae']:.4f}\n")
+        for t_idx in range(6):
+            f.write(f"  └─ MAE t+{t_idx+1} ({(t_idx+1)*5}m): {test_metrics[f'mae_t{t_idx+1}']:.4f}\n")
+        f.write(f"FINAL TEST MSE : {test_metrics['mse']:.4f}\n")
+        f.write(f"FINAL TEST RMSE: {test_metrics['rmse']:.4f}\n")
+        f.write("="*40 + "\n")
+    print(f"💾 Đã lưu kết quả benchmark vào: {benchmark_file}\n")
 
     if use_wandb:
         try:

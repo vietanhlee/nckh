@@ -111,8 +111,10 @@ def load_timeseries_double_rolling(csv_path, node_list, window1 = 3, window2 = 5
     else:
         node_list = sorted(df['STT'].unique())
 
-    pivot = df.pivot_table(index='Timestamp', columns='STT', values='Total Vehicles', aggfunc='mean')
-    pivot = pivot.reindex(columns=node_list)
+    feature_cols = ['Car Count', 'Bike Count']
+    pivot = df.pivot_table(index='Timestamp', columns='STT', values=feature_cols, aggfunc='mean')
+    pivot = pivot.swaplevel(0, 1, axis=1)
+    pivot = pivot.reindex(columns=pd.MultiIndex.from_product([node_list, feature_cols]))
 
     pivot_1min = pivot.resample('1min').mean().interpolate(method='linear', limit=30).fillna(0.0)
 
@@ -123,7 +125,7 @@ def load_timeseries_double_rolling(csv_path, node_list, window1 = 3, window2 = 5
     resample_rule = f'{step_minutes}min'
     pivot_final = smooth_2.asfreq(resample_rule).fillna(0.0)
 
-    pivot_final.columns = pd.MultiIndex.from_product([pivot_final.columns, ['Total Vehicles']], names=['Node', 'Feature'])
+    pivot_final.columns = pivot_final.columns.set_names(['Node', 'Feature'])
 
     print(f"   Double Rolling Data loaded. Shape: {pivot_final.shape}")
     return pivot_final
@@ -135,13 +137,13 @@ class MultiStepDataset(Dataset):
         self.node_order = node_order
 
         df_sorted = data_df.sort_index(axis=1, level='Node')
-        desired_cols = pd.MultiIndex.from_product([node_order, ['Total Vehicles']], names=['Node', 'Feature'])
+        desired_cols = pd.MultiIndex.from_product([node_order, ['Car Count', 'Bike Count']], names=['Node', 'Feature'])
         self.df = df_sorted.reindex(columns=desired_cols)
 
         self.timestamps = self.df.index
         self.N = len(node_order)
 
-        self.values = self.df.values.astype(float).reshape(-1, self.N, 1)
+        self.values = self.df.values.astype(float).reshape(-1, self.N, 2)
 
         self.time_feats = add_rich_time_features(self.timestamps)
 
