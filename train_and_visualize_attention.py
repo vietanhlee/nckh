@@ -15,7 +15,7 @@ from hybrid import train_one_epoch
 def train_and_visualize():
     parser = argparse.ArgumentParser(description="Trích xuất và vẽ ma trận Temporal Attention so sánh 4 khung giờ với Giờ thấp điểm Đêm.")
     parser.add_argument('--model_path', type=str, default=None, help="Đường dẫn tới file trọng số checkpoint (.pth). Nếu là None hoặc không tìm thấy, script sẽ tự động train lại.")
-    parser.add_argument('--epochs', type=int, default=120, help="Số epochs huấn luyện nếu train từ đầu (mặc định: 100).")
+    parser.add_argument('--epochs', type=int, default=30, help="Số epochs huấn luyện nếu train từ đầu (mặc định: 100).")
     parser.add_argument('--batch_size', type=int, default=64, help="Kích thước batch size.")
     parser.add_argument('--root_dir', type=str, default="/workspace/GRAPH", help="Thư mục gốc chứa dữ liệu.")
     args = parser.parse_args()
@@ -80,6 +80,8 @@ def train_and_visualize():
     state_dict = None
     block_hidden = CFG.BLOCK_HIDDEN
     num_blocks = CFG.NUM_BLOCKS
+    in_feat = 5
+    output_feat = 2
 
     for p in candidate_paths:
         if p and os.path.exists(p):
@@ -92,7 +94,12 @@ def train_and_visualize():
             state_dict = torch.load(target_model_path, map_location=device)
             if 'blocks.0.sconv.linears.0.weight' in state_dict:
                 block_hidden = state_dict['blocks.0.sconv.linears.0.weight'].shape[0]
-                print(f"   ℹ️ Tự động phát hiện kích thước channel trong Checkpoint: BLOCK_HIDDEN = {block_hidden}")
+            if 'blocks.0.tconv1.conv.weight' in state_dict:
+                in_feat = state_dict['blocks.0.tconv1.conv.weight'].shape[1]
+            if 'final_conv.weight' in state_dict:
+                out_channels = state_dict['final_conv.weight'].shape[0]
+                output_feat = out_channels // CFG.HORIZON
+            print(f"   ℹ️ Checkpoint config: in_feat={in_feat}, block_hidden={block_hidden}, output_feat={output_feat}")
         except Exception as e:
             print(f"⚠️ Không thể đọc file checkpoint ({e})")
             target_model_path = None
@@ -101,13 +108,13 @@ def train_and_visualize():
     # Khởi tạo mô hình phù hợp 100% với cấu hình checkpoint
     model = STGCN_Model(
         num_nodes=len(nodes),
-        in_feat=5,
+        in_feat=in_feat,
         block_hidden=block_hidden,
         num_blocks=num_blocks,
         T_in=CFG.T_IN,
         cheb_K=CFG.CHEB_K,
         horizon=CFG.HORIZON,
-        output_feat=2,
+        output_feat=output_feat,
         L_tilde=L_tilde,
         dropout=CFG.DROPOUT,
         use_temporal_attention=True,
@@ -195,8 +202,10 @@ def train_and_visualize():
             X_tensor = X.detach().clone().float().unsqueeze(0).to(device)
         else:
             X_tensor = torch.from_numpy(X).float().unsqueeze(0).to(device)
+            
+        X_tensor = X_tensor[..., :in_feat]
         with torch.no_grad():
-            model(X_tensor)
+            _ = model(X_tensor)
 
         if attention_weights is None or np.isnan(attention_weights).any():
             if hasattr(model.temporal_attn, 'last_attn_weights') and model.temporal_attn.last_attn_weights is not None:
