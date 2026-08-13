@@ -159,7 +159,7 @@ def load_timeseries_double_rolling(csv_path, node_list, window1=3, window2=5, st
 # ============================================================
 
 class MultiStepDataset(Dataset):
-    def __init__(self, data_df, node_order, T_in, Horizon, scaler=None):
+    def __init__(self, data_df, node_order, T_in, Horizon, scaler=None, target_df=None):
         self.T_in = T_in
         self.Horizon = Horizon
         self.node_order = node_order
@@ -172,6 +172,13 @@ class MultiStepDataset(Dataset):
         self.N = len(node_order)
 
         self.values = self.df.values.astype(float).reshape(-1, self.N, 2)
+        
+        if target_df is not None:
+            df_target_sorted = target_df.sort_index(axis=1, level='Node').reindex(columns=desired_cols)
+            self.target_values = df_target_sorted.values.astype(float).reshape(-1, self.N, 2)
+        else:
+            self.target_values = self.values
+
         self.time_feats = add_rich_time_features(self.timestamps)
 
         if scaler is None:
@@ -187,7 +194,7 @@ class MultiStepDataset(Dataset):
 
     def __getitem__(self, idx):
         x_node = self.values[idx : idx + self.T_in]
-        y_node = self.values[idx + self.T_in : idx + self.T_in + self.Horizon]
+        y_node = self.target_values[idx + self.T_in : idx + self.T_in + self.Horizon]
 
         x_node = (x_node - self.means) / self.stds
         y_node = (y_node - self.means) / self.stds

@@ -68,10 +68,14 @@ class GradCAMPlusPlus:
             if grid_size * grid_size == seq_len - 1: # Chắc chắn có CLS token
                 activations = activations[1:].transpose(0, 1).reshape(channels, grid_size, grid_size)
                 gradients = gradients[1:].transpose(0, 1).reshape(channels, grid_size, grid_size)
+            elif int(np.sqrt(seq_len)) ** 2 == seq_len: # Không có CLS token
+                grid_size = int(np.sqrt(seq_len))
+                activations = activations.transpose(0, 1).reshape(channels, grid_size, grid_size)
+                gradients = gradients.transpose(0, 1).reshape(channels, grid_size, grid_size)
             else:
-                return np.zeros((14, 14)), output.data.cpu().numpy()[0] # Dummy fallback
+                return np.zeros((14, 14)), output.data.cpu().numpy()[0]
 
-        # Tính đạo hàm cấp 2 và cấp 3
+        # Thuật toán Grad-CAM++ (IEEE 2018) với Đạo hàm cấp 2 & 3
         g2 = gradients.pow(2)
         g3 = gradients.pow(3)
 
@@ -80,19 +84,25 @@ class GradCAMPlusPlus:
         aij = g2 / (2.0 * g2 + sum_activations * g3 + 1e-7)
         aij = torch.where(g2 != 0, aij, torch.zeros_like(aij))
 
-        # Trọng số Grad-CAM++ từng Feature Map
+        # Trọng số Grad-CAM++ chuẩn
         weights = torch.sum(aij * F.relu(gradients), dim=(1, 2)) # (C,)
 
-        # Tính tổng có trọng số Heatmap
-        cam = torch.zeros(activations.shape[1:], dtype=torch.float32, device=input_tensor.device)
-        for i, w in enumerate(weights):
-            cam += w * activations[i, :, :]
+        # Xử lý cho mạng phi ReLU (Swish/GELU trong ViT & EfficientNet) khi gradient mang dấu âm
+        if weights.sum() == 0 or torch.isnan(weights.sum()):
+            weights = torch.sum(aij * torch.abs(gradients), dim=(1, 2))
 
-        cam = F.relu(cam)
+        # Tính tổng có trọng số Heatmap Grad-CAM++
+        cam = torch.sum(weights.view(-1, 1, 1) * activations, dim=0).cpu().numpy()
+        cam = np.maximum(cam, 0)
+        
+        # Nếu kết quả cam = 0 do activations mang giá trị âm, lấy giá trị tuyệt đối tổng hợp
+        if cam.max() == 0:
+            cam = np.abs(torch.sum(weights.view(-1, 1, 1) * activations, dim=0).cpu().numpy())
+
         if cam.max() > 0:
             cam = cam / cam.max()
 
-        return cam.detach().cpu().numpy(), output.detach().cpu().numpy()[0]
+        return cam, output.detach().cpu().numpy()[0]
 
 
 # ------------------------------------------------------------------------------

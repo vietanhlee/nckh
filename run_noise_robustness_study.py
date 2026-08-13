@@ -343,32 +343,129 @@ def run_noise_robustness_experiment():
     print(f"🛡️ THỰC NGHIỆM PHÂN TÍCH ĐỘ BỀN VỮNG VỚI NHIỄU NHẬN DẠNG (TẤT CẢ MODEL BASELINE)")
     print(f"==========================================================================================")
 
+    # 1. Tách tập dữ liệu gốc (Clean)
+    n_total = len(df_raw)
+    n_train = int(0.8 * n_total)
+    n_val = int(0.1 * n_total)
+
+    df_train_clean = df_raw.iloc[:n_train]
+    df_val_clean = df_raw.iloc[n_train:n_train + n_val]
+    df_test_clean = df_raw.iloc[n_train + n_val:]
+
+    # 2. Huấn luyện từng mô hình trên tập dữ liệu chuẩn Clean
+    trained_models = {}
+    print(f"\n==========================================================================================")
+    print(f"🏋️ HUẤN LUYỆN TẤT CẢ CÁC MÔ HÌNH TRÊN TẬP DỮ LIỆU GỐC (CLEAN BASELINE)")
+    print(f"==========================================================================================")
+
+    for m_name, info in models_to_test.items():
+        trained_models[m_name] = {}
+        for seed in args.seeds:
+            set_seed(seed)
+            train_ds = MultiStepDataset(df_train_clean, nodes, info['cfg'].T_IN, info['cfg'].HORIZON)
+            scaler = {'mean': train_ds.means, 'std': train_ds.stds}
+            val_ds = MultiStepDataset(df_val_clean, nodes, info['cfg'].T_IN, info['cfg'].HORIZON, scaler)
+            
+            train_loader = DataLoader(train_ds, batch_size=info['cfg'].BATCH_SIZE, shuffle=True)
+            val_loader = DataLoader(val_ds, batch_size=min(info['cfg'].BATCH_SIZE, 32), shuffle=False)
+            
+            model = info['fn'](info['cfg']).to(device)
+            criterion = PureHuberLoss(delta=1.0)
+            optimizer = optim.Adam(model.parameters(), lr=info['cfg'].LEARNING_RATE, weight_decay=getattr(info['cfg'], 'WEIGHT_DECAY', 1e-4))
+            scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer, mode='min', factor=getattr(info['cfg'], 'LR_SCHED_FACTOR', 0.5), patience=getattr(info['cfg'], 'LR_SCHED_PATIENCE', 10)
+            )
+
+            best_val_loss = float('inf')
+            best_weights = copy.deepcopy(model.state_dict())
+            patience_counter = 0
+
+            for epoch in range(1, info['cfg'].EPOCHS + 1):
+                model.train()
+                for X_b, Y_b in train_loader:
+                    X_b, Y_b = X_b.to(device), Y_b.to(device)
+                    optimizer.zero_grad()
+                    loss = criterion(model(X_b), Y_b)
+                    loss.backward()
+                    nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+                    optimizer.step()
+
+                model.eval()
+                val_loss = 0.0
+                with torch.no_grad():
+                    for X_b, Y_b in val_loader:
+                        X_b, Y_b = X_b.to(device), Y_b.to(device)
+                        val_loss += criterion(model(X_b), Y_b).item() * len(X_b)
+                val_loss /= len(val_loader.dataset)
+                scheduler.step(val_loss)
+
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    patience_counter = 0
+                    best_weights = copy.deepcopy(model.state_dict())
+                else:
+                    patience_counter += 1
+
+                if patience_counter >= info['cfg'].PATIENCE:
+                    break
+
+            model.load_state_dict(best_weights)
+            model.eval()
+            trained_models[m_name][seed] = {'model': model, 'scaler': scaler}
+            print(f"   ▶ Trained {m_name:<26} | Seed {seed:>4} -> Best Val Loss: {best_val_loss:.4f}")
+
+    # 3. Đánh giá độ bền vững khi bơm nhiễu vào ĐẦU VÀO X nhưng giữ nguyên NHÃN Y_clean
+    print(f"\n==========================================================================================")
+    print(f"🛡️ ĐÁNH GIÁ ĐỘ BỀN VỮNG VỚI NHIỄU NHẬN DẠNG GIAI ĐOẠN 1 (ERROR PROPAGATION)")
+    print(f"==========================================================================================")
+
     for n_info in noise_levels:
         noise_mae = n_info['mae_noise']
-        print(f"\n⚡ [{n_info['name']}] Bơm nhiễu bất đối xứng (Heteroscedastic Gamma) tương ứng MAE = {noise_mae} vào chuỗi dữ liệu...")
+        print(f"\n⚡ [{n_info['name']}] Thử nghiệm đầu vào nhận dạng bị nhiễu (MAE = {noise_mae:.2f})...")
 
-        df_noisy = add_realistic_perception_noise(df_raw, nodes, noise_mae, seed=42)
+        if noise_mae == 0.0:
+            df_noisy = df_raw.copy()
+        else:
+            df_noisy = add_realistic_perception_noise(df_raw, nodes, noise_mae, seed=42)
 
-        n_total = len(df_noisy)
-        n_train = int(0.8 * n_total)
-        n_val = int(0.1 * n_total)
-
-        df_train = df_noisy.iloc[:n_train]
-        df_val = df_noisy.iloc[n_train:n_train + n_val]
-        df_test = df_noisy.iloc[n_train + n_val:]
+        df_test_noisy = df_noisy.iloc[n_train + n_val:]
 
         for m_name, info in models_to_test.items():
             maes_seed = []
             for seed in args.seeds:
-                res = train_single_noise_experiment(
-                    m_name, info['fn'], df_train, df_val, df_test, nodes, info['cfg'], device, seed
-                )
-                maes_seed.append(res['mae'])
-                print(f"   ▶ Noise MAE={noise_mae:<4.2f} | {m_name:<26} | Seed {seed:>4} -> Forecasting MAE: {res['mae']:.4f}")
+                m_obj = trained_models[m_name][seed]['model']
+                scaler = trained_models[m_name][seed]['scaler']
+
+                test_ds = MultiStepDataset(df_test_noisy, nodes, info['cfg'].T_IN, info['cfg'].HORIZON, scaler, target_df=df_test_clean)
+                test_loader = DataLoader(test_ds, batch_size=min(info['cfg'].BATCH_SIZE, 32), shuffle=False)
+
+                means = torch.tensor(scaler['mean'], device=device)
+                stds = torch.tensor(scaler['std'], device=device)
+
+                total_mae = 0.0
+                count_batches = 0
+
+                with torch.no_grad():
+                    for X_batch, Y_batch in test_loader:
+                        X_batch, Y_batch = X_batch.to(device), Y_batch.to(device)
+                        pred = m_obj(X_batch)
+
+                        y_true = Y_batch * stds + means
+                        y_pred = pred * stds + means
+
+                        y_true_total = y_true.sum(dim=-1)
+                        y_pred_total = y_pred.sum(dim=-1)
+
+                        total_mae += torch.abs(y_true_total - y_pred_total).mean().item()
+                        count_batches += 1
+
+                avg_mae = total_mae / max(1, count_batches)
+                maes_seed.append(avg_mae)
+                print(f"   ▶ Noise MAE={noise_mae:<4.2f} | {m_name:<26} | Seed {seed:>4} -> Forecasting MAE: {avg_mae:.4f}")
 
             results[m_name][noise_mae] = maes_seed
 
-    # 2. Tổng hợp bảng dữ liệu kết quả
+    # 4. Tổng hợp bảng dữ liệu kết quả
     summary_rows = []
     plot_data = {m_name: {'x': [], 'y_mean': [], 'y_std': []} for m_name in models_to_test}
 
@@ -397,11 +494,11 @@ def run_noise_robustness_experiment():
     print(f"{'='*95}")
     print(df_report.to_string(index=False))
 
-    # 3. Vẽ biểu đồ chất lượng cao IEEE cho bài báo (Figure: Noise Robustness)
+    # 5. Vẽ biểu đồ chất lượng cao IEEE cho bài báo (Figure: Noise Robustness)
     fig_dir = os.path.join("paper", "fig")
     os.makedirs(fig_dir, exist_ok=True)
 
-    plt.figure(figsize=(9, 6), dpi=300)
+    plt.figure(figsize=(9.5, 6), dpi=300)
     plt.rcParams['font.family'] = 'DejaVu Sans'
     plt.rcParams['font.size'] = 11
 
@@ -445,12 +542,32 @@ def run_noise_robustness_experiment():
             color=m_color, alpha=0.10
         )
 
-    plt.axvline(x=3.74, color='gray', linestyle=':', linewidth=1.8, label='Stage 1 Perception Noise (MAE=3.74)')
+    plt.axvline(x=c_min_mae, color='gray', linestyle=':', linewidth=1.8, label=f'Stage 1 Perception Noise (MAE={c_min_mae:.2f})')
 
     plt.title('Robustness to Stage 1 Perception Noise Across All Models', fontsize=12, fontweight='bold', pad=12)
     plt.xlabel('Simulated Stage 1 Perception Noise Level (Input ΔMAE)', fontsize=11, fontweight='bold')
     plt.ylabel('Stage 2 Forecasting MAE Overall', fontsize=11, fontweight='bold')
-    plt.xticks([0.0, 1.50, 3.74, 5.50], ['0.0 (Clean)', '1.50 (Mild)', '3.74 (Stage 1)', '5.50 (Heavy)'])
+    
+    # Định cấu hình trục X động đẹp đẽ, tránh dính chữ
+    x_ticks = [n_info['mae_noise'] for n_info in noise_levels]
+    x_labels = []
+    for n_info in noise_levels:
+        val = n_info['mae_noise']
+        if val == 0.0:
+            x_labels.append("0.00\n(Clean)")
+        elif abs(val - c_min_mae) < 1e-3:
+            x_labels.append(f"{val:.2f}\n(Stage 1 Best)")
+        elif abs(val - c_mean_mae) < 1e-3:
+            x_labels.append(f"{val:.2f}\n(Stage 1 Mean)")
+        elif abs(val - c_max_mae) < 1e-3:
+            x_labels.append(f"{val:.2f}\n(Stage 1 Max)")
+        else:
+            x_labels.append(f"{val:.2f}\n(Extreme)")
+
+    plt.xticks(x_ticks, x_labels, fontsize=9.5)
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend(frameon=True, facecolor='white', edgecolor='none', fontsize=9, loc='upper left')
+    plt.tight_layout()
     plt.grid(True, linestyle='--', alpha=0.6)
     plt.legend(frameon=True, facecolor='white', edgecolor='none', fontsize=9, loc='upper left')
     plt.tight_layout()
