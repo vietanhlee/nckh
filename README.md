@@ -1,90 +1,75 @@
-# So sánh các mô hình Spatial-Temporal Graph Neural Networks (STGNNs) cho Dự báo Lưu lượng Giao thông
+# TA-STGCN: A Hybrid Spatial-Temporal Graph Neural Network for Traffic Flow Forecasting
 
-Dự án này được xây dựng nhằm nghiên cứu khoa học (NCKH), thực nghiệm và so sánh hiệu năng của các kiến trúc mạng nơ-ron đồ thị không-thời gian (Spatial-Temporal Graph Neural Networks) phổ biến trong bài toán dự báo lưu lượng giao thông (Traffic Flow Forecasting).
+This repository contains the official implementation of a comprehensive research framework for evaluating Spatial-Temporal Graph Neural Networks (STGNNs) on Traffic Flow Forecasting. We propose **TA-STGCN**, a hybrid architecture integrating Temporal Convolutional Networks (TCN), Graph Convolution (GCN), and Temporal Self-Attention.
 
-Nghiên cứu tập trung so sánh các baseline kinh điển và thực hiện đánh giá sâu sắc các cơ chế mô hình hóa thời gian khác nhau (**GLU, BiLSTM, TCN, Attention**) trên cùng một bộ khung không gian đồ thị có hướng (**Diffusion Graph Convolution**).
-
----
-
-## 📂 Danh sách các Kiến trúc Mô hình
-
-Dự án hiện tại hỗ trợ **7 kiến trúc mô hình độc lập**, được tối ưu hóa hiệu năng huấn luyện bằng PyTorch thuần để dễ dàng chạy thực nghiệm:
-
-### 1. Các Kiến trúc Baseline chính
-* **GCN-LSTM** ([gcn_lstm.py](file:///g:/nckh/gcn_lstm.py)):
-  * **Spatial**: Graph Convolutional Network (GCN) trích xuất đặc trưng không gian tĩnh.
-  * **Temporal**: Long Short-Term Memory (LSTM) học các phụ thuộc thời gian dài hạn.
-* **Graph WaveNet** ([wavenet_gcn.py](file:///g:/nckh/wavenet_gcn.py)):
-  * **Spatial**: Kết hợp GCN cố định cùng cơ chế ma trận kề thích ứng (Adaptive Adjacency) tự học cấu trúc đồ thị từ dữ liệu.
-  * **Temporal**: Lớp Dilated Causal Convolution (Gated TCN) mở rộng receptive field nhanh chóng.
-* **STGCN** ([stgcn.py](file:///g:/nckh/stgcn.py)):
-  * **Spatial**: Chebyshev Spectral Graph Convolution (ChebConv).
-  * **Temporal**: Lớp Temporal Gated Convolution (GLU) qua tích chập 1D.
-
-### 2. Các Biến thể cải tiến của DCRNN (Mô hình hóa thời gian song song)
-* **DCRNN-GLU** ([dcrnn_glu.py](file:///g:/nckh/dcrnn_glu.py)) [NEW - ĐỀ XUẤT]:
-  * **Spatial**: Tích chập lan truyền (Diffusion Convolution) trên đồ thị có hướng.
-  * **Temporal**: Lớp **Gated CNN (GLU) 1D** thay thế cho các tế bào tuần tự DCGRU giúp song song hóa học thời gian cực nhanh.
-* **DCRNN-BiLSTM** ([dcrnn_bilstm.py](file:///g:/nckh/dcrnn_bilstm.py)) [NEW - ĐỀ XUẤT]:
-  * **Spatial**: Tích chập lan truyền (Diffusion Convolution) trên đồ thị có hướng.
-  * **Temporal**: Lớp **Bidirectional LSTM (BiLSTM)** xử lý đặc trưng chuỗi thời gian hai chiều động.
-* **DCRNN-TCN** ([dcrnn_tcn.py](file:///g:/nckh/dcrnn_tcn.py)) [NEW - ĐỀ XUẤT]:
-  * **Spatial**: Tích chập lan truyền (Diffusion Convolution) trên đồ thị có hướng.
-  * **Temporal**: Lớp **Stacked Dilated Causal TCN** học quan hệ thời gian dài hạn bằng giãn nở exponential.
-* **DCRNN-Attention** ([dcrnn_attention.py](file:///g:/nckh/dcrnn_attention.py)) [NEW - ĐỀ XUẤT]:
-  * **Spatial**: Tích chập lan truyền (Diffusion Convolution) trên đồ thị có hướng.
-  * **Temporal**: Lớp **Multi-Head Temporal Self-Attention** trích xuất ngữ cảnh thời gian động toàn cục.
+The project features a rigorous **4-Stage Experimental Pipeline** explicitly designed for high-impact IEEE journal submissions. It encompasses robust 5-seed statistical benchmarks, Computer Vision perception baseline testing, Noise Robustness studies, and Explainable AI (XAI) visualizations (Grad-CAM++ and Temporal Attention heatmaps).
 
 ---
 
-## 🛠️ Cài đặt Môi trường
+## 🛠️ Experimental Pipeline Overview
 
-Cài đặt các thư viện cần thiết trước khi chạy:
+The codebase is fully orchestrated by a master bash script (`run_all_experiments.sh`) which executes 4 consecutive evaluation stages:
+
+### [1/4] Stage 2: Graph Forecasting Benchmark (`benchmark_5seeds.py`)
+- Rigorous 5-seed statistical evaluation of our proposed model against 6 state-of-the-art baselines:
+  - **STGCN** (IJCAI 2018)
+  - **Graph WaveNet** (IJCAI 2019)
+  - **ASTGCN** (AAAI 2019)
+  - **DSTAGNN** (ICML 2022)
+  - **MegaCRN** (AAAI 2023)
+  - **STAEformer** (CIKM 2023)
+- Models are scaled properly for fair parameter-count comparisons.
+- Automatically generates multi-horizon Mean Absolute Error (MAE / MAPE) curves, complexity tables (Params/Memory), and 95% Confidence Intervals (CI).
+
+### [2/4] Temporal Attention Interpretability (`train_and_visualize_attention.py`)
+- Explains the decision-making process of **TA-STGCN**.
+- Dynamically selects representative peak and off-peak traffic snapshots from the test dataset based on unnormalized traffic volume.
+- Generates **Temporal Self-Attention Heatmaps** comparing the model's receptive focus across different traffic congestion scenarios (e.g., Night Off-Peak vs. Morning Peak).
+
+### [3/4] Stage 1: Vision Perception Benchmark (`train_counting.py`)
+- Evaluates cutting-edge Computer Vision models (ResNet, EfficientNet, ViT, ConvNeXt, MobileNet) to estimate real-world vehicle volume (Cars & Bikes) from traffic camera feeds.
+- Computes **Grad-CAM++** to visually explain the internal feature attribution and spatial focus of the Vision models.
+- Exports real-world statistical vision noise profiles.
+
+### [4/4] Stage 3: Noise Robustness Study (`run_noise_robustness_study.py`)
+- Automatically reads the empirical noise statistics (MAE) derived from the Vision Perception phase.
+- Injects progressive, scientifically-calibrated Gaussian noise into the forecasting input.
+- Analyzes and plots STGNN model resilience against imperfect computer vision sensory inputs.
+
+---
+
+## 🚀 How to Run
+
+### Requirements
 ```bash
-pip install torch numpy pandas matplotlib tqdm openpyxl tabulate
+pip install torch numpy pandas matplotlib seaborn tqdm openpyxl tabulate scikit-learn opencv-python
 ```
 
----
+### Data Preparation
+Ensure the following files are present in your configured data directory:
+1. `Graph_fix_py_3.xlsx` (Spatial Adjacency Matrix)
+2. `count_7_7_merg_sort_fix_fill.csv` (Time-series traffic volume data containing `Timestamp`, `STT` (Node ID), `Car Count`, and `Bike Count`).
 
-## 📊 Chuẩn bị Dữ liệu
-
-Cấu hình đường dẫn dữ liệu được khai báo trong lớp `Config` ở đầu các mô hình:
-1. **Excel chứa Ma trận kề**: `Graph_fix_py_3.xlsx`
-2. **CSV chứa Chuỗi thời gian**: `count_7_7_merg_sort_fix_fill.csv` (yêu cầu cột `Timestamp`, `STT` (Node ID), và `Total Vehicles`).
-
----
-
-## 🚀 Hướng dẫn Sử dụng
-
-### 1. Chạy Huấn luyện Từng Mô hình Độc lập
+### Execution
+Simply run the master shell script to execute the entire 4-stage pipeline sequentially. Before running each stage, the script will automatically `git pull` the latest changes.
 ```bash
-python gcn_lstm.py
-python wavenet_gcn.py
-python stgcn.py
-python dcrnn_glu.py
-python dcrnn_bilstm.py
-python dcrnn_tcn.py
-python dcrnn_attention.py
+bash run_all_experiments.sh
 ```
-*Mỗi file mô hình đều được trang bị early stopping với độ kiên nhẫn `PATIENCE = 20`, thanh tiến trình `tqdm.auto` và tự động lưu checkpoint đạt MAE tốt nhất trên tập Validation vào thư mục `./model/`.*
 
-### 2. Chạy So sánh Đồng thời cả 7 Mô hình (compare_models.py)
-Để thực hiện thực nghiệm so sánh tất cả các kiến trúc trên cùng một tập dữ liệu dùng chung (cùng cách phân chia Train/Val/Test), hãy sử dụng script [compare_models.py](file:///g:/nckh/compare_models.py):
-
-* **Chế độ Đánh giá nhanh (Mặc định)**: Tải các checkpoint `.pth` tốt nhất trong thư mục `model/` của cả 7 mô hình hiện có và đánh giá trên tập Test để xuất bảng so sánh chỉ số:
-  ```bash
-  python compare_models.py --mode eval
-  ```
-* **Chế độ Huấn luyện mới**: Huấn luyện tuần tự cả 7 mô hình từ đầu, tự động lưu checkpoint vào `model/` và tổng hợp bảng so sánh:
-  ```bash
-  python compare_models.py --mode train --epochs 100
-  ```
-
-Sau khi chạy xong, kết quả so sánh (các chỉ số **Loss**, **MAE**, **MSE**, **RMSE** trên tập Test) sẽ được hiển thị trên console dưới dạng bảng Markdown và được tự động ghi vào tệp báo cáo `comparison_report.md`.
+*(Alternatively, you can run individual scripts using `python <script_name.py>`)*
 
 ---
 
-## 📝 Quy ước trong Nghiên cứu khoa học
-* **Độ chia dữ liệu**: Mặc định chia theo tỉ lệ thời gian `80% Train` / `10% Val` / `10% Test`.
-* **Khung thời gian dự báo**: Đầu vào `T_IN` sử dụng dữ liệu lịch sử của 120 phút trước (tương đương 24 bước với bước thời gian 5 phút), dự báo trước `HORIZON = 6` bước tiếp theo (30 phút tương lai).
-* **Quản lý Checkpoints**: Các checkpoint của mô hình được tự động lưu trong thư mục `model/` tương đối tại gốc thư mục chạy để đảm bảo tính di động cao (chạy được cả trên môi trường local lẫn Google Colab).
+## 📊 Experimental Setup
+- **Dataset Split**: Training / Validation / Testing split ordered chronologically.
+- **Input Horizon (`T_in`)**: 120 minutes of historical data (24 time steps at 5 mins/step).
+- **Output Horizon (`Horizon`)**: Forecasting up to 30 minutes into the future (6 consecutive time steps).
+- **Vehicle Channels**: Parallel prediction of two distinct vehicle classes (Cars and Bikes).
+
+---
+
+## 📝 Generated Artifacts
+All experiments automatically generate professional, publication-ready artifacts:
+- `paper/fig/`: Contains high-resolution `.pdf` and `.png` plots for academic inclusion.
+- `*_report.md`: Markdown tables reporting rigorous statistical metrics, ablation studies, and computational profiling.
+- `model/`: Directory storing the best weights/checkpoints for all trained models.

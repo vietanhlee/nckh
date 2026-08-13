@@ -70,8 +70,8 @@ mkdir -p logs plots paper/fig checkpoints
 # 📍 THỬ NGHIỆM 1: STAGE 2 GRAPH FORECASTING BENCHMARK
 # ------------------------------------------------------------------------------
 # echo -e "\n${YELLOW}[1/4] 📈 Đang chạy Stage 2: Graph Forecasting Benchmark ...${NC}"
-git pull
-python benchmark_5seeds.py --root_dir "${DATA_ROOT}" ${BENCHMARK_ARGS}
+git fetch --all && git reset --hard origin/main
+# python benchmark_5seeds.py --root_dir "${DATA_ROOT}" ${BENCHMARK_ARGS}
 
 # echo -e "${GREEN}✅ [1/4] Hoàn thành Stage 2! Báo cáo đã lưu tại benchmark_5seeds_report.md, JSON kết quả và paper/fig/${NC}"
 
