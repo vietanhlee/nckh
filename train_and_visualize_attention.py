@@ -166,7 +166,7 @@ def train_and_visualize():
             low, high = pinfo['range']
             if low <= hour <= high:
                 X, _ = test_ds[i]
-                x_last = X[-1, :, :2] # (num_nodes, 2)
+                x_last = np.array(X[-1, :, :2]) # (num_nodes, 2)
                 x_last_unnorm = x_last * stds + means
                 total_veh = x_last_unnorm.sum()
                 avg_veh_per_node = total_veh / X.shape[1]
@@ -237,10 +237,18 @@ def train_and_visualize():
         plt.xticks(tick_indices, time_ticks, rotation=45, ha='right')
         plt.yticks(tick_indices, time_ticks, rotation=0)
         
-        save_path = os.path.join(CFG.PLOT_DIR, f'attention_heatmap_{pkey.lower()}.png')
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        save_png = os.path.join(CFG.PLOT_DIR, f'attention_heatmap_{pkey.lower()}.png')
+        save_pdf = os.path.join(CFG.PLOT_DIR, f'attention_heatmap_{pkey.lower()}.pdf')
+        plt.savefig(save_png, dpi=300, bbox_inches='tight')
+        plt.savefig(save_pdf, dpi=300, bbox_inches='tight')
+        
+        paper_fig_dir = os.path.join('paper', 'fig')
+        if os.path.exists(paper_fig_dir):
+            plt.savefig(os.path.join(paper_fig_dir, f'attention_heatmap_{pkey.lower()}.png'), dpi=300, bbox_inches='tight')
+            plt.savefig(os.path.join(paper_fig_dir, f'attention_heatmap_{pkey.lower()}.pdf'), dpi=300, bbox_inches='tight')
+            
         plt.close()
-        print(f"📊 Saved single heatmap for {pkey} at {save_path}")
+        print(f"📊 Saved single heatmap for {pkey} at {save_png} and {save_pdf}")
 
     # B. Tạo 4 bức ảnh so sánh chuẩn 3-Subplot (Target vs Night Off-Peak vs Difference)
     targets_to_compare = ['Morning_Peak', 'Noon_Normal', 'Evening_Peak', 'Late_Evening']
