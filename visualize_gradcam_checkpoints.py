@@ -37,14 +37,17 @@ class GradCAMPlusPlus:
         self.gradients = None
         self.activations = None
 
-        self.target_layer.register_forward_hook(self._save_activations)
-        self.target_layer.register_full_backward_hook(self._save_gradients)
+        def save_activations(module, input, output):
+            if isinstance(output, tuple):
+                output = output[0]
+            self.activations = output.clone()
 
-    def _save_activations(self, module, input, output):
-        self.activations = output
+            def save_gradients(grad):
+                self.gradients = grad.clone()
 
-    def _save_gradients(self, module, grad_input, grad_output):
-        self.gradients = grad_output[0]
+            output.register_hook(save_gradients)
+
+        self.target_layer.register_forward_hook(save_activations)
 
     def generate_heatmap(self, input_tensor, target_class_idx=None):
         self.model.eval()
