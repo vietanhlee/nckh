@@ -243,18 +243,13 @@ def run_noise_robustness_experiment():
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    gcn_lstm_cfg = GCNLSTMConfig()
-    gcn_lstm_cfg.GCN_HIDDEN  = 64
-    gcn_lstm_cfg.LSTM_HIDDEN = 160
-    gcn_lstm_cfg.LSTM_LAYERS = 2
-
     stgcn_cfg = BaselineConfig()
     stgcn_cfg.BLOCK_HIDDEN   = 80
     stgcn_cfg.NUM_BLOCKS     = 3
 
     base_cfg = HybridConfig()
 
-    for cfg_inst in [gcn_lstm_cfg, stgcn_cfg, base_cfg]:
+    for cfg_inst in [stgcn_cfg, base_cfg]:
         cfg_inst.ROOT_DIR = args.root_dir
         cfg_inst.ADJ_PATH = os.path.join(args.root_dir, "Graph_fix_py_3.xlsx")
         cfg_inst.CSV_PATH = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
@@ -271,7 +266,7 @@ def run_noise_robustness_experiment():
         alt_adj = os.path.join(local_dir, "Graph_fix_py_3.xlsx")
         alt_csv = os.path.join(local_dir, "count_7_7_merg_sort_fix_fill.csv")
         if os.path.exists(alt_csv):
-            for cfg_inst in [gcn_lstm_cfg, stgcn_cfg, base_cfg]:
+            for cfg_inst in [stgcn_cfg, base_cfg]:
                 cfg_inst.ADJ_PATH = alt_adj
                 cfg_inst.CSV_PATH = alt_csv
 

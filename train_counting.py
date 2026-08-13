@@ -460,11 +460,9 @@ def generate_vision_explainability_figures(sample_img_path, trained_models_dict,
         plt.tight_layout()
         single_pdf = os.path.join(save_dir, f"gradcam_{m_key}.pdf")
         single_png = os.path.join(save_dir, f"gradcam_{m_key}.png")
-        plots_single_png = os.path.join("plots", f"gradcam_{m_key}.png")
 
         plt.savefig(single_pdf, format='pdf', bbox_inches='tight')
         plt.savefig(single_png, format='png', bbox_inches='tight', dpi=300)
-        plt.savefig(plots_single_png, format='png', bbox_inches='tight', dpi=300)
         plt.close(fig_single)
 
     plt.tight_layout()

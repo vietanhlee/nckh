@@ -172,58 +172,56 @@ def train_and_visualize():
                 avg_veh_per_node = total_veh / X.shape[1]
                 pinfo['candidates'].append((i, avg_veh_per_node))
 
-    # Chọn mẫu có tính đại diện cao nhất (Dynamic Selection)
+    # Chọn TẤT CẢ các mẫu trong khung giờ (Statistically Averaged Period)
     for pkey, pinfo in periods.items():
         if len(pinfo['candidates']) == 0:
-            pinfo['idx'] = len(test_ds) // 2
+            pinfo['indices'] = [len(test_ds) // 2]
             pinfo['avg_veh'] = 0.0
             continue
             
-        cands = sorted(pinfo['candidates'], key=lambda x: x[1])
-        if pinfo['type'] == 'min':
-            best_cand = cands[0]
-        elif pinfo['type'] == 'max':
-            best_cand = cands[-1]
-        else: # median
-            best_cand = cands[len(cands)//2]
+        pinfo['indices'] = [cand[0] for cand in pinfo['candidates']]
+        pinfo['avg_veh'] = np.mean([cand[1] for cand in pinfo['candidates']])
+
+    def get_averaged_attn_matrix(indices):
+        all_mats = []
+        for idx in indices:
+            nonlocal attention_weights
+            attention_weights = None
+            X, Y = test_ds[idx]
+            if isinstance(X, torch.Tensor):
+                X_tensor = X.detach().clone().float().unsqueeze(0).to(device)
+            else:
+                X_tensor = torch.from_numpy(X).float().unsqueeze(0).to(device)
+                
+            X_tensor = X_tensor[..., :in_feat]
+            with torch.no_grad():
+                _ = model(X_tensor)
+
+            if attention_weights is None or np.isnan(attention_weights).any():
+                if hasattr(model.temporal_attn, 'last_attn_weights') and model.temporal_attn.last_attn_weights is not None:
+                    attention_weights = model.temporal_attn.last_attn_weights.detach().cpu().numpy()
+
+            if attention_weights is None:
+                mat = np.eye(24)
+            else:
+                mat = np.mean(attention_weights, axis=0) if attention_weights.ndim == 3 else attention_weights
+                mat = np.nan_to_num(mat, nan=1.0 / 24.0)
+                row_sums = mat.sum(axis=-1, keepdims=True)
+                row_sums[row_sums == 0] = 1.0
+                mat = mat / row_sums
+                
+            all_mats.append(mat)
             
-        pinfo['idx'] = best_cand[0]
-        pinfo['avg_veh'] = best_cand[1]
-
-    def get_attn_matrix(idx):
-        nonlocal attention_weights
-        attention_weights = None
-        X, Y = test_ds[idx]
-        if isinstance(X, torch.Tensor):
-            X_tensor = X.detach().clone().float().unsqueeze(0).to(device)
-        else:
-            X_tensor = torch.from_numpy(X).float().unsqueeze(0).to(device)
-            
-        X_tensor = X_tensor[..., :in_feat]
-        with torch.no_grad():
-            _ = model(X_tensor)
-
-        if attention_weights is None or np.isnan(attention_weights).any():
-            if hasattr(model.temporal_attn, 'last_attn_weights') and model.temporal_attn.last_attn_weights is not None:
-                attention_weights = model.temporal_attn.last_attn_weights.detach().cpu().numpy()
-
-        if attention_weights is None:
-            return np.eye(24)
-
-        mat = np.mean(attention_weights, axis=0) if attention_weights.ndim == 3 else attention_weights
-        mat = np.nan_to_num(mat, nan=1.0 / 24.0)
-        row_sums = mat.sum(axis=-1, keepdims=True)
-        row_sums[row_sums == 0] = 1.0
-        mat = mat / row_sums
-        return mat
+        return np.mean(all_mats, axis=0)
 
     # Labels thời gian (-120m đến -5m)
     time_ticks = [f"-{(24-i)*5}m" for i in range(0, 24, 3)]
     tick_indices = list(range(0, 24, 3))
     os.makedirs(CFG.PLOT_DIR, exist_ok=True)
 
-    # Nạp ma trận Attention cho cả 5 khung giờ
-    attn_matrices = {pkey: get_attn_matrix(pinfo['idx']) for pkey, pinfo in periods.items()}
+    # Nạp ma trận Attention trung bình cho cả 5 khung giờ
+    print("\n🔄 Đang tính toán Statistically Averaged Attention Matrix cho toàn bộ tập Test...")
+    attn_matrices = {pkey: get_averaged_attn_matrix(pinfo['indices']) for pkey, pinfo in periods.items()}
     attn_offpeak = attn_matrices['Night_OffPeak']
 
     # A. Lưu ảnh đơn lẻ cho cả 5 khung giờ
