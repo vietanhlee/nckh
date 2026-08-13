@@ -842,6 +842,21 @@ def run_counting_benchmark():
     df_overall = pd.DataFrame(table_overall)
     df_breakdown = pd.DataFrame(table_breakdown)
 
+    # Lấy thông số nhiễu thực tế để truyền cho bài toán Graph (Robustness Study)
+    all_maes = []
+    for m_name in models_to_test:
+        all_maes.extend(results[m_name]['mae_overall'])
+    
+    if len(all_maes) > 0:
+        import json
+        with open("best_counting_noise_stats.json", "w") as f:
+            json.dump({
+                'min_mae': float(np.min(all_maes)),
+                'mean_mae': float(np.mean(all_maes)),
+                'max_mae': float(np.max(all_maes)),
+                'std_mae': float(np.std(all_maes, ddof=1)) if len(all_maes) > 1 else 0.0
+            }, f)
+
     print(f"\n{'='*110}")
     print(f"🏆 1. BẢNG SO SÁNH TỔNG QUAN HỌ MÔ HÌNH ĐẾM PHƯƠNG TIỆN ({len(args.seeds)} SEEDS)")
     print(f"{'='*110}")

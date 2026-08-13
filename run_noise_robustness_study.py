@@ -285,23 +285,30 @@ def run_noise_robustness_experiment():
         base_cfg.CSV_PATH, nodes, base_cfg.DATA_WINDOW1, base_cfg.DATA_WINDOW2, base_cfg.TIME_STEP_MINUTES
     )
 
-    # 4 Mức nhiễu mô phỏng sai số nhận dạng Giai đoạn 1 (Khớp 100% với Stage 1 ResNet-50 MAE = 3.74)
+    # Đọc thông số nhiễu từ bài toán Vision đếm xe (nếu có)
+    c_min_mae, c_mean_mae, c_max_mae, c_std_mae = 1.5, 2.5, 3.5, 0.5
+    try:
+        import json
+        with open("best_counting_noise_stats.json", "r") as f:
+            stats = json.load(f)
+            c_min_mae = stats['min_mae']
+            c_mean_mae = stats['mean_mae']
+            c_max_mae = stats['max_mae']
+            c_std_mae = stats['std_mae']
+        print(f"✅ Đã nạp thông số nhiễu thực tế từ Vision Model: Min={c_min_mae:.2f}, Mean={c_mean_mae:.2f}, Max={c_max_mae:.2f}, Std={c_std_mae:.2f}")
+    except Exception:
+        print("⚠️ Không tìm thấy best_counting_noise_stats.json, sử dụng cấu hình nhiễu mặc định.")
+
+    # Thiết lập 5 Mức nhiễu mô phỏng mô phỏng thực tế (Reviewer Standard)
     noise_levels = [
         {'name': 'Level 0: Clean (No Noise)', 'mae_noise': 0.0},
-        {'name': 'Level 1: Mild Noise (MAE=1.50)', 'mae_noise': 1.50},
-        {'name': 'Level 2: Stage 1 Perception Noise (MAE=3.74)', 'mae_noise': 3.74},
-        {'name': 'Level 3: Heavy Noise (MAE=5.50)', 'mae_noise': 5.50}
+        {'name': f'Level 1: SOTA Vision Noise (Best Model, MAE={c_min_mae:.2f})', 'mae_noise': c_min_mae},
+        {'name': f'Level 2: Typical Edge Vision Noise (Avg Model, MAE={c_mean_mae:.2f})', 'mae_noise': c_mean_mae},
+        {'name': f'Level 3: Degraded Vision Noise (Worst Model, MAE={c_max_mae:.2f})', 'mae_noise': c_max_mae},
+        {'name': f'Level 4: Extreme Failure (Worst + 2 Std, MAE={c_max_mae + 2*c_std_mae:.2f})', 'mae_noise': c_max_mae + 2*c_std_mae}
     ]
 
     models_to_test = {
-        'GCN-LSTM': {
-            'cfg': gcn_lstm_cfg,
-            'fn': lambda cfg: ImprovedGNN_LSTM(
-                num_nodes=len(nodes), in_feat=5, gcn_hidden=cfg.GCN_HIDDEN,
-                lstm_hidden=cfg.LSTM_HIDDEN, lstm_layers=cfg.LSTM_LAYERS,
-                horizon=cfg.HORIZON, output_feat=2, A_norm=A_norm, dropout=cfg.DROPOUT
-            )
-        },
         'STGCN (Baseline)': {
             'cfg': stgcn_cfg,
             'fn': lambda cfg: Baseline_STGCN_Model(

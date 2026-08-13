@@ -69,34 +69,42 @@ mkdir -p logs plots paper/fig checkpoints
 # ------------------------------------------------------------------------------
 # 📍 THỬ NGHIỆM 1: STAGE 2 GRAPH FORECASTING BENCHMARK
 # ------------------------------------------------------------------------------
-echo -e "\n${YELLOW}[1/3] 📈 Đang chạy Stage 2: Graph Forecasting Benchmark ...${NC}"
+echo -e "\n${YELLOW}[1/4] 📈 Đang chạy Stage 2: Graph Forecasting Benchmark ...${NC}"
 python benchmark_5seeds.py --root_dir "${DATA_ROOT}" ${BENCHMARK_ARGS}
 
-echo -e "${GREEN}✅ [1/3] Hoàn thành Stage 2! Báo cáo đã lưu tại benchmark_5seeds_report.md, JSON kết quả và paper/fig/${NC}"
+echo -e "${GREEN}✅ [1/4] Hoàn thành Stage 2! Báo cáo đã lưu tại benchmark_5seeds_report.md, JSON kết quả và paper/fig/${NC}"
 
 # ------------------------------------------------------------------------------
 # 📍 THỬ NGHIỆM 2: TEMPORAL ATTENTION WEIGHT INTERPRETABILITY & HEATMAPS
 # ------------------------------------------------------------------------------
-echo -e "\n${YELLOW}[2/3] 🧠 Đang chạy Temporal Attention Interpretability & Heatmap Analysis ...${NC}"
+echo -e "\n${YELLOW}[2/4] 🧠 Đang chạy Temporal Attention Interpretability & Heatmap Analysis ...${NC}"
 python train_and_visualize_attention.py --root_dir "${DATA_ROOT}" ${ATTENTION_ARGS}
 
-echo -e "${GREEN}✅ [2/3] Hoàn thành Temporal Attention Analysis! Ma trận Attention đã lưu vào paper/fig/${NC}"
+echo -e "${GREEN}✅ [2/4] Hoàn thành Temporal Attention Analysis! Ma trận Attention đã lưu vào paper/fig/${NC}"
 
 # ------------------------------------------------------------------------------
 # 📍 THỬ NGHIỆM 3: STAGE 1 VISION PERCEPTION BENCHMARK (COUNTING & GRAD-CAM++)
 # ------------------------------------------------------------------------------
-echo -e "\n${YELLOW}[3/3] 📸 Đang chạy Stage 1: Vision Perception Benchmark & Grad-CAM++ ...${NC}"
+echo -e "\n${YELLOW}[3/4] 📸 Đang chạy Stage 1: Vision Perception Benchmark & Grad-CAM++ ...${NC}"
 python train_counting.py ${COUNTING_ARGS}
 
-echo -e "${GREEN}✅ [3/3] Hoàn thành Stage 1! Báo cáo đã lưu tại counting_benchmark_report.md và paper/fig/${NC}"
+echo -e "${GREEN}✅ [3/4] Hoàn thành Stage 1! Báo cáo đã lưu tại counting_benchmark_report.md và paper/fig/${NC}"
+
+# ------------------------------------------------------------------------------
+# 📍 THỬ NGHIỆM 4: STAGE 3 NOISE ROBUSTNESS STUDY
+# ------------------------------------------------------------------------------
+echo -e "\n${YELLOW}[4/4] 🌪️ Đang chạy Stage 3: Noise Robustness Study (Phân tích độ bền vững với nhiễu) ...${NC}"
+python run_noise_robustness_study.py --root_dir "${DATA_ROOT}" ${BENCHMARK_ARGS}
+
+echo -e "${GREEN}✅ [4/4] Hoàn thành Stage 3! Kết quả đã được lưu tại noise_robustness_report.md và paper/fig/${NC}"
 
 # ------------------------------------------------------------------------------
 # 🏁 KẾT THÚC CHUỖI THỰC NGHIỆM
 # ------------------------------------------------------------------------------
 echo -e "\n${BLUE}==============================================================================${NC}"
-echo -e "${GREEN}🎉 TẤT CẢ PHẦN THỰC NGHIỆM ĐÃ HOÀN THÀNH XUẤT SẮC!${NC}"
+echo -e "${GREEN}🎉 TẤT CẢ 4 PHẦN THỰC NGHIỆM ĐÃ HOÀN THÀNH XUẤT SẮC!${NC}"
 echo -e "${BLUE}==============================================================================${NC}"
-echo -e "📊 Báo cáo thống kê   : benchmark_5seeds_report.md & counting_benchmark_report.md"
+echo -e "📊 Báo cáo thống kê   : benchmark_5seeds_report.md, counting_benchmark_report.md & noise_robustness_report.md"
 echo -e "💾 Dữ liệu JSON thô    : benchmark_5seeds_results.json"
 echo -e "🖼️ Biểu đồ bài báo     : paper/fig/ & plots/"
 echo -e "💾 Trọng số Checkpoints : checkpoints/"

@@ -68,7 +68,9 @@ def train_and_visualize():
     # 2. Kiểm tra đường dẫn load model weights và tự động phát hiện kích thước channels trong Checkpoint
     candidate_paths = [
         args.model_path if args.model_path else None,
-        CFG.FULL_SAVE_PATH,
+        os.path.join(CFG.ROOT_DIR, "checkpoints", "overall_best_TA_STGCN.pth"),
+        os.path.join(os.getcwd(), "checkpoints", "overall_best_TA_STGCN.pth"),
+        os.path.join(os.getcwd(), "model", "overall_best_TA_STGCN.pth")
     ]
 
     target_model_path = None
@@ -122,39 +124,11 @@ def train_and_visualize():
             model.load_state_dict(state_dict)
             print(f"🎉 Đã nạp thành công 100% trọng số checkpoint!")
         except Exception as e:
-            print(f"⚠️ Nạp state_dict thất bại ({e}), chuyển sang huấn luyện lại mô hình...")
+            print(f"⚠️ Nạp state_dict thất bại ({e})")
             target_model_path = None
 
     if target_model_path is None:
-        print(f"⚠️ Bắt đầu huấn luyện mô hình {args.epochs} epochs từ đầu...")
-        optimizer = optim.AdamW(model.parameters(), lr=CFG.LEARNING_RATE)
-        loss_fn = HuberSmoothLoss(delta=CFG.LOSS_DELTA, smooth_weight=CFG.SMOOTH_LOSS_WEIGHT)
-        scaler_obj = torch.amp.GradScaler('cuda') if torch.cuda.is_available() else None
-        
-        for epoch in range(1, args.epochs + 1):
-            if scaler_obj is None:
-                model.train()
-                total_loss = 0.0
-                for X, Y in train_loader:
-                    X, Y = X.to(device), Y.to(device)
-                    x_last = X[:, -1, :, :2].unsqueeze(1)
-                    optimizer.zero_grad()
-                    pred = model(X)
-                    loss = loss_fn(pred, Y, x_last)
-                    loss.backward()
-                    optimizer.step()
-                    total_loss += loss.item()
-                if epoch % 10 == 0 or epoch == 1:
-                    print(f"   Epoch {epoch:03d}/{args.epochs} | Loss: {total_loss/len(train_loader):.4f}")
-            else:
-                train_one_epoch(model, train_loader, optimizer, loss_fn, device, scaler_obj, scaler)
-                if epoch % 10 == 0 or epoch == 1:
-                    print(f"   Epoch {epoch:03d}/{args.epochs} completed.")
-        
-        save_path = target_model_path if target_model_path else CFG.FULL_SAVE_PATH
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        torch.save(model.state_dict(), save_path)
-        print(f"✅ Đã lưu checkpoint mô hình vào: {save_path}")
+        raise FileNotFoundError("❌ Không tìm thấy model best từ phase benchmark (overall_best_TA_STGCN.pth) và cũng không có model nào được truyền vào qua --model_path. Vui lòng chạy chạy benchmark trước để lấy mô hình tốt nhất!")
             
     # 3. Hook to get attention weights
     attention_weights = None

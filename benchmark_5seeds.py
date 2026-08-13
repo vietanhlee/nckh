@@ -525,7 +525,7 @@ def run_benchmark():
             'class': GraphWaveNet,
             'config': stgcn_cfg,
             'build_fn': lambda cfg: GraphWaveNet(
-                num_nodes=len(nodes), in_dim=5, out_dim=2, residual_channels=40, dilation_channels=40, blocks=4, layers=2, horizon=cfg.HORIZON
+                num_nodes=len(nodes), in_dim=5, out_dim=2, residual_channels=64, dilation_channels=64, blocks=4, layers=2, horizon=cfg.HORIZON
             )
         },
         'ASTGCN': {
@@ -540,6 +540,15 @@ def run_benchmark():
             'config': stgcn_cfg,
             'build_fn': lambda cfg: Baseline_STGCN_Model(
                 num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
+                num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT
+            )
+        },
+        'STGCN (Large)': {
+            'class': Baseline_STGCN_Model,
+            'config': stgcn_cfg,
+            'build_fn': lambda cfg: Baseline_STGCN_Model(
+                num_nodes=len(nodes), in_feat=5, block_hidden=96,
                 num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
                 horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT
             )
@@ -614,21 +623,21 @@ def run_benchmark():
             'class': STAEformerProxy,
             'config': stgcn_cfg,
             'build_fn': lambda cfg: STAEformerProxy(
-                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=144, heads=4, out_dim=2
+                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=160, heads=4, out_dim=2
             )
         },
         'MegaCRN': {
             'class': MegaCRNProxy,
             'config': stgcn_cfg,
             'build_fn': lambda cfg: MegaCRNProxy(
-                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=180, out_dim=2
+                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=200, out_dim=2
             )
         },
         'DSTAGNN': {
             'class': DSTAGNNProxy,
             'config': stgcn_cfg,
             'build_fn': lambda cfg: DSTAGNNProxy(
-                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=200, heads=4, out_dim=2
+                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=224, heads=4, out_dim=2
             )
         }
     }
@@ -977,8 +986,6 @@ def run_benchmark():
     print(f"📈 Đã lưu biểu đồ đường cong Validation MAE vào: {plot_path}")
 
     # 2. Plot Error Growth by Horizon (CHỈ DÀNH CHO CÁC MÔ HÌNH BASELINE CHÍNH)
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-
     x_steps = np.array([1, 2, 3, 4, 5, 6])
     x_labels = [f"t+{t}\n({t*5}m)" for t in x_steps]
 
@@ -989,10 +996,15 @@ def run_benchmark():
         'ASTGCN': '#9467bd',
         'STAEformer': '#bcbd22',
         'MegaCRN': '#17becf',
-        'DSTAGNN': '#8c564b'
+        'DSTAGNN': '#8c564b',
+        'STGCN (Large)': '#ff7f0e'   # Orange
     }
 
-    # Left Subplot: MAE by Horizon
+    paper_fig_dir = os.path.join('paper', 'fig')
+    os.makedirs(paper_fig_dir, exist_ok=True)
+
+    # ------------------ SEPARATE FIGURE FOR MAE ------------------
+    plt.figure(figsize=(8, 6))
     for model_name in main_models:
         if model_name not in results or not results[model_name]['step_maes']['t1']: continue
         res = results[model_name]
@@ -1003,18 +1015,27 @@ def run_benchmark():
         linestyle = '-' if is_ours else '--'
         marker = 'o' if is_ours else 's'
         
-        axes[0].plot(x_steps, step_maes_mean, label=model_name, color=color, 
-                     marker=marker, linewidth=linewidth, linestyle=linestyle, markersize=7)
+        plt.plot(x_steps, step_maes_mean, label=model_name, color=color, 
+                 marker=marker, linewidth=linewidth, linestyle=linestyle, markersize=7)
 
-    axes[0].set_xlabel('Prediction Horizon (Minutes Ahead)', fontsize=11, fontweight='bold')
-    axes[0].set_ylabel('Mean Absolute Error (MAE)', fontsize=11, fontweight='bold')
-    axes[0].set_title('(a) MAE Growth across Prediction Horizons', fontsize=12, fontweight='bold')
-    axes[0].set_xticks(x_steps)
-    axes[0].set_xticklabels(x_labels)
-    axes[0].grid(True, linestyle='--', alpha=0.6)
-    axes[0].legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=8)
+    plt.xlabel('Prediction Horizon (Minutes Ahead)', fontsize=11, fontweight='bold')
+    plt.ylabel('Mean Absolute Error (MAE)', fontsize=11, fontweight='bold')
+    plt.title('MAE Growth across Prediction Horizons', fontsize=12, fontweight='bold')
+    plt.xticks(x_steps, x_labels)
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=10)
+    plt.tight_layout()
+    
+    mae_png_path = os.path.join('plots', 'mae_by_horizon.png')
+    mae_pdf_path = os.path.join('plots', 'mae_by_horizon.pdf')
+    plt.savefig(mae_png_path, dpi=300, bbox_inches='tight')
+    plt.savefig(mae_pdf_path, dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(paper_fig_dir, 'mae_by_horizon.png'), dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(paper_fig_dir, 'mae_by_horizon.pdf'), dpi=300, bbox_inches='tight')
+    plt.close()
 
-    # Right Subplot: MAPE by Horizon (%)
+    # ------------------ SEPARATE FIGURE FOR MAPE ------------------
+    plt.figure(figsize=(8, 6))
     for model_name in main_models:
         if model_name not in results or not results[model_name]['step_mapes']['t1']: continue
         res = results[model_name]
@@ -1025,29 +1046,27 @@ def run_benchmark():
         linestyle = '-' if is_ours else '--'
         marker = 'o' if is_ours else 's'
         
-        axes[1].plot(x_steps, step_mapes_mean, label=model_name, color=color, 
-                     marker=marker, linewidth=linewidth, linestyle=linestyle, markersize=7)
+        plt.plot(x_steps, step_mapes_mean, label=model_name, color=color, 
+                 marker=marker, linewidth=linewidth, linestyle=linestyle, markersize=7)
 
-    axes[1].set_xlabel('Prediction Horizon (Minutes Ahead)', fontsize=11, fontweight='bold')
-    axes[1].set_ylabel('Mean Absolute Percentage Error (MAPE %)', fontsize=11, fontweight='bold')
-    axes[1].set_title('(b) MAPE Growth across Prediction Horizons', fontsize=12, fontweight='bold')
-    axes[1].set_xticks(x_steps)
-    axes[1].set_xticklabels(x_labels)
-    axes[1].grid(True, linestyle='--', alpha=0.6)
-    axes[1].legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=8)
-
+    plt.xlabel('Prediction Horizon (Minutes Ahead)', fontsize=11, fontweight='bold')
+    plt.ylabel('Mean Absolute Percentage Error (MAPE %)', fontsize=11, fontweight='bold')
+    plt.title('MAPE Growth across Prediction Horizons', fontsize=12, fontweight='bold')
+    plt.xticks(x_steps, x_labels)
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize=10)
     plt.tight_layout()
-    paper_fig_dir = os.path.join('paper', 'fig')
-    os.makedirs(paper_fig_dir, exist_ok=True)
     
-    horizon_png_path = os.path.join('plots', 'error_by_horizon.png')
-    horizon_pdf_path = os.path.join('plots', 'error_by_horizon.pdf')
-    plt.savefig(horizon_png_path, dpi=300, bbox_inches='tight')
-    plt.savefig(horizon_pdf_path, dpi=300, bbox_inches='tight')
-    plt.savefig(os.path.join(paper_fig_dir, 'error_by_horizon.png'), dpi=300, bbox_inches='tight')
-    plt.savefig(os.path.join(paper_fig_dir, 'error_by_horizon.pdf'), dpi=300, bbox_inches='tight')
+    mape_png_path = os.path.join('plots', 'mape_by_horizon.png')
+    mape_pdf_path = os.path.join('plots', 'mape_by_horizon.pdf')
+    plt.savefig(mape_png_path, dpi=300, bbox_inches='tight')
+    plt.savefig(mape_pdf_path, dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(paper_fig_dir, 'mape_by_horizon.png'), dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(paper_fig_dir, 'mape_by_horizon.pdf'), dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"📉 Đã lưu biểu đồ tăng trưởng sai số Error by Horizon vào: {horizon_png_path} và paper/fig/")
+    
+    print(f"📉 Đã lưu biểu đồ sai số Error by Horizon vào: plots/mae_by_horizon.png và plots/mape_by_horizon.png")
+
 
     # 3. Plot Grouped Bar Chart (CHỈ DÀNH CHO CÁC MÔ HÌNH BASELINE CHÍNH)
     plot_models = [m for m in main_models if m in results and len(results[m]['maes']) > 0]
