@@ -96,7 +96,7 @@ def add_realistic_perception_noise(df, nodes, target_mae_noise, seed=42):
             noise_magnitude = np.random.gamma(shape=2.0, scale=scale_i / 2.0)
             
             # 80% đếm thiếu (âm), 20% đếm dư (dương)
-            sign = np.random.choice([-1, 1], size=len(y), p=[0.8, 0.2])
+            sign = np.random.choice([-1, 1], size=y.shape, p=[0.8, 0.2])
             
             noise = sign * noise_magnitude
             df_noisy[node] = np.maximum(0.0, y + noise)
