@@ -49,40 +49,12 @@ def train_and_visualize():
     
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True)
     
-    # Kiểm tra đường dẫn load model weights (Thử nhiều thư mục khả thi)
-    candidate_paths = [
-        args.model_path if args.model_path else None,
-        "checkpoints/overall_best_TA-STGCN.pth",
-        "checkpoints/best_TA-STGCN_seed_42.pth",
-        "/kaggle/input/models/canhdoo/weight/pytorch/default/1/model_STGCN_Attn_6steps.pth",
-        CFG.FULL_SAVE_PATH,
-        "model/model_STGCN_Attn_6steps.pth"
-    ]
-
-    target_model_path = None
-    state_dict = None
-    block_hidden = CFG.BLOCK_HIDDEN
-    num_blocks = CFG.NUM_BLOCKS
-
-    for p in candidate_paths:
-        if p and os.path.exists(p):
-            target_model_path = p
-            break
-
-    if target_model_path:
-        print(f"✅ Đã tìm thấy weight model đã huấn luyện! Đang nạp checkpoint từ: {target_model_path}")
-        state_dict = torch.load(target_model_path, map_location=device)
-        # Tự động phát hiện kích thước channels ẩn trong checkpoint để tránh RuntimeError size mismatch
-        if 'blocks.0.sconv.linears.0.weight' in state_dict:
-            block_hidden = state_dict['blocks.0.sconv.linears.0.weight'].shape[0]
-            print(f"   ℹ️ Tự động phát hiện kích thước channel trong Checkpoint: BLOCK_HIDDEN = {block_hidden}")
-
-    # 2. Init model với kích thước channel tương thích 100%
+    # 2. Init model
     model = STGCN_Model(
         num_nodes=len(nodes),
         in_feat=5,
-        block_hidden=block_hidden,
-        num_blocks=num_blocks,
+        block_hidden=CFG.BLOCK_HIDDEN,
+        num_blocks=CFG.NUM_BLOCKS,
         T_in=CFG.T_IN,
         cheb_K=CFG.CHEB_K,
         horizon=CFG.HORIZON,
@@ -93,9 +65,13 @@ def train_and_visualize():
         attn_num_heads=4,
         attn_dropout=CFG.ATTN_DROPOUT
     ).to(device)
-
-    if state_dict is not None:
-        model.load_state_dict(state_dict)
+    
+    # Kiểm tra đường dẫn load model weights
+    target_model_path = args.model_path if args.model_path is not None else CFG.FULL_SAVE_PATH
+    
+    if target_model_path and os.path.exists(target_model_path):
+        print(f"✅ Đã tìm thấy weight model! Đang nạp checkpoint từ: {target_model_path}")
+        model.load_state_dict(torch.load(target_model_path, map_location=device))
     else:
         print(f"⚠️ Không tìm thấy file weight (hoặc path=None). Bắt đầu huấn luyện mô hình {args.epochs} epochs từ đầu...")
         optimizer = optim.AdamW(model.parameters(), lr=CFG.LEARNING_RATE)
@@ -131,14 +107,11 @@ def train_and_visualize():
     attention_weights = None
     def hook_fn(module, input, output):
         nonlocal attention_weights
-        if isinstance(output, tuple) and len(output) > 1 and output[1] is not None:
-            attention_weights = output[1].detach().cpu().numpy()
-        elif hasattr(module, 'last_attn_weights') and module.last_attn_weights is not None:
-            attention_weights = module.last_attn_weights.detach().cpu().numpy()
-
+        attention_weights = output[1].detach().cpu().numpy() # Shape: (B*N, T_in, T_in)
+        
     model.temporal_attn.attn.register_forward_hook(hook_fn)
     model.eval()
-
+    
     # 4. Định nghĩa 5 khung giờ (1 mốc làm mốc chuẩn Off-Peak + 4 mốc so sánh)
     periods = {
         'Night_OffPeak': {'range': (2.0, 4.0), 'title': 'Night Off-Peak (02:00 - 04:00)', 'short': 'Off-Peak', 'idx': -1},
@@ -161,51 +134,11 @@ def train_and_visualize():
             pinfo['idx'] = len(test_ds) // 2
 
     def get_attn_matrix(idx):
-        nonlocal attention_weights
-        attention_weights = None
         X, Y = test_ds[idx]
-        if isinstance(X, torch.Tensor):
-            X_tensor = X.detach().clone().float().unsqueeze(0).to(device)
-        else:
-            X_tensor = torch.from_numpy(X).float().unsqueeze(0).to(device)
-
+        X_tensor = torch.tensor(X).unsqueeze(0).to(device)
         with torch.no_grad():
-            _ = model(X_tensor)
-
-        if attention_weights is None or np.isnan(attention_weights).any():
-            if hasattr(model.temporal_attn, 'last_attn_weights') and model.temporal_attn.last_attn_weights is not None:
-                attention_weights = model.temporal_attn.last_attn_weights.detach().cpu().numpy()
-
-        if attention_weights is None:
-            mat = np.eye(24)
-        else:
-            # 1. Lọc ra các nút giao thông hoạt động sôi động nhất (Top 20% nút có biến động lưu lượng xe cao nhất)
-            # Tránh việc trung bình hóa toàn bộ 608 nút làm triệt tiêu các đặc trưng phân bố thời gian
-            X_raw = X_tensor[0, :, :, 0].cpu().numpy() # (24, 608)
-            node_activity = np.std(X_raw, axis=0) # (608,)
-            top_node_indices = np.argsort(node_activity)[-int(0.25 * len(node_activity)):]
-
-            if attention_weights.ndim == 3:
-                mat = np.mean(attention_weights[top_node_indices], axis=0)
-            else:
-                mat = attention_weights
-                
-            mat = np.nan_to_num(mat, nan=1.0 / 24.0)
-
-            # 2. Tăng cường độ tương phản (Contrast Enhancement) để làm nổi bật các bước thời gian quan trọng
-            mat_min, mat_max = mat.min(), mat.max()
-            if mat_max > mat_min:
-                mat_scaled = (mat - mat_min) / (mat_max - mat_min + 1e-6)
-                # Áp dụng hàm Softmax Temperature Scaling để tái tạo phân bố rõ nét
-                mat = np.exp(mat_scaled * 2.5)
-                row_sums = mat.sum(axis=-1, keepdims=True)
-                mat = mat / (row_sums + 1e-6)
-
-        # Chuẩn hoá ma trận xác suất (hàng có tổng = 1)
-        row_sums = mat.sum(axis=-1, keepdims=True)
-        row_sums[row_sums == 0] = 1.0
-        mat = mat / row_sums
-        return mat
+            model(X_tensor)
+        return np.mean(attention_weights, axis=0) # (T_in, T_in)
 
     # Labels thời gian (-120m đến -5m)
     time_ticks = [f"-{(24-i)*5}m" for i in range(0, 24, 3)]
@@ -317,116 +250,6 @@ def train_and_visualize():
         print(f"{pinfo['title']:<35} | {recent:<18.4f} | {longterm:<18.4f} | {ratio:<6.2f}x")
 
     print("="*85)
-
-    # D. MÔ PHỎNG VÒNG ĐỜI TẮC ĐƯỜNG (TRAFFIC EVENT LIFECYCLE) BẰNG DỮ LIỆU THẬT
-    print("\n" + "="*85)
-    print("🚗 PHÂN TÍCH VÒNG ĐỜI TẮC ĐƯỜNG BẰNG DỮ LIỆU ATTENTION THẬT")
-    print("="*85)
-    
-    event_periods = {
-        'Phase I: Congestion Onset (16:30 - 17:15)': {'range': (16.5, 17.25), 'idx': -1, 'color': '#d9534f', 'subtitle': '(a) Rapid Focus on Recent Momentum'},
-        'Phase II: Congestion Peak (17:15 - 18:15)': {'range': (17.25, 18.25), 'idx': -1, 'color': '#f0ad4e', 'subtitle': '(b) Distributed Queue History Focus'},
-        'Phase III: Congestion Dissipation (18:15 - 19:00)': {'range': (18.25, 19.0), 'idx': -1, 'color': '#5cb85c', 'subtitle': '(c) Recovery & Baseline Balancing'}
-    }
-
-    for i in range(len(test_ds)):
-        hour = test_ds.time_feats[i, -1] * 24.0
-        for pkey, pinfo in event_periods.items():
-            if pinfo['idx'] == -1:
-                low, high = pinfo['range']
-                if low <= hour <= high:
-                    pinfo['idx'] = i
-
-    for pkey, pinfo in event_periods.items():
-        if pinfo['idx'] == -1:
-            pinfo['idx'] = len(test_ds) // 2
-
-    event_matrices = {pkey: get_attn_matrix(pinfo['idx']) for pkey, pinfo in event_periods.items()}
-    
-    # D1. Vẽ 3-Subplot Heatmap 24x24
-    fig, axes = plt.subplots(1, 3, figsize=(22, 6))
-    for i, (pkey, pinfo) in enumerate(event_periods.items()):
-        mat = event_matrices[pkey]
-        sns.heatmap(mat, ax=axes[i], cmap='viridis', cbar_kws={'label': 'Weight'})
-        axes[i].set_title(pkey, fontsize=12, fontweight='bold')
-        axes[i].set_xlabel('Historical Key Steps (Past Mins)', fontsize=10, labelpad=6)
-        axes[i].set_ylabel('Current Query Steps (Current Mins)', fontsize=10, labelpad=6)
-        axes[i].set_xticks(tick_indices)
-        axes[i].set_xticklabels(time_ticks, rotation=45, ha='right')
-        axes[i].set_yticks(tick_indices)
-        axes[i].set_yticklabels(time_ticks)
-
-    plt.tight_layout()
-    event_heatmap_png = os.path.join(CFG.PLOT_DIR, 'traffic_events_real_heatmap.png')
-    plt.savefig(event_heatmap_png, dpi=300, bbox_inches='tight')
-    if os.path.exists(paper_fig_dir):
-        plt.savefig(os.path.join(paper_fig_dir, 'traffic_events_real_heatmap.pdf'), dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"🖼️ Saved Real Data Traffic Event Heatmaps (24x24) to {event_heatmap_png}")
-
-    # D1.5. Vẽ 3-Subplot Difference Heatmap (Target - Night OffPeak) cho Traffic Events
-    fig, axes = plt.subplots(1, 3, figsize=(22, 6))
-    for i, (pkey, pinfo) in enumerate(event_periods.items()):
-        mat = event_matrices[pkey]
-        # Trừ đi ma trận Off-Peak (đã được tính toán ở phần trên)
-        diff_mat = mat - attn_offpeak
-        
-        sns.heatmap(diff_mat, ax=axes[i], cmap='coolwarm', center=0, cbar_kws={'label': 'Δ Weight'})
-        axes[i].set_title(f"Difference: {pkey} - OffPeak", fontsize=12, fontweight='bold')
-        axes[i].set_xlabel('Historical Key Steps (Past Mins)', fontsize=10, labelpad=6)
-        axes[i].set_ylabel('Current Query Steps (Current Mins)', fontsize=10, labelpad=6)
-        axes[i].set_xticks(tick_indices)
-        axes[i].set_xticklabels(time_ticks, rotation=45, ha='right')
-        axes[i].set_yticks(tick_indices)
-        axes[i].set_yticklabels(time_ticks)
-
-    plt.tight_layout()
-    event_diff_png = os.path.join(CFG.PLOT_DIR, 'traffic_events_real_difference.png')
-    plt.savefig(event_diff_png, dpi=300, bbox_inches='tight')
-    if os.path.exists(paper_fig_dir):
-        plt.savefig(os.path.join(paper_fig_dir, 'traffic_events_real_difference.pdf'), dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"🖼️ Saved Real Data Traffic Event Difference Heatmaps (24x24) to {event_diff_png}")
-
-    # D2. Vẽ 3-Subplot 1D Bar Chart (Dùng hàng cuối cùng - Query tại thời điểm hiện tại t)
-    plt.rcParams['font.sans-serif'] = 'DejaVu Sans'
-    plt.rcParams['axes.edgecolor'] = '#333333'
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4), sharey=True)
-    T_in = CFG.T_IN
-    
-    for i, (pkey, pinfo) in enumerate(event_periods.items()):
-        ax = axes[i]
-        # Trọng số của Query cuối cùng đối chiếu với các Key trong quá khứ
-        weights_1d = event_matrices[pkey][-1, :] 
-        weights_1d = weights_1d / np.sum(weights_1d) # Normalize
-        
-        bars = ax.bar(range(T_in), weights_1d, color=pinfo['color'], alpha=0.85, edgecolor='black', linewidth=0.8)
-        ax.set_title(pkey, fontsize=10.5, fontweight='bold', pad=10)
-        ax.set_xticks(range(0, T_in, 4))
-        ax.set_xticklabels([f"t-{(T_in-j)*5}m" for j in range(0, T_in, 4)], rotation=45, fontsize=8.5)
-        ax.grid(axis='y', linestyle='--', alpha=0.5)
-        
-        # Highlight top 3 steps
-        top3_idx = np.argsort(weights_1d)[-3:]
-        for idx in top3_idx:
-            bars[idx].set_alpha(1.0)
-            bars[idx].set_edgecolor('red')
-            bars[idx].set_linewidth(1.5)
-
-        ax.text(0.5, 0.88, pinfo['subtitle'], transform=ax.transAxes,
-                ha='center', va='center', fontsize=9, style='italic',
-                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.85, edgecolor='gray'))
-
-    axes[0].set_ylabel("Temporal Attention Weight", fontsize=10.5, fontweight='bold')
-    fig.supxlabel("Historical Observation Steps (Lookback Window)", fontsize=10.5, fontweight='bold', y=-0.05)
-    plt.tight_layout()
-    
-    event_bar_png = os.path.join(CFG.PLOT_DIR, 'traffic_events_real_barchart.png')
-    plt.savefig(event_bar_png, dpi=300, bbox_inches='tight')
-    if os.path.exists(paper_fig_dir):
-        plt.savefig(os.path.join(paper_fig_dir, 'traffic_events_real_barchart.pdf'), dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"📊 Saved Real Data Traffic Event Bar Charts (1D) to {event_bar_png}")
 
 if __name__ == "__main__":
     train_and_visualize()
