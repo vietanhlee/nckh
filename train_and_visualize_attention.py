@@ -166,7 +166,7 @@ def train_and_visualize():
             low, high = pinfo['range']
             if low <= hour <= high:
                 X, _ = test_ds[i]
-                x_last = np.array(X[-1, :, :2]) # (num_nodes, 2)
+                x_last = X[-1, :, :2].numpy() # (num_nodes, 2)
                 x_last_unnorm = x_last * stds + means
                 total_veh = x_last_unnorm.sum()
                 avg_veh_per_node = total_veh / X.shape[1]
