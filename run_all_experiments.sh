@@ -3,9 +3,14 @@
 # 🚀 AUTOMATED EXPERIMENT RUNNER SCRIPT (IEEE PAPER BENCHMARK SUITE)
 # ==============================================================================
 # Script này tự động thực thi các phần thử nghiệm của bài báo:
-#   1. benchmark_5seeds.py              : Stage 2 Graph Forecasting Benchmark (5 Seeds)
+#   1. benchmark_5seeds.py              : Stage 2 Graph Forecasting Benchmark
 #   2. train_and_visualize_attention.py : Temporal Attention Matrix Interpretability Heatmaps
 #   3. train_counting.py                : Stage 1 Vision Perception Benchmark & Grad-CAM++
+# ==============================================================================
+# 💡 CÁCH SỬ DỤNG:
+#   - Chạy chính thức đầy đủ   : ./run_all_experiments.sh
+#   - Chạy test thử nhanh (1 epoch): ./run_all_experiments.sh --test
+#   - Tùy chỉnh đường dẫn data : ./run_all_experiments.sh /path/to/data --test
 # ==============================================================================
 
 # Thoát ngay nếu có lỗi xảy ra
@@ -18,25 +23,54 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Đường dẫn mặc định tới thư mục dữ liệu
-DATA_ROOT="${1:-/workspace/GRAPH}"
+# Xử lý tham số đầu vào (DATA_ROOT & TEST_MODE)
+TEST_MODE=false
+DATA_ROOT="/workspace/GRAPH"
+
+for arg in "$@"; do
+    case $arg in
+        --test|-t|test|TEST|True|true|1)
+            TEST_MODE=true
+            ;;
+        --root=*)
+            DATA_ROOT="${arg#*=}"
+            ;;
+        *)
+            if [[ "$arg" != -* ]]; then
+                DATA_ROOT="$arg"
+            fi
+            ;;
+    esac
+done
 
 echo -e "${BLUE}==============================================================================${NC}"
-echo -e "${GREEN}🚀 BẮT ĐẦU CHẠY TOÀN BỘ CHUỖI THỰC NGHIỆM NCKH (IEEE PAPER BENCHMARK SUITE)${NC}"
+echo -e "${GREEN}🚀 KHỞI ĐỘNG CHUỖI THỰC NGHIỆM NCKH (IEEE PAPER BENCHMARK SUITE)${NC}"
 echo -e "${BLUE}==============================================================================${NC}"
 echo -e "📅 Thời gian khởi chạy : $(date)"
 echo -e "📂 Thư mục dữ liệu     : ${DATA_ROOT}"
 echo -e "🖥️ GPU Device           : $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'CPU Mode')"
+
+if [ "$TEST_MODE" = true ]; then
+    echo -e "🧪 Chế độ thực thi     : ${YELLOW}TEST FAST DRY-RUN (Epochs = 1, Seeds = 1)${NC}"
+    BENCHMARK_ARGS="--epochs 1 --seeds 42"
+    ATTENTION_ARGS="--epochs 1"
+    COUNTING_ARGS="--epochs 1 --seeds 42"
+else
+    echo -e "🏆 Chế độ thực thi     : ${GREEN}FULL BENCHMARK SUITE (Tất cả Seeds & Epochs đầy đủ)${NC}"
+    BENCHMARK_ARGS=""
+    ATTENTION_ARGS="--epochs 80"
+    COUNTING_ARGS=""
+fi
 echo -e "${BLUE}==============================================================================${NC}"
 
 # Tạo các thư mục lưu kết quả nếu chưa tồn tại
 mkdir -p logs plots paper/fig checkpoints
 
 # ------------------------------------------------------------------------------
-# 📍 THỬ NGHIỆM 1: STAGE 2 GRAPH FORECASTING 5-SEEDS BENCHMARK
+# 📍 THỬ NGHIỆM 1: STAGE 2 GRAPH FORECASTING BENCHMARK
 # ------------------------------------------------------------------------------
-echo -e "\n${YELLOW}[1/3] 📈 Đang chạy Stage 2: Graph Forecasting Benchmark (5 Seeds) ...${NC}"
-python benchmark_5seeds.py --root_dir "${DATA_ROOT}"
+echo -e "\n${YELLOW}[1/3] 📈 Đang chạy Stage 2: Graph Forecasting Benchmark ...${NC}"
+python benchmark_5seeds.py --root_dir "${DATA_ROOT}" ${BENCHMARK_ARGS}
 
 echo -e "${GREEN}✅ [1/3] Hoàn thành Stage 2! Báo cáo đã lưu tại benchmark_5seeds_report.md, JSON kết quả và paper/fig/${NC}"
 
@@ -44,7 +78,7 @@ echo -e "${GREEN}✅ [1/3] Hoàn thành Stage 2! Báo cáo đã lưu tại bench
 # 📍 THỬ NGHIỆM 2: TEMPORAL ATTENTION WEIGHT INTERPRETABILITY & HEATMAPS
 # ------------------------------------------------------------------------------
 echo -e "\n${YELLOW}[2/3] 🧠 Đang chạy Temporal Attention Interpretability & Heatmap Analysis ...${NC}"
-python train_and_visualize_attention.py --root_dir "${DATA_ROOT}" --epochs 80
+python train_and_visualize_attention.py --root_dir "${DATA_ROOT}" ${ATTENTION_ARGS}
 
 echo -e "${GREEN}✅ [2/3] Hoàn thành Temporal Attention Analysis! Ma trận Attention đã lưu vào paper/fig/${NC}"
 
@@ -52,7 +86,7 @@ echo -e "${GREEN}✅ [2/3] Hoàn thành Temporal Attention Analysis! Ma trận A
 # 📍 THỬ NGHIỆM 3: STAGE 1 VISION PERCEPTION BENCHMARK (COUNTING & GRAD-CAM++)
 # ------------------------------------------------------------------------------
 echo -e "\n${YELLOW}[3/3] 📸 Đang chạy Stage 1: Vision Perception Benchmark & Grad-CAM++ ...${NC}"
-python train_counting.py
+python train_counting.py ${COUNTING_ARGS}
 
 echo -e "${GREEN}✅ [3/3] Hoàn thành Stage 1! Báo cáo đã lưu tại counting_benchmark_report.md và paper/fig/${NC}"
 

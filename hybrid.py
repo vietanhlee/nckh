@@ -44,7 +44,7 @@ if api_key:
 
 
 class Config:
-    ROOT_DIR = "/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH/"
+    ROOT_DIR = "/workspace/GRAPH/"
     ADJ_PATH = os.path.join(ROOT_DIR, "Graph_fix_py_3.xlsx")
     CSV_PATH = os.path.join(ROOT_DIR, "count_7_7_merg_sort_fix_fill.csv")
     SAVE_DIR = "model/"
@@ -345,8 +345,7 @@ class TemporalAttention(nn.Module):
 
     def forward(self, x):
         # x: (B*N, T, C)
-        attn_out, attn_weights = self.attn(x, x, x, need_weights=True, average_attn_weights=True)
-        self.last_attn_weights = attn_weights
+        attn_out, _ = self.attn(x, x, x)
         x = self.norm1(x + attn_out)       # residual + LayerNorm
         ffn_out = self.ffn(x)
         return self.norm2(x + ffn_out)      # (B*N, T, C) - giữ nguyên chiều

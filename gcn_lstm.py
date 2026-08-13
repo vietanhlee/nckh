@@ -28,7 +28,7 @@ if api_key:
 
 
 class Config:
-    ROOT_DIR = "/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH/"
+    ROOT_DIR = "/workspace/GRAPH/"
     ADJ_PATH = os.path.join(ROOT_DIR, "Graph_fix_py_3.xlsx")
     CSV_PATH = os.path.join(ROOT_DIR, "count_7_7_merg_sort_fix_fill.csv")
     SAVE_DIR = "model/"
