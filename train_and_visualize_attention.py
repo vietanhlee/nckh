@@ -17,7 +17,7 @@ def train_and_visualize():
     parser.add_argument('--model_path', type=str, default="/workspace/nckh/model/overall_best_TA-STGCN.pth", help="Đường dẫn tới file trọng số checkpoint (.pth). Nếu là None hoặc không tìm thấy, script sẽ tự động train lại.")
     parser.add_argument('--epochs', type=int, default=120, help="Số epochs huấn luyện nếu train từ đầu (mặc định: 100).")
     parser.add_argument('--batch_size', type=int, default=64, help="Kích thước batch size.")
-    parser.add_argument('--root_dir', type=str, default=None, help="Thư mục gốc chứa dữ liệu.")
+    parser.add_argument('--root_dir', type=str, default="/workspace/GRAPH", help="Thư mục gốc chứa dữ liệu.")
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
