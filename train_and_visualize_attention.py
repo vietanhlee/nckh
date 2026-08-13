@@ -34,11 +34,6 @@ def train_and_visualize():
             args.root_dir if args.root_dir else None,
             getattr(CFG, 'ROOT_DIR', None),
             os.getcwd(),
-            ".",
-            "/workspace/GRAPH",
-            "/workspace/nckh",
-            "/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH",
-            "/kaggle/input/nckh-traffic/GRAPH"
         ]
         for sdir in search_dirs:
             if sdir and os.path.exists(sdir):

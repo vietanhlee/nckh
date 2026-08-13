@@ -346,8 +346,13 @@ class TemporalAttention(nn.Module):
     def forward(self, x):
         # x: (B*N, T, C)
         try:
-            with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=False):
-                attn_out, attn_weights = self.attn(x, x, x, need_weights=True, average_attn_weights=True)
+            if hasattr(torch.nn.attention, 'sdpa_kernel'):
+                from torch.nn.attention import SDPBackend, sdpa_kernel
+                with sdpa_kernel(SDPBackend.MATH):
+                    attn_out, attn_weights = self.attn(x, x, x, need_weights=True, average_attn_weights=True)
+            else:
+                with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=False):
+                    attn_out, attn_weights = self.attn(x, x, x, need_weights=True, average_attn_weights=True)
         except Exception:
             attn_out, attn_weights = self.attn(x, x, x, need_weights=True, average_attn_weights=True)
             
