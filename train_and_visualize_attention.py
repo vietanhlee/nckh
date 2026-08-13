@@ -145,24 +145,53 @@ def train_and_visualize():
     
     # 4. Định nghĩa 5 khung giờ (1 mốc làm mốc chuẩn Off-Peak + 4 mốc so sánh)
     periods = {
-        'Night_OffPeak': {'range': (2.0, 4.0), 'title': 'Night Off-Peak (02:00 - 04:00)', 'short': 'Off-Peak', 'idx': -1},
-        'Morning_Peak': {'range': (7.5, 9.5), 'title': 'Morning Peak (07:30 - 09:30)', 'short': 'Morning Peak', 'idx': -1},
-        'Noon_Normal': {'range': (11.5, 13.5), 'title': 'Noon Normal (11:30 - 13:30)', 'short': 'Noon Normal', 'idx': -1},
-        'Evening_Peak': {'range': (16.5, 18.5), 'title': 'Evening Peak (16:30 - 18:30)', 'short': 'Evening Peak', 'idx': -1},
-        'Late_Evening': {'range': (21.0, 23.0), 'title': 'Late Evening (21:00 - 23:00)', 'short': 'Late Evening', 'idx': -1}
+        'Night_OffPeak': {'range': (2.0, 4.0), 'title': 'Night Off-Peak (02:00 - 04:00)', 'short': 'Off-Peak', 'idx': -1, 'type': 'min'},
+        'Morning_Peak': {'range': (7.5, 9.5), 'title': 'Morning Peak (07:30 - 09:30)', 'short': 'Morning Peak', 'idx': -1, 'type': 'max'},
+        'Noon_Normal': {'range': (11.5, 13.5), 'title': 'Noon Normal (11:30 - 13:30)', 'short': 'Noon Normal', 'idx': -1, 'type': 'median'},
+        'Evening_Peak': {'range': (16.5, 18.5), 'title': 'Evening Peak (16:30 - 18:30)', 'short': 'Evening Peak', 'idx': -1, 'type': 'max'},
+        'Late_Evening': {'range': (21.0, 23.0), 'title': 'Late Evening (21:00 - 23:00)', 'short': 'Late Evening', 'idx': -1, 'type': 'max'}
     }
+
+    # Nạp scaler để tính toán lưu lượng thực tế
+    import json
+    with open(os.path.join(CFG.ROOT_DIR, 'scaler_stats.json'), 'r') as f:
+        scaler_stats = json.load(f)
+    means = np.array(scaler_stats['mean'])[:2] # Car, Bike
+    stds = np.array(scaler_stats['std'])[:2]
+
+    # Quét dữ liệu để thu thập ứng viên (index và lưu lượng)
+    for pkey, pinfo in periods.items():
+        pinfo['candidates'] = []
 
     for i in range(len(test_ds)):
         hour = test_ds.time_feats[i, -1] * 24.0
         for pkey, pinfo in periods.items():
-            if pinfo['idx'] == -1:
-                low, high = pinfo['range']
-                if low <= hour <= high:
-                    pinfo['idx'] = i
+            low, high = pinfo['range']
+            if low <= hour <= high:
+                X, _ = test_ds[i]
+                x_last = X[-1, :, :2] # (num_nodes, 2)
+                x_last_unnorm = x_last * stds + means
+                total_veh = x_last_unnorm.sum()
+                avg_veh_per_node = total_veh / X.shape[1]
+                pinfo['candidates'].append((i, avg_veh_per_node))
 
+    # Chọn mẫu có tính đại diện cao nhất (Dynamic Selection)
     for pkey, pinfo in periods.items():
-        if pinfo['idx'] == -1:
+        if len(pinfo['candidates']) == 0:
             pinfo['idx'] = len(test_ds) // 2
+            pinfo['avg_veh'] = 0.0
+            continue
+            
+        cands = sorted(pinfo['candidates'], key=lambda x: x[1])
+        if pinfo['type'] == 'min':
+            best_cand = cands[0]
+        elif pinfo['type'] == 'max':
+            best_cand = cands[-1]
+        else: # median
+            best_cand = cands[len(cands)//2]
+            
+        pinfo['idx'] = best_cand[0]
+        pinfo['avg_veh'] = best_cand[1]
 
     def get_attn_matrix(idx):
         nonlocal attention_weights
@@ -272,20 +301,20 @@ def train_and_visualize():
         print(f"🖼️ Saved 3-subplot comparison for {pkey} at {cmp_png} and {cmp_pdf}")
 
     # C. Trích xuất thống kê định lượng cho cả 5 khung giờ
-    print("\n" + "="*85)
+    print("\n" + "="*105)
     print("📈 BẢNG TỔNG HỢP THỐNG KÊ ĐỊNH LƯỢNG TEMPORAL ATTENTION WEIGHTS (5 KHUNG GIỜ)")
-    print("="*85)
-    print(f"{'Khung Giờ (Time Period)':<35} | {'Recent (last 20m)':<18} | {'Long-term (60-120m)':<18} | {'Ratio':<6}")
-    print("-" * 85)
+    print("="*105)
+    print(f"{'Khung Giờ (Time Period)':<35} | {'Avg Vehicles/Node':<18} | {'Recent (last 20m)':<18} | {'Long-term (60-120m)':<18} | {'Ratio':<6}")
+    print("-" * 105)
 
     for pkey, pinfo in periods.items():
         amat = attn_matrices[pkey]
         recent = np.mean(amat[:, -4:])
         longterm = np.mean(amat[:, :12])
         ratio = recent / max(longterm, 1e-6)
-        print(f"{pinfo['title']:<35} | {recent:<18.4f} | {longterm:<18.4f} | {ratio:<6.2f}x")
+        print(f"{pinfo['title']:<35} | {pinfo['avg_veh']:<18.1f} | {recent:<18.4f} | {longterm:<18.4f} | {ratio:<6.2f}x")
 
-    print("="*85)
+    print("="*105)
 
 if __name__ == "__main__":
     train_and_visualize()
