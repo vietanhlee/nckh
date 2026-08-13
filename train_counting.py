@@ -431,6 +431,32 @@ def generate_vision_explainability_figures(sample_img_path, trained_models_dict,
         ax.set_title(f"{title_dict.get(m_key, m_key)}\nPreds: Cars={preds[0]:.1f}, Bikes={preds[1]:.1f}", fontsize=10, fontweight='bold')
         ax.axis('off')
 
+        # --- VẼ NỔI 1 HÌNH ĐỘC LẬP CHO RIÊNG MÔ HÌNH NÀY (2 SUBPLOT: ẢNH GỐC & GRAD-CAM++) ---
+        fig_single, axes_single = plt.subplots(1, 2, figsize=(12, 5.5), dpi=300)
+        
+        axes_single[0].imshow(raw_img)
+        axes_single[0].set_title("(a) Original Traffic Camera Feed", fontsize=12, fontweight='bold', pad=8)
+        axes_single[0].axis('off')
+
+        axes_single[1].imshow(raw_img)
+        axes_single[1].imshow(cam_arr, cmap='jet', alpha=0.55)
+        m_title = title_dict.get(m_key, m_key)
+        axes_single[1].set_title(f"(b) {m_title} Grad-CAM++ Attribution", fontsize=12, fontweight='bold', pad=8)
+        text_str = f"Preds: {max(0, preds[0]):.1f} Cars | {max(0, preds[1]):.1f} Bikes"
+        axes_single[1].text(0.03, 0.05, text_str, transform=axes_single[1].transAxes, fontsize=10.5, fontweight='bold',
+                            color='white', bbox=dict(boxstyle='round,pad=0.4', facecolor='black', alpha=0.75, edgecolor='none'))
+        axes_single[1].axis('off')
+
+        plt.tight_layout()
+        single_pdf = os.path.join(save_dir, f"gradcam_{m_key}.pdf")
+        single_png = os.path.join(save_dir, f"gradcam_{m_key}.png")
+        plots_single_png = os.path.join("plots", f"gradcam_{m_key}.png")
+
+        plt.savefig(single_pdf, format='pdf', bbox_inches='tight')
+        plt.savefig(single_png, format='png', bbox_inches='tight', dpi=300)
+        plt.savefig(plots_single_png, format='png', bbox_inches='tight', dpi=300)
+        plt.close(fig_single)
+
     plt.tight_layout()
     fig_pdf = os.path.join(save_dir, "vision_explainability_gradcam.pdf")
     fig_png = os.path.join(save_dir, "vision_explainability_gradcam.png")
@@ -691,6 +717,8 @@ def run_counting_benchmark():
     cfg = {'epochs': args.epochs, 'lr': args.lr, 'patience': args.patience}
     trained_models_dict = {}
 
+    best_seed_val_mae = {m_name: float('inf') for m_name in models_to_test}
+
     results = {
         m_name: {
             'params': 0, 'flops_gflops': 0.0, 'inf_latencies': [],
@@ -703,7 +731,7 @@ def run_counting_benchmark():
 
     for seed in args.seeds:
         print(f"\n{'='*70}")
-        print(f"🧪 [SUB-PROBLEM 1 - SEED {seed}] THỬ NGHIỆM 4 MÔ HÌNH (RESNET, EFFICIENTNET, VIT, CONVNEXT)")
+        print(f"🧪 [SUB-PROBLEM 1 - SEED {seed}] THỬ NGHIỆM MÔ HÌNH THỊ GIÁC (STAGE 1 COUNTING BENCHMARK)")
         print(f"{'='*70}")
 
         for m_name in models_to_test:
@@ -714,6 +742,14 @@ def run_counting_benchmark():
             model, metrics = train_single_seed_counting(
                 m_name, train_loader, val_loader, test_loader, cfg, device, seed
             )
+
+            # Đã lưu per-seed best checkpoint tại: checkpoints/best_counting_{m_name}_seed_{seed}.pth
+            # Kiểm tra & lưu overall best checkpoint toàn bộ các seed
+            if metrics['mae_overall'] < best_seed_val_mae[m_name]:
+                best_seed_val_mae[m_name] = metrics['mae_overall']
+                overall_ckpt = os.path.join('checkpoints', f"overall_best_counting_{m_name}.pth")
+                torch.save(model.state_dict(), overall_ckpt)
+                print(f"   🏆 [NEW OVERALL BEST FOR {m_name.upper()}] Best MAE: {metrics['mae_overall']:.4f} -> Saved {overall_ckpt}")
 
             # Lưu lại mô hình đã huấn luyện của seed đầu tiên phục vụ Grad-CAM++ visualization
             if seed == args.seeds[0]:

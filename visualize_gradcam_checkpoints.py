@@ -211,6 +211,33 @@ def generate_vision_explainability_figures(image_path, save_dir="paper/fig", dev
             ax.text(0.03, 0.05, text_str, transform=ax.transAxes, fontsize=9.5, fontweight='bold',
                     color='white', bbox=dict(boxstyle='round,pad=0.3', facecolor='black', alpha=0.75, edgecolor='none'))
 
+            # --- VẼ NỔI 1 HÌNH ĐỘC LẬP CHO RIÊNG MÔ HÌNH NÀY (2 SUBPLOT: ẢNH GỐC & GRAD-CAM++) ---
+            fig_single, axes_single = plt.subplots(1, 2, figsize=(12, 5.5), dpi=300)
+            
+            # (a) Ảnh gốc
+            axes_single[0].imshow(img_raw)
+            axes_single[0].set_title("(a) Original Traffic Camera Feed", fontsize=12, fontweight='bold', pad=8)
+            axes_single[0].axis('off')
+
+            # (b) Grad-CAM++
+            axes_single[1].imshow(img_raw)
+            axes_single[1].imshow(cam_norm, cmap='jet', alpha=0.48)
+            axes_single[1].set_title(f"(b) {m_name} Grad-CAM++ Feature Attribution", fontsize=12, fontweight='bold', pad=8)
+            axes_single[1].text(0.03, 0.05, text_str, transform=axes_single[1].transAxes, fontsize=10.5, fontweight='bold',
+                                color='white', bbox=dict(boxstyle='round,pad=0.4', facecolor='black', alpha=0.75, edgecolor='none'))
+            axes_single[1].axis('off')
+
+            plt.tight_layout()
+            single_pdf = os.path.join(save_dir, f"gradcam_{m_key}.pdf")
+            single_png = os.path.join(save_dir, f"gradcam_{m_key}.png")
+            plots_single_png = os.path.join("plots", f"gradcam_{m_key}.png")
+
+            plt.savefig(single_pdf, format='pdf', bbox_inches='tight')
+            plt.savefig(single_png, format='png', bbox_inches='tight', dpi=300)
+            plt.savefig(plots_single_png, format='png', bbox_inches='tight', dpi=300)
+            plt.close(fig_single)
+            print(f"   🖼️ Đã lưu hình riêng mô hình {m_name} vào: {single_png} & {single_pdf}")
+
         except Exception as e:
             print(f"   ⚠️ Lỗi sinh Heatmap cho {m_name}: {e}")
             ax.imshow(img_raw)
