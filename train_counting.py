@@ -977,7 +977,11 @@ def run_counting_benchmark():
             # Tính tổng số lượng xe để tìm ảnh đông nhất
             df['total_veh'] = df[veh_cols].sum(axis=1)
             best_idx = df['total_veh'].idxmax()
-            sample_fn = df.loc[best_idx, full_dataset.fn_col]
+            # Tìm cột filename
+            fn_col = [c for c in df.columns if c.lower() in ['filename', 'file_name', 'image', 'image_name', 'img', 'name']]
+            fn_col = fn_col[0] if fn_col else df.columns[0]
+            
+            sample_fn = df.loc[best_idx, fn_col]
             sample_img_path = os.path.join(args.image_dir, sample_fn)
             print(f"🔍 Đã chọn tự động ảnh đông phương tiện nhất: {sample_fn} ({df.loc[best_idx, 'total_veh']} xe)")
 
