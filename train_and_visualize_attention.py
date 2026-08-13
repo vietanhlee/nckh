@@ -256,6 +256,28 @@ def train_and_visualize():
         attn_target = attn_matrices[pkey]
         attn_diff = attn_target - attn_offpeak
 
+        # B.1. Lưu riêng 1 bức ảnh độc lập cho Difference Heatmap
+        plt.figure(figsize=(9, 7))
+        sns.heatmap(attn_diff, cmap='coolwarm', center=0, annot=False, cbar_kws={'label': 'Δ Attention Weight'})
+        plt.title(f"Attention Difference Heatmap\n({pinfo['short']} - Off-Peak)", fontsize=13, fontweight='bold', pad=12)
+        plt.xlabel('Historical Key Steps (Past Mins)', fontsize=11, labelpad=8)
+        plt.ylabel('Current Query Steps (Current Mins)', fontsize=11, labelpad=8)
+        plt.xticks(tick_indices, time_ticks, rotation=45, ha='right')
+        plt.yticks(tick_indices, time_ticks, rotation=0)
+        
+        diff_png = os.path.join(CFG.PLOT_DIR, f'attention_difference_{pkey.lower()}.png')
+        diff_pdf = os.path.join(CFG.PLOT_DIR, f'attention_difference_{pkey.lower()}.pdf')
+        plt.savefig(diff_png, dpi=300, bbox_inches='tight')
+        plt.savefig(diff_pdf, dpi=300, bbox_inches='tight')
+        
+        if os.path.exists(paper_fig_dir):
+            plt.savefig(os.path.join(paper_fig_dir, f'attention_difference_{pkey.lower()}.png'), dpi=300, bbox_inches='tight')
+            plt.savefig(os.path.join(paper_fig_dir, f'attention_difference_{pkey.lower()}.pdf'), dpi=300, bbox_inches='tight')
+            
+        plt.close()
+        print(f"📊 Saved standalone difference heatmap for {pkey} at {diff_png}")
+
+        # B.2. Vẽ biểu đồ 3-Subplot So sánh (Target vs Night Off-Peak vs Difference)
         fig, axes = plt.subplots(1, 3, figsize=(22, 6))
 
         # (a) Target Period
