@@ -161,8 +161,8 @@ def generate_vision_explainability_figures(image_path, save_dir="paper/fig", dev
 
     models_config = [
         ('resnet', 'ResNet-50'),
-        ('efficientnet', 'EfficientNet-B4'),
-        ('vit', 'ViT-Small'),
+        ('efficientnet', 'EfficientNet-B5'),
+        ('vit', 'ViT-Base'),
         ('convnext', 'ConvNeXt-Tiny'),
         ('mobilenet', 'MobileNet-V3')
     ]

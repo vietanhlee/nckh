@@ -213,9 +213,9 @@ def build_counting_model(model_name: str, num_classes: int = 2, pretrained: bool
             )
     elif 'efficientnet' in name_clean:
         try:
-            model = timm.create_model('efficientnet_b4', pretrained=pretrained, num_classes=num_classes)
+            model = timm.create_model('efficientnet_b5', pretrained=pretrained, num_classes=num_classes)
         except Exception:
-            model = models.efficientnet_b4(weights=models.EfficientNet_B4_Weights.DEFAULT if pretrained else None)
+            model = models.efficientnet_b5(weights=models.EfficientNet_B5_Weights.DEFAULT if pretrained else None)
             in_features = model.classifier[1].in_features
             model.classifier = nn.Sequential(
                 nn.Dropout(0.2),
@@ -226,7 +226,7 @@ def build_counting_model(model_name: str, num_classes: int = 2, pretrained: bool
             )
     elif 'vit' in name_clean:
         try:
-            model = timm.create_model('vit_small_patch16_224', pretrained=pretrained, num_classes=num_classes)
+            model = timm.create_model('vit_base_patch16_224', pretrained=pretrained, num_classes=num_classes)
         except Exception:
             model = models.vit_b_16(weights=models.ViT_B_16_Weights.DEFAULT if pretrained else None)
             in_features = model.heads.head.in_features
@@ -892,29 +892,32 @@ def run_counting_benchmark():
             except Exception as e:
                 f.write(f"⚠️ Không thể chạy Friedman test: {e}\n\n")
 
-        # --- Wilcoxon Signed-Rank Test (ResNet-50 vs Others) ---
-        baseline_model = 'resnet'
-        f.write("\n## 🔬 Post-Hoc: Wilcoxon Signed-Rank Test & Effect Size (ResNet-50 vs Others)\n\n")
-        f.write("| Baseline vs. | P-value (Overall) | Cohen's d (Overall) | P-value (Car) | Cohen's d (Car) | P-value (Moto) | Cohen's d (Moto) |\n")
-        f.write("|---|---|---|---|---|---|---|\n")
+        # --- Wilcoxon Signed-Rank Test & Effect Size (Toàn bộ mô hình vs Các mô hình còn lại) ---
+        f.write("\n## 🔬 Post-Hoc: Wilcoxon Signed-Rank Test & Effect Size (Tất cả mô hình)\n\n")
 
-        if baseline_model in results:
+        def calc_cohens_dz(base_err, comp_err):
+            diff = comp_err - base_err
+            std_diff = np.std(diff, ddof=1)
+            if std_diff == 0: return 0.0
+            return np.mean(diff) / std_diff
+
+        def format_sig(p, d):
+            sig_star = "***" if p < 0.001 else ("**" if p < 0.01 else ("*" if p < 0.05 else "ns"))
+            return f"{p:.2e}{sig_star}", f"{d:.3f}"
+
+        for baseline_model in models_to_test:
+            if baseline_model not in results or len(results[baseline_model]['pw_overalls']) == 0:
+                continue
             base_pw = np.concatenate(results[baseline_model]['pw_overalls'])
             base_pw_car = np.concatenate(results[baseline_model]['pw_cars'])
             base_pw_moto = np.concatenate(results[baseline_model]['pw_motos'])
 
-            def calc_cohens_dz(base_err, comp_err):
-                diff = comp_err - base_err
-                std_diff = np.std(diff, ddof=1)
-                if std_diff == 0: return 0.0
-                return np.mean(diff) / std_diff
-
-            def format_sig(p, d):
-                sig_star = "***" if p < 0.001 else ("**" if p < 0.01 else ("*" if p < 0.05 else "ns"))
-                return f"{p:.2e}{sig_star}", f"{d:.3f}"
+            f.write(f"### 📍 So sánh Baseline **{baseline_model.upper()}** với các mô hình còn lại\n\n")
+            f.write("| Baseline vs. | P-value (Overall) | Cohen's d (Overall) | P-value (Car) | Cohen's d (Car) | P-value (Moto) | Cohen's d (Moto) |\n")
+            f.write("|---|---|---|---|---|---|---|\n")
 
             for m_name in models_to_test:
-                if m_name == baseline_model:
+                if m_name == baseline_model or m_name not in results or len(results[m_name]['pw_overalls']) == 0:
                     continue
                 comp_pw = np.concatenate(results[m_name]['pw_overalls'])
                 comp_pw_car = np.concatenate(results[m_name]['pw_cars'])
@@ -935,6 +938,7 @@ def run_counting_benchmark():
                 p_car_str, d_car_str = format_sig(p_car, d_car)
                 p_moto_str, d_moto_str = format_sig(p_moto, d_moto)
                 f.write(f"| {m_name.upper()} | {p_tot_str} | {d_tot_str} | {p_car_str} | {d_car_str} | {p_moto_str} | {d_moto_str} |\n")
+            f.write("\n")
 
     print(f"\n📑 Đã lưu báo cáo chi tiết đếm phương tiện vào tệp: {report_path}")
 

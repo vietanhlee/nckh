@@ -478,11 +478,6 @@ def run_benchmark():
     print(f"============================================================")
 
     # Khởi tạo các Config (Cùng hạng cân ~450k-570k params)
-    gcn_lstm_cfg = GCNLSTMConfig()
-    gcn_lstm_cfg.GCN_HIDDEN  = 80
-    gcn_lstm_cfg.LSTM_HIDDEN = 200
-    gcn_lstm_cfg.LSTM_LAYERS = 2
-
     stgcn_cfg = BaselineConfig()
     stgcn_cfg.BLOCK_HIDDEN   = 80
     stgcn_cfg.NUM_BLOCKS     = 3
@@ -491,7 +486,7 @@ def run_benchmark():
     hybrid_cfg.BLOCK_HIDDEN = 80
     hybrid_cfg.NUM_BLOCKS = 3
 
-    for cfg_inst in [gcn_lstm_cfg, stgcn_cfg, hybrid_cfg]:
+    for cfg_inst in [stgcn_cfg, hybrid_cfg]:
         cfg_inst.ROOT_DIR = args.root_dir
         cfg_inst.ADJ_PATH = os.path.join(args.root_dir, "Graph_fix_py_3.xlsx")
         cfg_inst.CSV_PATH = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
@@ -539,15 +534,6 @@ def run_benchmark():
             'config': stgcn_cfg,
             'build_fn': lambda cfg: ASTGCN(
                 num_nodes=len(nodes), in_channels=5, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=36, L_tilde=L_tilde, out_dim=2
-            )
-        },
-        'GCN_LSTM': {
-            'class': ImprovedGNN_LSTM,
-            'config': gcn_lstm_cfg,
-            'build_fn': lambda cfg: ImprovedGNN_LSTM(
-                num_nodes=len(nodes), in_feat=5, gcn_hidden=cfg.GCN_HIDDEN,
-                lstm_hidden=cfg.LSTM_HIDDEN, lstm_layers=cfg.LSTM_LAYERS,
-                horizon=cfg.HORIZON, output_feat=2, A_norm=A_norm, dropout=cfg.DROPOUT
             )
         },
         'STGCN_Baseline': {
@@ -737,6 +723,7 @@ def run_benchmark():
 
             for t_idx in range(6):
                 results[model_name]['step_maes'][f't{t_idx+1}'].append(test_metrics[f'mae_t{t_idx+1}'])
+                results[model_name]['step_mapes'][f't{t_idx+1}'].append(test_metrics[f'mape_t{t_idx+1}'])
 
             # Kiểm tra và cập nhật Overall Best Model qua tất cả các seed cho mô hình này
             if test_metrics['mae'] < overall_best_mae[model_name]:

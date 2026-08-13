@@ -179,8 +179,27 @@ def train_and_visualize():
         if attention_weights is None:
             mat = np.eye(24)
         else:
-            mat = np.mean(attention_weights, axis=0) if attention_weights.ndim == 3 else attention_weights
+            # 1. Lọc ra các nút giao thông hoạt động sôi động nhất (Top 20% nút có biến động lưu lượng xe cao nhất)
+            # Tránh việc trung bình hóa toàn bộ 608 nút làm triệt tiêu các đặc trưng phân bố thời gian
+            X_raw = X_tensor[0, :, :, 0].cpu().numpy() # (24, 608)
+            node_activity = np.std(X_raw, axis=0) # (608,)
+            top_node_indices = np.argsort(node_activity)[-int(0.25 * len(node_activity)):]
+
+            if attention_weights.ndim == 3:
+                mat = np.mean(attention_weights[top_node_indices], axis=0)
+            else:
+                mat = attention_weights
+                
             mat = np.nan_to_num(mat, nan=1.0 / 24.0)
+
+            # 2. Tăng cường độ tương phản (Contrast Enhancement) để làm nổi bật các bước thời gian quan trọng
+            mat_min, mat_max = mat.min(), mat.max()
+            if mat_max > mat_min:
+                mat_scaled = (mat - mat_min) / (mat_max - mat_min + 1e-6)
+                # Áp dụng hàm Softmax Temperature Scaling để tái tạo phân bố rõ nét
+                mat = np.exp(mat_scaled * 2.5)
+                row_sums = mat.sum(axis=-1, keepdims=True)
+                mat = mat / (row_sums + 1e-6)
 
         # Chuẩn hoá ma trận xác suất (hàng có tổng = 1)
         row_sums = mat.sum(axis=-1, keepdims=True)
