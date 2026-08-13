@@ -986,7 +986,6 @@ def run_benchmark():
     colors = {
         'TA-STGCN': '#d62728',       # Bold Red / Ours
         'STGCN_Baseline': '#1f77b4',
-        'GCN_LSTM': '#7f7f7f',
         'Graph_WaveNet': '#2ca02c',
         'ASTGCN': '#9467bd',
         'STAEformer': '#bcbd22',
