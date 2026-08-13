@@ -152,12 +152,9 @@ def train_and_visualize():
         'Late_Evening': {'range': (21.0, 23.0), 'title': 'Late Evening (21:00 - 23:00)', 'short': 'Late Evening', 'idx': -1, 'type': 'max'}
     }
 
-    # Nạp scaler để tính toán lưu lượng thực tế
-    import json
-    with open(os.path.join(CFG.ROOT_DIR, 'scaler_stats.json'), 'r') as f:
-        scaler_stats = json.load(f)
-    means = np.array(scaler_stats['mean'])[:2] # Car, Bike
-    stds = np.array(scaler_stats['std'])[:2]
+    # Nạp scaler để tính toán lưu lượng thực tế (lấy trực tiếp từ train_ds)
+    means = np.array(train_ds.means)[:2] # Car, Bike
+    stds = np.array(train_ds.stds)[:2]
 
     # Quét dữ liệu để thu thập ứng viên (index và lưu lượng)
     for pkey, pinfo in periods.items():
