@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, models
@@ -596,6 +597,10 @@ def train_single_seed_counting(model_name, train_loader, val_loader, test_loader
     model.load_state_dict(best_model_weights)
     model.eval()
     
+    os.makedirs('checkpoints', exist_ok=True)
+    ckpt_path = os.path.join('checkpoints', f"best_counting_{model_name}_seed_{seed}.pth")
+    torch.save(best_model_weights, ckpt_path)
+
     test_preds, test_trues = [], []
     with torch.no_grad():
         for images, labels in test_loader:
