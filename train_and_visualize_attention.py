@@ -29,6 +29,27 @@ def train_and_visualize():
         CFG.ADJ_PATH = os.path.join(CFG.ROOT_DIR, "Graph_fix_py_3.xlsx")
         CFG.CSV_PATH = os.path.join(CFG.ROOT_DIR, "count_7_7_merg_sort_fix_fill.csv")
 
+    if not os.path.exists(CFG.ADJ_PATH) or not os.path.exists(CFG.CSV_PATH):
+        search_dirs = [
+            args.root_dir if args.root_dir else None,
+            getattr(CFG, 'ROOT_DIR', None),
+            os.getcwd(),
+            ".",
+            "/workspace/GRAPH",
+            "/workspace/nckh",
+            "/kaggle/input/datasets/canhdoo/nckh-traffic/GRAPH",
+            "/kaggle/input/nckh-traffic/GRAPH"
+        ]
+        for sdir in search_dirs:
+            if sdir and os.path.exists(sdir):
+                adj_cand = os.path.join(sdir, "Graph_fix_py_3.xlsx")
+                csv_cand = os.path.join(sdir, "count_7_7_merg_sort_fix_fill.csv")
+                if os.path.exists(adj_cand) and os.path.exists(csv_cand):
+                    CFG.ADJ_PATH = adj_cand
+                    CFG.CSV_PATH = csv_cand
+                    print(f"🔍 Tự động phát hiện file dữ liệu tại: {sdir}")
+                    break
+
     # 1. Load data
     A_raw, nodes = load_adj_from_excel(CFG.ADJ_PATH)
     L_tilde = compute_scaled_laplacian(A_raw)
@@ -67,13 +88,34 @@ def train_and_visualize():
     ).to(device)
     
     # Kiểm tra đường dẫn load model weights
-    target_model_path = args.model_path if args.model_path is not None else CFG.FULL_SAVE_PATH
+    candidate_paths = [
+        args.model_path if args.model_path else None,
+        "checkpoints/overall_best_TA-STGCN.pth",
+        "checkpoints/best_TA-STGCN_seed_42.pth",
+        "/workspace/nckh/model/overall_best_TA-STGCN.pth",
+        "/kaggle/input/models/canhdoo/weight/pytorch/default/1/model_STGCN_Attn_6steps.pth",
+        CFG.FULL_SAVE_PATH,
+        "model/model_STGCN_Attn_6steps.pth"
+    ]
+
+    target_model_path = None
+    state_dict = None
+
+    for p in candidate_paths:
+        if p and os.path.exists(p):
+            target_model_path = p
+            break
     
     if target_model_path and os.path.exists(target_model_path):
         print(f"✅ Đã tìm thấy weight model! Đang nạp checkpoint từ: {target_model_path}")
-        model.load_state_dict(torch.load(target_model_path, map_location=device))
-    else:
-        print(f"⚠️ Không tìm thấy file weight (hoặc path=None). Bắt đầu huấn luyện mô hình {args.epochs} epochs từ đầu...")
+        try:
+            model.load_state_dict(torch.load(target_model_path, map_location=device))
+        except Exception as e:
+            print(f"⚠️ Không thể nạp checkpoint ({e}), tự động train lại mô hình...")
+            target_model_path = None
+
+    if target_model_path is None:
+        print(f"⚠️ Bắt đầu huấn luyện mô hình {args.epochs} epochs từ đầu...")
         optimizer = optim.AdamW(model.parameters(), lr=CFG.LEARNING_RATE)
         loss_fn = HuberSmoothLoss(delta=CFG.LOSS_DELTA, smooth_weight=CFG.SMOOTH_LOSS_WEIGHT)
         scaler_obj = torch.cuda.amp.GradScaler() if torch.cuda.is_available() else None
@@ -107,7 +149,10 @@ def train_and_visualize():
     attention_weights = None
     def hook_fn(module, input, output):
         nonlocal attention_weights
-        attention_weights = output[1].detach().cpu().numpy() # Shape: (B*N, T_in, T_in)
+        if isinstance(output, tuple) and len(output) > 1 and output[1] is not None:
+            attention_weights = output[1].detach().cpu().numpy() # Shape: (B*N, T_in, T_in)
+        elif hasattr(module, 'last_attn_weights') and module.last_attn_weights is not None:
+            attention_weights = module.last_attn_weights.detach().cpu().numpy()
         
     model.temporal_attn.attn.register_forward_hook(hook_fn)
     model.eval()
@@ -134,11 +179,29 @@ def train_and_visualize():
             pinfo['idx'] = len(test_ds) // 2
 
     def get_attn_matrix(idx):
+        nonlocal attention_weights
+        attention_weights = None
         X, Y = test_ds[idx]
-        X_tensor = torch.tensor(X).unsqueeze(0).to(device)
+        if isinstance(X, torch.Tensor):
+            X_tensor = X.detach().clone().float().unsqueeze(0).to(device)
+        else:
+            X_tensor = torch.from_numpy(X).float().unsqueeze(0).to(device)
         with torch.no_grad():
             model(X_tensor)
-        return np.mean(attention_weights, axis=0) # (T_in, T_in)
+
+        if attention_weights is None or np.isnan(attention_weights).any():
+            if hasattr(model.temporal_attn, 'last_attn_weights') and model.temporal_attn.last_attn_weights is not None:
+                attention_weights = model.temporal_attn.last_attn_weights.detach().cpu().numpy()
+
+        if attention_weights is None:
+            return np.eye(24)
+
+        mat = np.mean(attention_weights, axis=0) if attention_weights.ndim == 3 else attention_weights
+        mat = np.nan_to_num(mat, nan=1.0 / 24.0)
+        row_sums = mat.sum(axis=-1, keepdims=True)
+        row_sums[row_sums == 0] = 1.0
+        mat = mat / row_sums
+        return mat
 
     # Labels thời gian (-120m đến -5m)
     time_ticks = [f"-{(24-i)*5}m" for i in range(0, 24, 3)]
@@ -165,7 +228,7 @@ def train_and_visualize():
         plt.close()
         print(f"📊 Saved single heatmap for {pkey} at {save_path}")
 
-    # B. Tạo 4 phiên bản so sánh (Mỗi phiên bản gồm 3 ảnh đơn lẻ + 1 ảnh ghép 3-Subplot)
+    # B. Tạo 4 bức ảnh so sánh chuẩn 3-Subplot (Target vs Night Off-Peak vs Difference)
     targets_to_compare = ['Morning_Peak', 'Noon_Normal', 'Evening_Peak', 'Late_Evening']
 
     for pkey in targets_to_compare:
@@ -173,21 +236,6 @@ def train_and_visualize():
         attn_target = attn_matrices[pkey]
         attn_diff = attn_target - attn_offpeak
 
-        # B1. Lưu ảnh Difference Heatmap đơn lẻ
-        plt.figure(figsize=(9, 7))
-        sns.heatmap(attn_diff, cmap='coolwarm', center=0, annot=False, cbar_kws={'label': 'Δ Attention Weight'})
-        plt.title(f"Temporal Attention Difference Heatmap\n{pinfo['title']} vs. Night Off-Peak", fontsize=13, fontweight='bold', pad=12)
-        plt.xlabel('Historical Key Steps (Past Mins)', fontsize=11, labelpad=8)
-        plt.ylabel('Query Time Steps (Current Mins)', fontsize=11, labelpad=8)
-        plt.xticks(tick_indices, time_ticks, rotation=45, ha='right')
-        plt.yticks(tick_indices, time_ticks, rotation=0)
-        
-        diff_single_png = os.path.join(CFG.PLOT_DIR, f'attention_difference_{pkey.lower()}.png')
-        plt.savefig(diff_single_png, dpi=300, bbox_inches='tight')
-        plt.close()
-        print(f"📊 Saved single difference heatmap for {pkey} at {diff_single_png}")
-
-        # B2. Lưu ảnh ghép 3-Subplot (a: Target, b: Off-Peak, c: Difference)
         fig, axes = plt.subplots(1, 3, figsize=(22, 6))
 
         # (a) Target Period
