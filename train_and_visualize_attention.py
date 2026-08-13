@@ -14,7 +14,7 @@ from hybrid import train_one_epoch
 
 def train_and_visualize():
     parser = argparse.ArgumentParser(description="Trích xuất và vẽ ma trận Temporal Attention so sánh 4 khung giờ với Giờ thấp điểm Đêm.")
-    parser.add_argument('--model_path', type=str, default="/workspace/nckh/model/overall_best_TA-STGCN.pth", help="Đường dẫn tới file trọng số checkpoint (.pth). Nếu là None hoặc không tìm thấy, script sẽ tự động train lại.")
+    parser.add_argument('--model_path', type=str, default=None, help="Đường dẫn tới file trọng số checkpoint (.pth). Nếu là None hoặc không tìm thấy, script sẽ tự động train lại.")
     parser.add_argument('--epochs', type=int, default=120, help="Số epochs huấn luyện nếu train từ đầu (mặc định: 100).")
     parser.add_argument('--batch_size', type=int, default=64, help="Kích thước batch size.")
     parser.add_argument('--root_dir', type=str, default="/workspace/GRAPH", help="Thư mục gốc chứa dữ liệu.")
@@ -73,12 +73,7 @@ def train_and_visualize():
     # 2. Kiểm tra đường dẫn load model weights và tự động phát hiện kích thước channels trong Checkpoint
     candidate_paths = [
         args.model_path if args.model_path else None,
-        "checkpoints/overall_best_TA-STGCN.pth",
-        "checkpoints/best_TA-STGCN_seed_42.pth",
-        "/workspace/nckh/model/overall_best_TA-STGCN.pth",
-        "/kaggle/input/models/canhdoo/weight/pytorch/default/1/model_STGCN_Attn_6steps.pth",
         CFG.FULL_SAVE_PATH,
-        "model/model_STGCN_Attn_6steps.pth"
     ]
 
     target_model_path = None
@@ -132,7 +127,7 @@ def train_and_visualize():
         print(f"⚠️ Bắt đầu huấn luyện mô hình {args.epochs} epochs từ đầu...")
         optimizer = optim.AdamW(model.parameters(), lr=CFG.LEARNING_RATE)
         loss_fn = HuberSmoothLoss(delta=CFG.LOSS_DELTA, smooth_weight=CFG.SMOOTH_LOSS_WEIGHT)
-        scaler_obj = torch.cuda.amp.GradScaler() if torch.cuda.is_available() else None
+        scaler_obj = torch.amp.GradScaler('cuda') if torch.cuda.is_available() else None
         
         for epoch in range(1, args.epochs + 1):
             if scaler_obj is None:
