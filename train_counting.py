@@ -192,6 +192,26 @@ class VehicleDataset(Dataset):
         return image, label
 
 
+def get_dataset(image_dir, csv_file, is_train=False):
+    from torchvision import transforms
+    if is_train:
+        transform = transforms.Compose([
+            transforms.Resize(Config.IMG_SIZE),
+            transforms.RandomHorizontalFlip(),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            transforms.RandomErasing(p=0.2, scale=(0.02, 0.2), value=0),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+    else:
+        transform = transforms.Compose([
+            transforms.Resize(Config.IMG_SIZE),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+    return VehicleDataset(csv_file, image_dir, transform=transform)
+
+
 def build_counting_model(model_name: str, num_classes: int = 2, pretrained: bool = True):
     """
     Khởi tạo mô hình ước lượng số lượng phương tiện (2 đầu ra: [Ô tô, Xe máy]).
