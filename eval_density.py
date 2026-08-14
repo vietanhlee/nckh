@@ -183,6 +183,7 @@ def evaluate_stage1_density(args):
         plt.figure(figsize=(10, 6))
         sns.barplot(data=df_plot, x='Density', y='MAE', hue='Model', 
                     palette='Set2', errorbar=None)
+        plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0.)
         plt.title('Stage 1 MAE by Density Level (Average over 5 seeds)', fontsize=14, fontweight='bold')
         plt.ylabel('Mean Absolute Error (MAE)', fontsize=12)
         plt.xlabel('Density Level', fontsize=12)

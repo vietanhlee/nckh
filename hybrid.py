@@ -596,7 +596,7 @@ def plot_training_history(train_losses, val_losses, train_maes, val_maes, save_d
     plt.title('Loss History (Huber - Normalized)')
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
-    plt.legend()
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
     plt.grid(True, linestyle='--', alpha=0.6)
 
     plt.subplot(1, 2, 2)
@@ -611,7 +611,7 @@ def plot_training_history(train_losses, val_losses, train_maes, val_maes, save_d
     plt.title('MAE History (Real Scale - Vehicles)')
     plt.xlabel('Epochs')
     plt.ylabel('MAE')
-    plt.legend()
+    plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
     plt.grid(True, linestyle='--', alpha=0.6)
 
     plt.tight_layout()
@@ -699,7 +699,7 @@ def visualize_last_step(model, loader, device, scaler, cfg, node_list=None, save
             
         plt.ylabel("Vehicles Count")
         plt.xlabel("Time Steps")
-        plt.legend()
+        plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
 

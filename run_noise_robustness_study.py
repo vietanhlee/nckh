@@ -603,7 +603,7 @@ def run_noise_robustness_experiment():
 
     plt.xticks(x_ticks, x_labels, fontsize=9.5, rotation=35, ha='right')
     plt.grid(True, linestyle='--', alpha=0.6)
-    plt.legend(frameon=True, facecolor='white', edgecolor='none', fontsize=9, loc='upper left')
+    plt.legend(frameon=True, facecolor='white', edgecolor='none', fontsize=9, bbox_to_anchor=(1.02, 1), loc='upper left')
     plt.tight_layout()
 
     fig_pdf = os.path.join(fig_dir, "noise_robustness_study.pdf")
