@@ -1266,14 +1266,21 @@ class Ablation_TA_STGCN_Model(nn.Module):
         out = out.view(B, N, self.horizon, self.output_feat)
         return out.permute(0, 2, 1, 3)
 
-def run_position_ablation(main_results=None):
-    seeds = [42, 100, 2024, 22, 99]
-    cfg = HybridConfig()
-    cfg.ROOT_DIR = "/workspace/GRAPH"
+def run_position_ablation(main_results=None, args=None):
+    if args is not None:
+        seeds = args.seeds
+        cfg = HybridConfig()
+        cfg.ROOT_DIR = args.root_dir
+        cfg.EPOCHS = args.epochs
+    else:
+        seeds = [42, 100, 2024, 22, 99]
+        cfg = HybridConfig()
+        cfg.ROOT_DIR = "/workspace/GRAPH"
+        cfg.EPOCHS = 120
+
     cfg.ADJ_PATH = os.path.join(cfg.ROOT_DIR, "Graph_fix_py_3.xlsx")
     cfg.CSV_PATH = os.path.join(cfg.ROOT_DIR, "count_7_7_merg_sort_fix_fill.csv")
     cfg.SAVE_DIR = "model/"
-    cfg.EPOCHS = 120
     cfg.PATIENCE = 20
     cfg.BATCH_SIZE = 64
     cfg.LEARNING_RATE = 0.0008
@@ -1382,6 +1389,23 @@ def run_position_ablation(main_results=None):
 
 
 if __name__ == "__main__":
-    main_results = run_benchmark()
-    run_position_ablation(main_results)
+    parser = argparse.ArgumentParser(description="Script Benchmark Dự báo Đồ thị Không-Thời gian (Stage 2).")
+    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 22, 99],
+                        help="Danh sách seeds (mặc định: [42, 100, 2024, 22, 99]).")
+    parser.add_argument('--epochs', type=int, default=120,
+                        help="Số epochs tối đa (mặc định: 120).")
+    parser.add_argument('--batch_size', type=int, default=64,
+                        help="Batch size (mặc định: 64).")
+    parser.add_argument('--root_dir', type=str, default="/workspace/GRAPH",
+                        help="Thư mục gốc chứa dữ liệu.")
+    parser.add_argument('--use_wandb', action='store_true',
+                        help="Ghi log lên Weights & Biases (mặc định: False).")
+    parser.add_argument('--wandb_project', type=str, default="IEEE_NCKH_Graph_Forecasting",
+                        help="Tên project trên WandB.")
+    parser.add_argument('--model_group', type=str, choices=['all', 'advanced', 'standard', 'ablation'], default='all',
+                        help="Chỉ định nhóm mô hình để chạy.")
+    args = parser.parse_args()
+
+    main_results = run_benchmark(args)
+    run_position_ablation(main_results, args)
 
