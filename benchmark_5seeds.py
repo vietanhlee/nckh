@@ -449,29 +449,30 @@ def train_single_seed(model_name, model, train_loader, val_loader, test_loader, 
     return test_metrics
 
 
-def run_benchmark():
-    parser = argparse.ArgumentParser(description="Script huấn luyện 5 Seeds ngẫu nhiên cho 5 mô hình (GCN-LSTM & STGCN).")
-    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 22, 99],
-                        help="Danh sách 5 seeds ngẫu nhiên (mặc định: 42 100 2024 22 99).")
-    parser.add_argument('--model_group', type=str, choices=['all', 'advanced', 'standard', 'ablation'], default='all',
-                        help="Nhóm mô hình cần chạy (mặc định 'all' tự động chạy tất cả 15 mô hình: SOTA Baselines + TA-STGCN + Tất cả các biến thể Ablation Study).")
-    parser.add_argument('--epochs', type=int, default=120,
-                        help="Số epochs chạy tối đa cho mỗi seed (mặc định: 80).")
-    parser.add_argument('--patience', type=int, default=20,
-                        help="Số patience early stopping (mặc định: 18).")
-    parser.add_argument('--batch_size', type=int, default=64,
-                        help="Kích thước batch_size (mặc định: 64 tối ưu cho 24GB VRAM GPU).")
-    parser.add_argument('--learning_rate', type=float, default=0.0008,
-                        help="Tốc độ học Learning Rate cho AdamW (mặc định: 0.0008).")
-    parser.add_argument('--root_dir', type=str, default="/workspace/GRAPH",
-                        help="Thư mục gốc chứa dữ liệu.")
-    parser.add_argument('--use_wandb', action='store_true', default=True,
-                        help="Tự động khởi tạo và ghi log lên WandB (mặc định: True).")
-    parser.add_argument('--no_wandb', dest='use_wandb', action='store_false',
-                        help="Tắt ghi log WandB.")
-    parser.add_argument('--wandb_project', type=str, default="NCKH-Benmark-5Seed",
-                        help="Tên project trên WandB (mặc định: NCKH-Benmark-5Seed).")
-    args = parser.parse_args()
+def run_benchmark(args=None):
+    if args is None:
+        parser = argparse.ArgumentParser(description="Script huấn luyện 5 Seeds ngẫu nhiên cho 5 mô hình (GCN-LSTM & STGCN).")
+        parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 22, 99],
+                            help="Danh sách 5 seeds ngẫu nhiên (mặc định: 42 100 2024 22 99).")
+        parser.add_argument('--model_group', type=str, choices=['all', 'advanced', 'standard', 'ablation'], default='all',
+                            help="Nhóm mô hình cần chạy (mặc định 'all' tự động chạy tất cả 15 mô hình: SOTA Baselines + TA-STGCN + Tất cả các biến thể Ablation Study).")
+        parser.add_argument('--epochs', type=int, default=120,
+                            help="Số epochs chạy tối đa cho mỗi seed (mặc định: 80).")
+        parser.add_argument('--patience', type=int, default=20,
+                            help="Số patience early stopping (mặc định: 18).")
+        parser.add_argument('--batch_size', type=int, default=64,
+                            help="Kích thước batch_size (mặc định: 64 tối ưu cho 24GB VRAM GPU).")
+        parser.add_argument('--learning_rate', type=float, default=0.0008,
+                            help="Tốc độ học Learning Rate cho AdamW (mặc định: 0.0008).")
+        parser.add_argument('--root_dir', type=str, default="/workspace/GRAPH",
+                            help="Thư mục gốc chứa dữ liệu.")
+        parser.add_argument('--use_wandb', action='store_true', default=True,
+                            help="Tự động khởi tạo và ghi log lên WandB (mặc định: True).")
+        parser.add_argument('--no_wandb', dest='use_wandb', action='store_false',
+                            help="Tắt ghi log WandB.")
+        parser.add_argument('--wandb_project', type=str, default="NCKH-Benmark-5Seed",
+                            help="Tên project trên WandB (mặc định: NCKH-Benmark-5Seed).")
+        args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"============================================================")
@@ -1170,7 +1171,7 @@ def run_benchmark():
         plt.close()
         print(f"🔬 Đã lưu biểu đồ phân tích Ablation Study vào: {abl_png_path} và paper/fig/")
         
-    return results
+    return results, args
 
 
 
@@ -1389,23 +1390,6 @@ def run_position_ablation(main_results=None, args=None):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Script Benchmark Dự báo Đồ thị Không-Thời gian (Stage 2).")
-    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 22, 99],
-                        help="Danh sách seeds (mặc định: [42, 100, 2024, 22, 99]).")
-    parser.add_argument('--epochs', type=int, default=120,
-                        help="Số epochs tối đa (mặc định: 120).")
-    parser.add_argument('--batch_size', type=int, default=64,
-                        help="Batch size (mặc định: 64).")
-    parser.add_argument('--root_dir', type=str, default="/workspace/GRAPH",
-                        help="Thư mục gốc chứa dữ liệu.")
-    parser.add_argument('--use_wandb', action='store_true',
-                        help="Ghi log lên Weights & Biases (mặc định: False).")
-    parser.add_argument('--wandb_project', type=str, default="IEEE_NCKH_Graph_Forecasting",
-                        help="Tên project trên WandB.")
-    parser.add_argument('--model_group', type=str, choices=['all', 'advanced', 'standard', 'ablation'], default='all',
-                        help="Chỉ định nhóm mô hình để chạy.")
-    args = parser.parse_args()
-
-    main_results = run_benchmark(args)
+    main_results, args = run_benchmark()
     run_position_ablation(main_results, args)
 
