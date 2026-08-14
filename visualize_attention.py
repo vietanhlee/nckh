@@ -68,10 +68,9 @@ def train_and_visualize():
     # 2. Kiểm tra đường dẫn load model weights và tự động phát hiện kích thước channels trong Checkpoint
     candidate_paths = [
         args.model_path if args.model_path else None,
-        "/workspace/nckh/model/overall_best_TA-STGCN.pth",
-        os.path.join(CFG.ROOT_DIR, "checkpoints", "overall_best_TA-STGCN.pth"),
-        os.path.join(os.getcwd(), "checkpoints", "overall_best_TA-STGCN.pth"),
-        os.path.join(os.getcwd(), "model", "overall_best_TA-STGCN.pth")
+        os.path.join(CFG.ROOT_DIR, "checkpoints", "best_TA-STGCN_seed_42.pth"),
+        os.path.join(os.getcwd(), "checkpoints", "best_TA-STGCN_seed_42.pth"),
+        os.path.join(os.getcwd(), "model", "best_TA-STGCN_seed_42.pth")
     ]
 
     target_model_path = None
@@ -129,7 +128,7 @@ def train_and_visualize():
             target_model_path = None
 
     if target_model_path is None:
-        raise FileNotFoundError("❌ Không tìm thấy model best từ phase benchmark (overall_best_TA-STGCN.pth) và cũng không có model nào được truyền vào qua --model_path. Vui lòng chạy chạy benchmark trước để lấy mô hình tốt nhất!")
+        raise FileNotFoundError("❌ Không tìm thấy model best từ phase benchmark (best_TA-STGCN_seed_42.pth) và cũng không có model nào được truyền vào qua --model_path. Vui lòng chạy benchmark_5seeds.py trước để lấy mô hình tốt nhất!")
             
     # 3. Hook to get attention weights
     attention_weights = None

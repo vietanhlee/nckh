@@ -1,68 +1,70 @@
 import os
+import gc
+import json
 import torch
+import argparse
 import numpy as np
-import random
-from torch.utils.data import DataLoader
-from torchvision import transforms
-from train_counting import VehicleDataset, build_counting_model, Config
-
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import pandas as pd
+from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
-def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+# Import Stage 1 dependencies
+from train_counting import get_dataset, build_counting_model
+from benchmark_5seeds import set_seed
+
+# Import Stage 2 dependencies
+from stgcn import STGCN_Model as Baseline_STGCN_Model, Config as BaselineConfig, normalize_adj_sym
+from hybrid import STGCN_Model as Hybrid_STGCN_Model, Config as HybridConfig
+from advanced_baselines import GraphWaveNet, ASTGCN, GMAN, AGCRN
+from sota_2023_baselines import STAEformerProxy, MegaCRNProxy, DSTAGNNProxy, iTransformerProxy
+from stgcn import (
+    load_adj_from_excel,
+    compute_scaled_laplacian,
+    load_timeseries_double_rolling,
+    MultiStepDataset,
+)
 
 def format_mean_std(data_list):
-    if len(data_list) == 0:
-        return "-"
-    mean_val = np.mean(data_list)
-    std_val = np.std(data_list)
-    return f"{mean_val:.2f} ± {std_val:.2f}"
-    
+    if not data_list: return "-"
+    mean = np.mean(data_list)
+    std = np.std(data_list, ddof=1) if len(data_list) > 1 else 0.0
+    return f"{mean:.4f} ± {std:.4f}"
+
 def format_mean_std_bias(data_list):
-    if len(data_list) == 0:
-        return "-"
-    mean_val = np.mean(data_list)
-    std_val = np.std(data_list)
-    return f"{mean_val:+.2f} ± {std_val:.2f}"
+    if not data_list: return "-"
+    mean = np.mean(data_list)
+    std = np.std(data_list, ddof=1) if len(data_list) > 1 else 0.0
+    prefix = "+" if mean > 0 else ""
+    return f"{prefix}{mean:.2f} ± {std:.2f}"
 
-def main():
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"🚀 Bắt đầu đánh giá phân tầng mật độ cho TẤT CẢ CÁC MÔ HÌNH trên {device}...\n")
-
-    csv_file = Config.CSV_FILE
-    image_dir = Config.IMAGE_DIR
+def evaluate_stage1_density(args):
+    print("="*80)
+    print("🚀 GIAI ĐOẠN 1 (STAGE 1): PHÂN TÍCH ĐÁNH GIÁ MÔ HÌNH COUNTING THEO MỨC MẬT ĐỘ")
+    print("="*80)
     
-    models = Config.MODELS 
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     seeds = [42, 100, 2024, 22, 99]
+    models = ['vgg16', 'resnet50']
+    
+    # Load dataset for stage 1
+    image_dir = os.path.join(args.root_dir, "TRANCOS_v3/images")
+    csv_file = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
+    full_dataset = get_dataset(image_dir, csv_file, is_train=False)
+    
+    n_total = len(full_dataset)
+    n_train = int(n_total * 0.8)
+    n_val = int(n_total * 0.1)
+    n_test = n_total - n_train - n_val
 
-    val_transform = transforms.Compose([
-        transforms.Resize(Config.IMG_SIZE),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-
-    full_dataset = VehicleDataset(csv_file, image_dir, transform=val_transform)
-    total_len = len(full_dataset)
-    n_train = int(0.8 * total_len)
-    n_val = int(0.1 * total_len)
-    n_test = total_len - n_train - n_val
-
-    md_content = "# Báo cáo Đánh giá Phân tầng Mật độ (Density-stratified Evaluation)\n\n"
-    md_content += "Báo cáo này trình bày kết quả phân tích lỗi của các mô hình ở 3 mức mật độ giao thông khác nhau: Thấp (<10 xe), Trung bình (10-25 xe), và Cao (>25 xe).\n\n"
-
-    plot_data = [] # Lưu dữ liệu để vẽ biểu đồ
+    md_content = "# Báo cáo Đánh giá Theo Mật độ (Stage 1)\n\n"
+    md_content += "Mật độ: Low (<10), Medium (10-25), High (>25) xe/camera.\n\n"
+    
+    plot_data = []
 
     for model_name in models:
-        print(f"\n=======================================================")
-        print(f"📌 ĐÁNH GIÁ MÔ HÌNH: {model_name.upper()}")
-        print(f"=======================================================")
+        print(f"\n📌 ĐÁNH GIÁ MÔ HÌNH STAGE 1: {model_name.upper()}")
         
         results = {
             'Low (<10)': {'mae_car': [], 'mae_moto': [], 'bias_car': [], 'bias_moto': [], 'counts': []},
@@ -73,17 +75,17 @@ def main():
         for seed in seeds:
             print(f"   --- Đang chạy đánh giá cho Seed {seed} ---")
             set_seed(seed)
-            
             torch.manual_seed(seed) 
             _, _, test_ds = torch.utils.data.random_split(full_dataset, [n_train, n_val, n_test])
             
             test_loader = DataLoader(test_ds, batch_size=32, shuffle=False, num_workers=2)
             
             possible_paths = [
+                os.path.join(args.root_dir, "checkpoints", f"best_counting_{model_name}_seed_{seed}.pth"),
+                os.path.join(args.root_dir, "model", f"best_counting_{model_name}_seed_{seed}.pth"),
+                os.path.join(args.root_dir, "checkpoints", f"temp_counting_{model_name}_seed_{seed}.pth"),
                 f"checkpoints/best_counting_{model_name}_seed_{seed}.pth",
-                f"checkpoints/temp_counting_{model_name}_seed_{seed}.pth",
-                f"model/best_counting_{model_name}_seed_{seed}.pth",
-                f"checkpoints/overall_best_counting_{model_name}.pth"
+                f"model/best_counting_{model_name}_seed_{seed}.pth"
             ]
             
             checkpoint_path = None
@@ -123,8 +125,7 @@ def main():
                 count = np.sum(mask)
                 results[level]['counts'].append(count)
                 
-                if count == 0:
-                    continue
+                if count == 0: continue
                 
                 preds_level = test_preds[mask]
                 trues_level = test_trues[mask]
@@ -135,62 +136,257 @@ def main():
                 results[level]['bias_car'].append(np.mean(err[:, 0]))
                 results[level]['bias_moto'].append(np.mean(err[:, 1]))
 
-        # In & Lưu Bảng Markdown cho mô hình hiện tại
         md_content += f"## {model_name.upper()}\n\n"
         md_content += "| Mức mật độ | Số lượng ảnh (TB) | MAE Xe ô tô | MAE Xe máy | Độ chệch Ô tô | Độ chệch Xe máy |\n"
         md_content += "|---|---|---|---|---|---|\n"
 
         for level in ['Low (<10)', 'Medium (10-25)', 'High (>25)']:
             avg_count = int(np.mean(results[level]['counts'])) if results[level]['counts'] else 0
-            
             mae_car_str = format_mean_std(results[level]['mae_car'])
             mae_moto_str = format_mean_std(results[level]['mae_moto'])
             bias_car_str = format_mean_std_bias(results[level]['bias_car'])
             bias_moto_str = format_mean_std_bias(results[level]['bias_moto'])
             
-            md_content += f"| {level} | ~{avg_count} | {mae_car_str} | {mae_moto_str} | {bias_car_str} | {bias_moto_str} |\n"
+            md_content += f"| **{level}** | {avg_count} | {mae_car_str} | {mae_moto_str} | {bias_car_str} | {bias_moto_str} |\n"
             
-            # Đẩy dữ liệu vào mảng vẽ biểu đồ (lấy giá trị trung bình)
             if results[level]['mae_car']:
-                plot_data.append({'Model': model_name.upper(), 'Density': level, 'Vehicle': 'Car', 'MAE': np.mean(results[level]['mae_car'])})
+                plot_data.append({
+                    'Model': model_name.upper(),
+                    'Density': level.split()[0],
+                    'Vehicle': 'Car',
+                    'MAE': np.mean(results[level]['mae_car'])
+                })
             if results[level]['mae_moto']:
-                plot_data.append({'Model': model_name.upper(), 'Density': level, 'Vehicle': 'Motorcycle', 'MAE': np.mean(results[level]['mae_moto'])})
-                
-        md_content += "\n"
+                plot_data.append({
+                    'Model': model_name.upper(),
+                    'Density': level.split()[0],
+                    'Vehicle': 'Motorcycle',
+                    'MAE': np.mean(results[level]['mae_moto'])
+                })
 
-    # Ghi file Markdown
-    with open("density_evaluation_report.md", "w", encoding="utf-8") as f:
+    with open("eval_stage1_density_report.md", "w", encoding="utf-8") as f:
         f.write(md_content)
-    print("\n✅ Đã lưu kết quả ra file: density_evaluation_report.md")
+    
+    print("\n✅ Đã lưu kết quả Stage 1 vào eval_stage1_density_report.md")
 
-    # Vẽ biểu đồ
     if plot_data:
         df_plot = pd.DataFrame(plot_data)
         
-        # Đặt thứ tự cho trục X
-        density_order = ['Low (<10)', 'Medium (10-25)', 'High (>25)']
-        
-        fig, axes = plt.subplots(1, 2, figsize=(15, 6), dpi=300)
-        plt.rcParams['font.family'] = 'DejaVu Sans'
-        
-        sns.barplot(data=df_plot[df_plot['Vehicle'] == 'Car'], x='Density', y='MAE', hue='Model', ax=axes[0], order=density_order)
-        axes[0].set_title('Car MAE across Density Levels', fontweight='bold')
-        axes[0].set_ylabel('Mean Absolute Error (MAE)')
-        axes[0].grid(axis='y', linestyle='--', alpha=0.7)
-        
-        sns.barplot(data=df_plot[df_plot['Vehicle'] == 'Motorcycle'], x='Density', y='MAE', hue='Model', ax=axes[1], order=density_order)
-        axes[1].set_title('Motorcycle MAE across Density Levels', fontweight='bold')
-        axes[1].set_ylabel('Mean Absolute Error (MAE)')
-        axes[1].grid(axis='y', linestyle='--', alpha=0.7)
-        
+        plt.figure(figsize=(10, 6))
+        sns.barplot(data=df_plot, x='Density', y='MAE', hue='Model', 
+                    palette='Set2', errorbar=None)
+        plt.title('Stage 1 MAE by Density Level (Average over 5 seeds)', fontsize=14, fontweight='bold')
+        plt.ylabel('Mean Absolute Error (MAE)', fontsize=12)
+        plt.xlabel('Density Level', fontsize=12)
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
         plt.tight_layout()
-        os.makedirs("paper/fig", exist_ok=True)
-        fig_png = "paper/fig/density_mae_comparison.png"
-        fig_pdf = "paper/fig/density_mae_comparison.pdf"
+        
+        os.makedirs('plots', exist_ok=True)
+        fig_png = os.path.join('plots', 'stage1_density_mae.png')
+        fig_pdf = os.path.join('plots', 'stage1_density_mae.pdf')
         plt.savefig(fig_png)
         plt.savefig(fig_pdf, format='pdf', bbox_inches='tight')
         plt.close()
-        print(f"✅ Đã vẽ và lưu biểu đồ so sánh Mật độ ra file:\n   - {fig_png}\n   - {fig_pdf}")
+        print(f"📊 Đã lưu biểu đồ Stage 1 MAE: {fig_png} (và .pdf)")
+
+def evaluate_stage2_density(args):
+    print("\n"+"="*80)
+    print("🚀 GIAI ĐOẠN 2 (STAGE 2): PHÂN TÍCH LAN TRUYỀN LỖI TRONG DỰ BÁO (ERROR PROPAGATION)")
+    print("="*80)
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    seeds = [42, 100, 2024, 22, 99]
+    
+    stgcn_cfg = BaselineConfig()
+    stgcn_cfg.BLOCK_HIDDEN = 80
+    stgcn_cfg.NUM_BLOCKS = 3
+    stgcn_cfg.ROOT_DIR = args.root_dir
+    stgcn_cfg.ADJ_PATH = os.path.join(args.root_dir, "Graph_fix_py_3.xlsx")
+    stgcn_cfg.CSV_PATH = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
+    
+    hybrid_cfg = HybridConfig()
+    hybrid_cfg.BLOCK_HIDDEN = 80
+    hybrid_cfg.NUM_BLOCKS = 3
+    hybrid_cfg.ROOT_DIR = stgcn_cfg.ROOT_DIR
+    hybrid_cfg.ADJ_PATH = stgcn_cfg.ADJ_PATH
+    hybrid_cfg.CSV_PATH = stgcn_cfg.CSV_PATH
+    
+    A_raw, nodes = load_adj_from_excel(stgcn_cfg.ADJ_PATH)
+    L_tilde = compute_scaled_laplacian(A_raw)
+    
+    df_all = load_timeseries_double_rolling(
+        stgcn_cfg.CSV_PATH, nodes, stgcn_cfg.DATA_WINDOW1, stgcn_cfg.DATA_WINDOW2, stgcn_cfg.TIME_STEP_MINUTES
+    )
+    
+    n_total = len(df_all)
+    n_train = int(n_total * 0.8)
+    n_val = int(n_total * 0.1)
+    
+    df_train = df_all.iloc[:n_train]
+    df_test = df_all.iloc[n_train+n_val:]
+    
+    models_registry = {
+        'STGCN_Baseline': {
+            'config': stgcn_cfg,
+            'build_fn': lambda cfg: Baseline_STGCN_Model(
+                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
+                num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT
+            )
+        },
+        'Graph_WaveNet': {
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: GraphWaveNet(
+                num_nodes=len(nodes), in_dim=5, out_dim=2, blocks=4, layers=2, horizon=cfg.HORIZON
+            )
+        },
+        'ASTGCN': {
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: ASTGCN(
+                num_nodes=len(nodes), in_channels=5, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=64, L_tilde=L_tilde, out_dim=2
+            )
+        },
+        'STAEformer': {
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: STAEformerProxy(
+                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=160, heads=4, out_dim=2
+            )
+        },
+        'MegaCRN': {
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: MegaCRNProxy(
+                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=200, out_dim=2
+            )
+        },
+        'DSTAGNN': {
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: DSTAGNNProxy(
+                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=224, heads=4, out_dim=2
+            )
+        },
+        'iTransformer': {
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: iTransformerProxy(
+                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=128, heads=4, out_dim=2
+            )
+        },
+        'TA-STGCN': {
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: Hybrid_STGCN_Model(
+                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
+                num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
+                use_temporal_attention=cfg.USE_TEMPORAL_ATTENTION,
+                attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT
+            )
+        }
+    }
+    
+    results = {m: {'low': [], 'med': [], 'high': []} for m in models_registry}
+    
+    def get_density_metrics(model, loader, scaler_stats):
+        model.eval()
+        means = torch.tensor(scaler_stats['mean'], device=device)
+        stds = torch.tensor(scaler_stats['std'], device=device)
+        total_abs_err = [0.0, 0.0, 0.0]
+        total_count = [0, 0, 0]
+        
+        with torch.no_grad():
+            for X, Y in loader:
+                X, Y = X.to(device), Y.to(device)
+                pred = model(X)
+                
+                y_true = Y * stds + means
+                y_pred = pred * stds + means
+                y_true_total = y_true.sum(dim=-1)
+                y_pred_total = y_pred.sum(dim=-1)
+                
+                abs_err_total = torch.abs(y_true_total - y_pred_total)
+                
+                # Stratify by MAXIMUM density in the 24-frame INPUT sequence
+                x_unscaled = X * stds + means
+                x_total = x_unscaled[..., 0] + x_unscaled[..., 1] # Total vehicles: (B, T_in, N)
+                input_max_density, _ = x_total.max(dim=1) # Shape: (B, N)
+                
+                mask_low = (input_max_density < 10).unsqueeze(1).expand_as(abs_err_total)
+                mask_med = ((input_max_density >= 10) & (input_max_density <= 25)).unsqueeze(1).expand_as(abs_err_total)
+                mask_high = (input_max_density > 25).unsqueeze(1).expand_as(abs_err_total)
+                
+                total_abs_err[0] += abs_err_total[mask_low].sum().item()
+                total_count[0] += mask_low.sum().item()
+                total_abs_err[1] += abs_err_total[mask_med].sum().item()
+                total_count[1] += mask_med.sum().item()
+                total_abs_err[2] += abs_err_total[mask_high].sum().item()
+                total_count[2] += mask_high.sum().item()
+                
+        mae_low = total_abs_err[0] / max(1, total_count[0])
+        mae_med = total_abs_err[1] / max(1, total_count[1])
+        mae_high = total_abs_err[2] / max(1, total_count[2])
+        return mae_low, mae_med, mae_high
+
+    for seed in seeds:
+        set_seed(seed)
+        for model_name, info in models_registry.items():
+            cfg = info['config']
+            train_ds = MultiStepDataset(df_train, nodes, cfg.T_IN, cfg.HORIZON)
+            scaler = {'mean': train_ds.means, 'std': train_ds.stds}
+            test_ds = MultiStepDataset(df_test, nodes, cfg.T_IN, cfg.HORIZON, scaler)
+            test_loader = DataLoader(test_ds, batch_size=64, shuffle=False)
+            
+            model = info['build_fn'](cfg).to(device)
+            clean_name = model_name.replace(" ", "_").replace("(", "").replace(")", "").replace(",", "").replace("=", "_")
+            ckpt_path = os.path.join(args.root_dir, 'checkpoints', f"best_{clean_name}_seed_{seed}.pth")
+            fallback_path = os.path.join(args.root_dir, 'model', f"best_{clean_name}_seed_{seed}.pth")
+            
+            loaded = False
+            for p in [ckpt_path, fallback_path, f"checkpoints/best_{clean_name}_seed_{seed}.pth", f"model/best_{clean_name}_seed_{seed}.pth"]:
+                if os.path.exists(p):
+                    model.load_state_dict(torch.load(p, map_location=device))
+                    loaded = True
+                    break
+
+            if loaded:
+                l, m, h = get_density_metrics(model, test_loader, scaler)
+                results[model_name]['low'].append(l)
+                results[model_name]['med'].append(m)
+                results[model_name]['high'].append(h)
+                print(f"Seed {seed} | {model_name:15} | Low: {l:.4f} | Med: {m:.4f} | High: {h:.4f}")
+            else:
+                print(f"   ⚠️ WARNING: Không tìm thấy checkpoint cho {model_name} (Seed {seed})")
+                
+            del model
+            torch.cuda.empty_cache()
+            
+    print("\n" + "="*80)
+    print("📊 TỔNG HỢP KẾT QUẢ STAGE 2 DENSITY ERROR PROPAGATION (Mean ± Std)")
+    print("="*80)
+    print("| Model | Low (<10) | Medium (10-25) | High (>25) |")
+    print("|---|---|---|---|")
+    
+    md_content = "# Báo cáo Đánh giá Lan truyền Lỗi Theo Mật độ (Stage 2)\n\n"
+    md_content += "| Model | Low (<10) | Medium (10-25) | High (>25) |\n"
+    md_content += "|---|---|---|---|\n"
+    
+    for model_name in results:
+        l = results[model_name]['low']
+        m = results[model_name]['med']
+        h = results[model_name]['high']
+        if len(l) > 0:
+            row_str = f"| {model_name} | {np.mean(l):.4f} ± {np.std(l):.4f} | {np.mean(m):.4f} ± {np.std(m):.4f} | {np.mean(h):.4f} ± {np.std(h):.4f} |"
+            print(row_str)
+            md_content += row_str + "\n"
+
+    with open("eval_stage2_density_report.md", "w", encoding="utf-8") as f:
+        f.write(md_content)
+    print("\n✅ Đã lưu kết quả Stage 2 vào eval_stage2_density_report.md")
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--root_dir', type=str, default="g:/nckh")
+    args = parser.parse_args()
+    
+    # Run Stage 1 Evaluation
+    evaluate_stage1_density(args)
+    
+    # Run Stage 2 Evaluation
+    evaluate_stage2_density(args)

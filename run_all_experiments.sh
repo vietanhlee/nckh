@@ -4,13 +4,10 @@
 # ==============================================================================
 # Script này tự động thực thi các phần thử nghiệm của bài báo:
 #   1. benchmark_5seeds.py              : Stage 2 Graph Forecasting Benchmark
-#   2. train_and_visualize_attention.py : Temporal Attention Matrix Interpretability Heatmaps
+#   2. visualize_attention.py           : Temporal Attention Matrix Interpretability Heatmaps
 #   3. train_counting.py                : Stage 1 Vision Perception Benchmark & Grad-CAM++
-# ==============================================================================
-# 💡 CÁCH SỬ DỤNG:
-#   - Chạy chính thức đầy đủ   : ./run_all_experiments.sh
-#   - Chạy test thử nhanh (1 epoch): ./run_all_experiments.sh --test
-#   - Tùy chỉnh đường dẫn data : ./run_all_experiments.sh /path/to/data --test
+#   4. eval_density.py                  : Stage 2 Error Propagation by Density
+#   5. run_noise_robustness_study.py    : Stage 3 Noise Robustness Study
 # ==============================================================================
 
 # Thoát ngay nếu có lỗi xảy ra
@@ -69,44 +66,48 @@ mkdir -p logs plots paper/fig checkpoints
 # ------------------------------------------------------------------------------
 # 📍 THỬ NGHIỆM 1: STAGE 2 GRAPH FORECASTING BENCHMARK
 # ------------------------------------------------------------------------------
-# echo -e "\n${YELLOW}[1/4] 📈 Đang chạy Stage 2: Graph Forecasting Benchmark ...${NC}"
-git fetch --all && git reset --hard origin/main
+echo -e "\n${YELLOW}[1/5] 📈 Đang chạy Stage 2: Graph Forecasting Benchmark ...${NC}"
 python benchmark_5seeds.py --root_dir "${DATA_ROOT}" ${BENCHMARK_ARGS}
 
-# echo -e "${GREEN}✅ [1/4] Hoàn thành Stage 2! Báo cáo đã lưu tại benchmark_5seeds_report.md, JSON kết quả và paper/fig/${NC}"
+echo -e "${GREEN}✅ [1/5] Hoàn thành Stage 2! Báo cáo đã lưu tại benchmark_5seeds_report.md, JSON kết quả và paper/fig/${NC}"
 
 # ------------------------------------------------------------------------------
 # 📍 THỬ NGHIỆM 2: TEMPORAL ATTENTION WEIGHT INTERPRETABILITY & HEATMAPS
 # ------------------------------------------------------------------------------
-echo -e "\n${YELLOW}[2/4] 🧠 Đang chạy Temporal Attention Interpretability & Heatmap Analysis ...${NC}"
-git fetch --all && git reset --hard origin/main
-python train_and_visualize_attention.py --root_dir "${DATA_ROOT}" ${ATTENTION_ARGS}
+echo -e "\n${YELLOW}[2/5] 🧠 Đang chạy Temporal Attention Interpretability & Heatmap Analysis ...${NC}"
+python visualize_attention.py --root_dir "${DATA_ROOT}" ${ATTENTION_ARGS}
 
-echo -e "${GREEN}✅ [2/4] Hoàn thành Temporal Attention Analysis! Ma trận Attention đã lưu vào paper/fig/${NC}"
+echo -e "${GREEN}✅ [2/5] Hoàn thành Temporal Attention Analysis! Ma trận Attention đã lưu vào paper/fig/${NC}"
 
 # ------------------------------------------------------------------------------
 # 📍 THỬ NGHIỆM 3: STAGE 1 VISION PERCEPTION BENCHMARK (COUNTING & GRAD-CAM++)
 # ------------------------------------------------------------------------------
-echo -e "\n${YELLOW}[3/4] 📸 Đang chạy Stage 1: Vision Perception Benchmark & Grad-CAM++ ...${NC}"
-git fetch --all && git reset --hard origin/main
+echo -e "\n${YELLOW}[3/5] 📸 Đang chạy Stage 1: Vision Perception Benchmark & Grad-CAM++ ...${NC}"
 python train_counting.py ${COUNTING_ARGS}
 
-echo -e "${GREEN}✅ [3/4] Hoàn thành Stage 1! Báo cáo đã lưu tại counting_benchmark_report.md và paper/fig/${NC}"
+echo -e "${GREEN}✅ [3/5] Hoàn thành Stage 1! Báo cáo đã lưu tại counting_benchmark_report.md và paper/fig/${NC}"
 
 # ------------------------------------------------------------------------------
-# 📍 THỬ NGHIỆM 4: STAGE 3 NOISE ROBUSTNESS STUDY
+# 📍 THỬ NGHIỆM 4: STAGE 2 DENSITY ERROR PROPAGATION
 # ------------------------------------------------------------------------------
-echo -e "\n${YELLOW}[4/4] 🌪️ Đang chạy Stage 3: Noise Robustness Study (Phân tích độ bền vững với nhiễu) ...${NC}"
-git fetch --all && git reset --hard origin/main
+echo -e "\n${YELLOW}[4/5] 📊 Đang chạy Stage 2: Density Error Propagation ...${NC}"
+python eval_density.py
+
+echo -e "${GREEN}✅ [4/5] Hoàn thành đánh giá theo mật độ! Báo cáo lưu tại density_error_report.md${NC}"
+
+# ------------------------------------------------------------------------------
+# 📍 THỬ NGHIỆM 5: STAGE 3 NOISE ROBUSTNESS STUDY
+# ------------------------------------------------------------------------------
+echo -e "\n${YELLOW}[5/5] 🌪️ Đang chạy Stage 3: Noise Robustness Study (Phân tích độ bền vững với nhiễu) ...${NC}"
 python run_noise_robustness_study.py --root_dir "${DATA_ROOT}" ${BENCHMARK_ARGS}
 
-echo -e "${GREEN}✅ [4/4] Hoàn thành Stage 3! Kết quả đã được lưu tại noise_robustness_report.md và paper/fig/${NC}"
+echo -e "${GREEN}✅ [5/5] Hoàn thành Stage 3! Kết quả đã được lưu tại noise_robustness_report.md và paper/fig/${NC}"
 
 # ------------------------------------------------------------------------------
 # 🏁 KẾT THÚC CHUỖI THỰC NGHIỆM
 # ------------------------------------------------------------------------------
 echo -e "\n${BLUE}==============================================================================${NC}"
-echo -e "${GREEN}🎉 TẤT CẢ 4 PHẦN THỰC NGHIỆM ĐÃ HOÀN THÀNH XUẤT SẮC!${NC}"
+echo -e "${GREEN}🎉 TẤT CẢ 5 PHẦN THỰC NGHIỆM ĐÃ HOÀN THÀNH XUẤT SẮC!${NC}"
 echo -e "${BLUE}==============================================================================${NC}"
 echo -e "📊 Báo cáo thống kê   : benchmark_5seeds_report.md, counting_benchmark_report.md & noise_robustness_report.md"
 echo -e "💾 Dữ liệu JSON thô    : benchmark_5seeds_results.json"

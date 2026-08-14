@@ -489,9 +489,11 @@ def plot_training_history(train_losses, val_losses, train_maes, val_maes, save_d
     plt.tight_layout()
 
     os.makedirs(save_dir, exist_ok=True)
-    save_path = os.path.join(save_dir, "stgcn_training_history.png")
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f"📊 Đã lưu biểu đồ lịch sử huấn luyện vào: {save_path}")
+    save_png = os.path.join(save_dir, "stgcn_training_history.png")
+    save_pdf = os.path.join(save_dir, "stgcn_training_history.pdf")
+    plt.savefig(save_png, dpi=300, bbox_inches='tight')
+    plt.savefig(save_pdf, dpi=300, bbox_inches='tight')
+    print(f"📊 Đã lưu biểu đồ lịch sử huấn luyện vào:\n   - {save_png}\n   - {save_pdf}")
 
     if use_wandb:
         try:
@@ -555,9 +557,11 @@ def visualize_last_step(model, loader, device, scaler, cfg, node_list=None, save
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
 
-        save_path = os.path.join(save_dir, f"stgcn_node_{node_idx}_pred_{cfg.PRED_MINUTES}m.png")
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"   🖼️ Đã lưu biểu đồ Node {node_idx} vào: {save_path}")
+        save_png = os.path.join(save_dir, f"stgcn_node_{node_idx}_pred_{cfg.PRED_MINUTES}m.png")
+        save_pdf = os.path.join(save_dir, f"stgcn_node_{node_idx}_pred_{cfg.PRED_MINUTES}m.pdf")
+        plt.savefig(save_png, dpi=300, bbox_inches='tight')
+        plt.savefig(save_pdf, dpi=300, bbox_inches='tight')
+        print(f"   🖼️ Đã lưu biểu đồ Node {node_idx} vào: {save_png} (và .pdf)")
 
         try:
             plt.show()

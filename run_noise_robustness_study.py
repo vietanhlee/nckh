@@ -42,7 +42,7 @@ sys.stdout = TeeLogger("logs/noise_robustness_study.log")
 from stgcn import STGCN_Model as Baseline_STGCN_Model, Config as BaselineConfig
 from hybrid import STGCN_Model as Hybrid_STGCN_Model, Config as HybridConfig
 from advanced_baselines import GraphWaveNet, ASTGCN, GMAN
-from sota_2023_baselines import STAEformerProxy, MegaCRNProxy, DSTAGNNProxy
+from sota_2023_baselines import STAEformerProxy, MegaCRNProxy, DSTAGNNProxy, iTransformerProxy
 from stgcn import (
     load_adj_from_excel,
     compute_scaled_laplacian,
@@ -343,6 +343,12 @@ def run_noise_robustness_experiment():
                 num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=224, heads=4, out_dim=2
             )
         },
+        'iTransformer': {
+            'cfg': base_cfg,
+            'fn': lambda cfg: iTransformerProxy(
+                num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=128, heads=4, out_dim=2
+            )
+        },
         'TA-STGCN (Proposed / Ours)': {
             'cfg': base_cfg,
             'fn': lambda cfg: Hybrid_STGCN_Model(
@@ -529,6 +535,7 @@ def run_noise_robustness_experiment():
         'STAEformer': '#8c564b',
         'MegaCRN': '#e377c2',
         'DSTAGNN': '#7f7f7f',
+        'iTransformer': '#17becf',
         'TA-STGCN (Proposed / Ours)': '#2ca02c'
     }
     markers = {
@@ -539,6 +546,7 @@ def run_noise_robustness_experiment():
         'STAEformer': 'h',
         'MegaCRN': 'v',
         'DSTAGNN': 'P',
+        'iTransformer': 'X',
         'TA-STGCN (Proposed / Ours)': 'o'
     }
     linestyles = {
@@ -549,6 +557,7 @@ def run_noise_robustness_experiment():
         'STAEformer': '-.',
         'MegaCRN': ':',
         'DSTAGNN': '--',
+        'iTransformer': '-.',
         'TA-STGCN (Proposed / Ours)': '-'
     }
 

@@ -150,6 +150,48 @@ class DSTAGNNProxy(nn.Module):
         h2 = torch.bmm(A_dyn, self.gcn_w2(x_repr))
         h = F.relu(h1 + h2) # (B, N, D*2)
         
-        out = self.fc_out(h) # (B, N, H * out_dim)
         out = out.view(B, N, self.horizon, -1).transpose(1, 2) # (B, H, N, out_dim)
         return out
+
+# ============================================================
+# 4. iTransformer (ICLR 2024) - Proxy Implementation
+# Inverted Transformer: treats entire time series as a single token,
+# applies attention across variables (nodes).
+# ============================================================
+class iTransformerProxy(nn.Module):
+    def __init__(self, num_nodes, in_channels, T_in, horizon, embed_size=128, heads=4, out_dim=2):
+        super().__init__()
+        self.num_nodes = num_nodes
+        self.horizon = horizon
+        self.out_dim = out_dim
+        
+        # Project entire time series into a single token
+        self.project_in = nn.Linear(T_in * in_channels, embed_size)
+        
+        # Spatial Attention (Inverted)
+        self.transformer_encoder = nn.TransformerEncoderLayer(
+            d_model=embed_size, nhead=heads, dim_feedforward=embed_size*2, batch_first=True
+        )
+        
+        # Project back to future sequence
+        self.project_out = nn.Linear(embed_size, horizon * out_dim)
+        
+    def forward(self, x):
+        # x: (B, T, N, F)
+        B, T, N, F_in = x.shape
+        
+        # Flatten time and features
+        x_inv = x.transpose(1, 2).reshape(B, N, T * F_in) # (B, N, T*F_in)
+        
+        # Embed
+        tokens = self.project_in(x_inv) # (B, N, D)
+        
+        # Inverted Attention (across nodes)
+        out_tokens = self.transformer_encoder(tokens) # (B, N, D)
+        
+        # Project to future
+        preds = self.project_out(out_tokens) # (B, N, H * out_dim)
+        
+        # Reshape
+        preds = preds.view(B, N, self.horizon, self.out_dim).transpose(1, 2) # (B, H, N, out_dim)
+        return preds

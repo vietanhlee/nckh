@@ -392,22 +392,28 @@ class STGCN_Model(nn.Module):
         else:
             self.register_buffer('L_tilde', torch.tensor(L_tilde, dtype=torch.float32))
 
+    def apply_attn(self, h):
+        B, C, N, T = h.shape
+        h_seq = h.permute(0, 2, 3, 1).reshape(B * N, T, C)
+        h_seq = self.temporal_attn(h_seq)
+        return h_seq.reshape(B, N, T, C).permute(0, 3, 1, 2)
+
     def forward(self, x):
         # x: (B, T, N, F)
         h = x.permute(0, 3, 2, 1)  # (B, F, N, T)
 
-        for block in self.blocks:
-            h = block(h, self.L_tilde)  # (B, C_hidden, N, T)
+        if self.use_temporal_attention:
+            mid_idx = len(self.blocks) // 2
+            for i, block in enumerate(self.blocks):
+                h = block(h, self.L_tilde)
+                if i == mid_idx - 1: # Apply after the first half of blocks
+                    h = self.apply_attn(h)
+        else:
+            for block in self.blocks:
+                h = block(h, self.L_tilde)  # (B, C_hidden, N, T)
 
         B, C, N, T = h.shape
-
-        if self.use_temporal_attention:
-            # (B, C, N, T) -> (B*N, T, C): mỗi node là một chuỗi thời gian
-            h_seq = h.permute(0, 2, 3, 1).reshape(B * N, T, C)
-            h_seq = self.temporal_attn(h_seq)              # (B*N, T, C) - same dim nhờ residual
-            h = h_seq.permute(0, 2, 1)                     # (B*N, C, T)
-        else:
-            h = h.permute(0, 2, 1, 3).reshape(B * N, C, T)   # (B*N, C_hidden, T)
+        h = h.permute(0, 2, 1, 3).reshape(B * N, C, T)   # (B*N, C_hidden, T)
 
         out = self.final_conv(h)     # (B*N, horizon*output_feat, 1)
         out = out.squeeze(-1)

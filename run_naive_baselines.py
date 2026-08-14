@@ -91,39 +91,54 @@ def run_naive_baselines():
     ha_mape = get_mape(y_true_total, ha_pred_total)
     
     print(f"✅ Historical Average (HA) -> MAE: {ha_mae:.4f} | RMSE: {ha_rmse:.4f} | MAPE: {ha_mape*100:.2f}%")
-
-    # 3. Xây dựng Linear Regression / Ridge (Multi-Output)
-    # Lấy T_in bước làm feature để dự báo HORIZON bước
-    print("\n--- Đang chạy Linear Regression (Ridge) ---")
-    def create_xy_dataset(df, T_in, Horizon):
-        X, Y = [], []
-        vals = df.values
-        for i in range(len(vals) - T_in - Horizon + 1):
-            X.append(vals[i : i+T_in].flatten())
-            Y.append(vals[i+T_in : i+T_in+Horizon].flatten())
-        return np.array(X), np.array(Y)
-
-    X_train, Y_train = create_xy_dataset(df_train, cfg.T_IN, cfg.HORIZON)
-    X_test, Y_test = create_xy_dataset(df_test, cfg.T_IN, cfg.HORIZON)
+    # 3. Xây dựng Linear Regression (LR)
+    print("\n--- Đang chạy Linear Regression (LR) ---")
+    lr_preds = []
     
-    # Chạy mô hình hồi quy Ridge (Linear Regression có L2 Regularization chống overfit)
-    model = Ridge(alpha=1.0)
-    model.fit(X_train, Y_train)
-    lr_preds = model.predict(X_test)
+    # Flatten input window for LR
+    X_train_lr = []
+    Y_train_lr = []
+    for i in range(len(df_train) - cfg.T_IN - cfg.HORIZON + 1):
+        X_train_lr.append(df_train.iloc[i:i+cfg.T_IN].values.flatten())
+        Y_train_lr.append(df_train.iloc[i+cfg.T_IN : i+cfg.T_IN+cfg.HORIZON].values.flatten())
+        
+    X_train_lr = np.array(X_train_lr)
+    Y_train_lr = np.array(Y_train_lr)
     
-    lr_mae = mean_absolute_error(Y_test, lr_preds)
-    lr_rmse = np.sqrt(mean_squared_error(Y_test, lr_preds))
+    # Train Ridge Regression
+    lr_model = Ridge(alpha=1.0)
+    lr_model.fit(X_train_lr, Y_train_lr)
     
-    # Tính MAPE
-    y_test_3d = Y_test.reshape(-1, cfg.HORIZON, len(nodes), 2)
-    lr_preds_3d = lr_preds.reshape(-1, cfg.HORIZON, len(nodes), 2)
+    # Predict on Test
+    X_test_lr = []
+    for i in range(valid_len):
+        X_test_lr.append(df_test.iloc[i:i+cfg.T_IN].values.flatten())
+    X_test_lr = np.array(X_test_lr)
     
-    lr_y_true_total = y_test_3d.sum(axis=-1)
-    lr_pred_total = lr_preds_3d.sum(axis=-1)
-    lr_mape = get_mape(lr_y_true_total, lr_pred_total)
+    lr_pred_flat = lr_model.predict(X_test_lr)
+    # Reshape back to (Samples, Horizon, N*2)
+    lr_preds_stack = lr_pred_flat.reshape(-1, cfg.HORIZON, len(nodes) * 2)
+    # Apply ReLU to prevent negative counts
+    lr_preds_stack = np.maximum(0, lr_preds_stack)
     
-    print(f"✅ Linear Regression (LR) -> MAE: {lr_mae:.4f} | RMSE: {lr_rmse:.4f} | MAPE: {lr_mape*100:.2f}%")
+    # Ground Truth for LR is the same as HA (y_trues_stack but offset by T_IN)
+    # Wait, y_trues_stack for HA starts from i+1.
+    # For LR, input is [i:i+T_IN], so target is [i+T_IN : i+T_IN+HORIZON]
+    # Let's rebuild ground truth carefully
+    valid_len_lr = len(df_test) - cfg.T_IN - cfg.HORIZON + 1
+    y_trues_stack_lr = np.stack([df_test.iloc[i+cfg.T_IN : i+cfg.T_IN+cfg.HORIZON].values for i in range(valid_len_lr)], axis=0)
     
+    # We only take the first valid_len_lr predictions
+    lr_preds_stack = lr_preds_stack[:valid_len_lr]
+    
+    lr_mae = mean_absolute_error(y_trues_stack_lr, lr_preds_stack)
+    lr_rmse = np.sqrt(mean_squared_error(y_trues_stack_lr, lr_preds_stack))
+    
+    y_true_total_lr = y_trues_stack_lr.reshape(*y_trues_stack_lr.shape[:-1], len(nodes), 2).sum(axis=-1)
+    lr_pred_total = lr_preds_stack.reshape(*lr_preds_stack.shape[:-1], len(nodes), 2).sum(axis=-1)
+    lr_mape = get_mape(y_true_total_lr, lr_pred_total)
+    
+    print(f"✅ Linear Regression (LR)   -> MAE: {lr_mae:.4f} | RMSE: {lr_rmse:.4f} | MAPE: {lr_mape*100:.2f}%")
     print(f"\n{'='*50}")
     print(f"🎉 TỔNG KẾT NAIVE BASELINES")
     print(f"{'='*50}")
@@ -139,7 +154,7 @@ def run_naive_baselines():
         f.write("| Model | MAE Overall | RMSE | MAPE (%) |\n")
         f.write("|-------|-------------|------|----------|\n")
         f.write(f"| Historical Average (HA) | {ha_mae:.4f} | {ha_rmse:.4f} | {ha_mape*100:.2f}% |\n")
-        f.write(f"| Linear Regression (LR) | {lr_mae:.4f} | {lr_rmse:.4f} | {lr_mape*100:.2f}% |\n")
+        f.write(f"| Linear Regression (LR)  | {lr_mae:.4f} | {lr_rmse:.4f} | {lr_mape*100:.2f}% |\n")
 
 if __name__ == "__main__":
     run_naive_baselines()
