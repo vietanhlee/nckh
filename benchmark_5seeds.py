@@ -1382,5 +1382,6 @@ def run_position_ablation(main_results=None):
 
 
 if __name__ == "__main__":
-    main_results = train_and_evaluate()
+    main_results = run_benchmark()
     run_position_ablation(main_results)
+
