@@ -46,7 +46,7 @@ def evaluate_stage1_density(args):
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     seeds = args.seeds
-    models = ['vgg16', 'resnet50']
+    models = ['resnet', 'efficientnet', 'vit', 'convnext', 'mobilenet']
     
     # Load dataset for stage 1
     from train_counting import Config as CountingConfig
@@ -312,7 +312,7 @@ def evaluate_stage2_density(args):
                 abs_err_total = torch.abs(y_true_total - y_pred_total)
                 
                 # Stratify by MAXIMUM density in the 24-frame INPUT sequence
-                x_unscaled = X * stds + means
+                x_unscaled = X[..., :2] * stds + means
                 x_total = x_unscaled[..., 0] + x_unscaled[..., 1] # Total vehicles: (B, T_in, N)
                 input_max_density, _ = x_total.max(dim=1) # Shape: (B, N)
                 
