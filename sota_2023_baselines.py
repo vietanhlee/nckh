@@ -150,6 +150,7 @@ class DSTAGNNProxy(nn.Module):
         h2 = torch.bmm(A_dyn, self.gcn_w2(x_repr))
         h = F.relu(h1 + h2) # (B, N, D*2)
         
+        out = self.fc_out(h)
         out = out.view(B, N, self.horizon, -1).transpose(1, 2) # (B, H, N, out_dim)
         return out
 
