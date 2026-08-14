@@ -91,7 +91,7 @@ echo -e "${GREEN}✅ [3/5] Hoàn thành Stage 1! Báo cáo đã lưu tại count
 # 📍 THỬ NGHIỆM 4: STAGE 2 DENSITY ERROR PROPAGATION
 # ------------------------------------------------------------------------------
 echo -e "\n${YELLOW}[4/5] 📊 Đang chạy Stage 2: Density Error Propagation ...${NC}"
-python eval_density.py
+python eval_density.py --root_dir "${DATA_ROOT}" ${BENCHMARK_ARGS}
 
 echo -e "${GREEN}✅ [4/5] Hoàn thành đánh giá theo mật độ! Báo cáo lưu tại density_error_report.md${NC}"
 

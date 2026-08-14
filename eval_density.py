@@ -45,7 +45,7 @@ def evaluate_stage1_density(args):
     print("="*80)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    seeds = [42, 100, 2024, 22, 99]
+    seeds = args.seeds
     models = ['vgg16', 'resnet50']
     
     # Load dataset for stage 1
@@ -195,7 +195,7 @@ def evaluate_stage2_density(args):
     print("="*80)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    seeds = [42, 100, 2024, 22, 99]
+    seeds = args.seeds
     
     stgcn_cfg = BaselineConfig()
     stgcn_cfg.BLOCK_HIDDEN = 80
@@ -383,6 +383,9 @@ def evaluate_stage2_density(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--root_dir', type=str, default="g:/nckh")
+    parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 22, 99], help="Danh sách seeds thử nghiệm")
+    # Thêm args giả để không bị lỗi khi bash truyền vào --epochs
+    parser.add_argument('--epochs', type=int, default=1)
     args = parser.parse_args()
     
     # Run Stage 1 Evaluation
