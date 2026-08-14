@@ -243,37 +243,37 @@ def evaluate_stage2_density(args):
             )
         },
         'Graph_WaveNet': {
-            'config': hybrid_cfg,
+            'config': stgcn_cfg,
             'build_fn': lambda cfg: GraphWaveNet(
-                num_nodes=len(nodes), in_dim=5, out_dim=2, blocks=4, layers=2, horizon=cfg.HORIZON
+                num_nodes=len(nodes), in_dim=5, out_dim=2, residual_channels=64, dilation_channels=64, blocks=4, layers=2, horizon=cfg.HORIZON
             )
         },
         'ASTGCN': {
-            'config': hybrid_cfg,
+            'config': stgcn_cfg,
             'build_fn': lambda cfg: ASTGCN(
-                num_nodes=len(nodes), in_channels=5, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=64, L_tilde=L_tilde, out_dim=2
+                num_nodes=len(nodes), in_channels=5, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=36, L_tilde=L_tilde, out_dim=2
             )
         },
         'STAEformer': {
-            'config': hybrid_cfg,
+            'config': stgcn_cfg,
             'build_fn': lambda cfg: STAEformerProxy(
                 num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=160, heads=4, out_dim=2
             )
         },
         'MegaCRN': {
-            'config': hybrid_cfg,
+            'config': stgcn_cfg,
             'build_fn': lambda cfg: MegaCRNProxy(
                 num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=200, out_dim=2
             )
         },
         'DSTAGNN': {
-            'config': hybrid_cfg,
+            'config': stgcn_cfg,
             'build_fn': lambda cfg: DSTAGNNProxy(
                 num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=224, heads=4, out_dim=2
             )
         },
         'iTransformer': {
-            'config': hybrid_cfg,
+            'config': stgcn_cfg,
             'build_fn': lambda cfg: iTransformerProxy(
                 num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=128, heads=4, out_dim=2
             )
