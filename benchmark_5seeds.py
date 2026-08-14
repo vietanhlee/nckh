@@ -886,20 +886,6 @@ def run_benchmark(args=None):
         json.dump(json_export, jf, indent=2)
     print(f"\n💾 Đã lưu dữ liệu thô dạng JSON vào: {json_path}")
 
-    # Ghi báo cáo ra file benchmark_5seeds_report.md
-    report_path = "benchmark_5seeds_report.md"
-    with open(report_path, "w", encoding="utf-8") as f:
-        f.write(f"# 📊 Báo cáo Thực nghiệm {len(args.seeds)} Seeds Ngẫu nhiên\n\n")
-        f.write(f"- **Seeds sử dụng**: `{args.seeds}`\n")
-        f.write(f"- **Tập dữ liệu**: Train 80%, Val 10% (ở giữa), Test 10% (ở cuối)\n")
-        f.write(f"- **Cấu hình**: Epochs={args.epochs}, Patience={args.patience}, Batch Size={args.batch_size}\n\n")
-        f.write("## 🏆 Bảng 1: Kết quả So sánh 9 Mô hình Baseline SOTA Chính\n\n")
-        f.write(summary_main_df.to_markdown(index=False))
-        
-        if not summary_ablation_df.empty:
-            f.write("\n\n---\n\n## 🔬 Bảng 2: Kết quả Phân tích Ablation Study\n\n")
-            f.write(summary_ablation_df.to_markdown(index=False))
-
     # Ghi báo cáo riêng cho Vị trí Attention
     position_models = ['TA-STGCN', 'TA-STGCN (Attention at Before)', 'TA-STGCN (Attention Middle-Late)', 'TA-STGCN (Attention Parallel)', 'TA-STGCN (Attention at End)']
     summary_position_df = build_summary_table([m for m in position_models if m in results])
@@ -915,6 +901,20 @@ def run_benchmark(args=None):
             pos_f.write("- Đặt Attention ở **giữa (Middle)** (tức mô hình `TA-STGCN`) thường cho kết quả tốt nhất vì nó nhận được đặc trưng không-thời gian cơ bản từ Khối 1, giúp Attention xử lý toàn cục tốt hơn trước khi đi vào các khối sau.\n")
             pos_f.write("- Đặt ở **đầu (Before)** khiến Attention phải xử lý tín hiệu thô, chưa có thông tin không gian (Spatial).\n")
         print(f"📊 Đã lưu báo cáo Vị trí Attention chi tiết vào: {pos_report_path}")
+
+    # Ghi báo cáo ra file benchmark_5seeds_report.md
+    report_path = "benchmark_5seeds_report.md"
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(f"# 📊 Báo cáo Thực nghiệm {len(args.seeds)} Seeds Ngẫu nhiên\n\n")
+        f.write(f"- **Seeds sử dụng**: `{args.seeds}`\n")
+        f.write(f"- **Tập dữ liệu**: Train 80%, Val 10% (ở giữa), Test 10% (ở cuối)\n")
+        f.write(f"- **Cấu hình**: Epochs={args.epochs}, Patience={args.patience}, Batch Size={args.batch_size}\n\n")
+        f.write("## 🏆 Bảng 1: Kết quả So sánh 9 Mô hình Baseline SOTA Chính\n\n")
+        f.write(summary_main_df.to_markdown(index=False))
+        
+        if not summary_ablation_df.empty:
+            f.write("\n\n---\n\n## 🔬 Bảng 2: Kết quả Phân tích Ablation Study\n\n")
+            f.write(summary_ablation_df.to_markdown(index=False))
 
         f.write("\n\n---\n\n## 📝 Chi tiết Metrics thô theo từng Seed\n\n")
         for model_name, res in results.items():
