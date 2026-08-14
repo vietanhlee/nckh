@@ -707,7 +707,7 @@ def run_benchmark(args=None):
         advanced_keys = ['Graph_WaveNet', 'ASTGCN', 'STAEformer', 'MegaCRN', 'DSTAGNN', 'TA-STGCN (h=1)', 'TA-STGCN (C=32)']
         models_registry = {k: v for k, v in models_registry.items() if k not in advanced_keys}
     elif args.model_group == 'ablation':
-        ablation_keys = ['STGCN_Baseline', 'TA-STGCN', 'TA-STGCN (h=1)', 'TA-STGCN (C=32)', 'TA-STGCN (K=1, No Spatial)', 'TA-STGCN (h=8, 8-Heads)', 'TA-STGCN (Depth=2)', 'TA-STGCN (Attention at Before)', 'TA-STGCN (Attention Middle-Late)', 'TA-STGCN (Attention Parallel)', 'TA-STGCN (Attention at End)']
+        ablation_keys = ['STGCN_Baseline', 'STGCN (Large)', 'TA-STGCN', 'TA-STGCN (h=1)', 'TA-STGCN (C=32)', 'TA-STGCN (K=1, No Spatial)', 'TA-STGCN (h=8, 8-Heads)', 'TA-STGCN (Depth=2)', 'TA-STGCN (Attention at Before)', 'TA-STGCN (Attention Middle-Late)', 'TA-STGCN (Attention Parallel)', 'TA-STGCN (Attention at End)']
         models_registry = {k: v for k, v in models_registry.items() if k in ablation_keys}
 
     # Lưu kết quả theo mô hình
