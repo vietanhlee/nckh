@@ -576,26 +576,23 @@ def run_noise_robustness_experiment():
     plt.xlabel('Simulated Stage 1 Perception Noise Level (Input ΔMAE)', fontsize=11, fontweight='bold')
     plt.ylabel('Stage 2 Forecasting MAE Overall', fontsize=11, fontweight='bold')
     
-    # Định cấu hình trục X động đẹp đẽ, tránh dính chữ
+    # Định cấu hình trục X xoay chéo (rotation=25, ha='right') để hoàn toàn không bị dính chữ
     x_ticks = [n_info['mae_noise'] for n_info in noise_levels]
     x_labels = []
     for n_info in noise_levels:
         val = n_info['mae_noise']
         if val == 0.0:
-            x_labels.append("0.00\n(Clean)")
+            x_labels.append("0.00 (Clean)")
         elif abs(val - c_min_mae) < 1e-3:
-            x_labels.append(f"{val:.2f}\n(Stage 1 Best)")
+            x_labels.append(f"{val:.2f} (Stage 1 Best)")
         elif abs(val - c_mean_mae) < 1e-3:
-            x_labels.append(f"{val:.2f}\n(Stage 1 Mean)")
+            x_labels.append(f"{val:.2f} (Stage 1 Mean)")
         elif abs(val - c_max_mae) < 1e-3:
-            x_labels.append(f"{val:.2f}\n(Stage 1 Max)")
+            x_labels.append(f"{val:.2f} (Stage 1 Max)")
         else:
-            x_labels.append(f"{val:.2f}\n(Extreme)")
+            x_labels.append(f"{val:.2f} (Extreme)")
 
-    plt.xticks(x_ticks, x_labels, fontsize=9.5)
-    plt.grid(True, linestyle='--', alpha=0.6)
-    plt.legend(frameon=True, facecolor='white', edgecolor='none', fontsize=9, loc='upper left')
-    plt.tight_layout()
+    plt.xticks(x_ticks, x_labels, fontsize=9.5, rotation=35, ha='right')
     plt.grid(True, linestyle='--', alpha=0.6)
     plt.legend(frameon=True, facecolor='white', edgecolor='none', fontsize=9, loc='upper left')
     plt.tight_layout()
