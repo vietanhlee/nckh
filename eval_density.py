@@ -49,8 +49,16 @@ def evaluate_stage1_density(args):
     models = ['vgg16', 'resnet50']
     
     # Load dataset for stage 1
-    image_dir = os.path.join(args.root_dir, "TRANCOS_v3/images")
-    csv_file = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
+    from train_counting import Config as CountingConfig
+    csv_file = CountingConfig.CSV_FILE
+    image_dir = CountingConfig.IMAGE_DIR
+    if not os.path.exists(csv_file):
+        local_csv = os.path.join(os.getcwd(), "labels1.csv")
+        local_img = os.path.join(os.getcwd(), "images")
+        if os.path.exists(local_csv):
+            csv_file = local_csv
+            image_dir = local_img
+
     full_dataset = get_dataset(image_dir, csv_file, is_train=False)
     
     n_total = len(full_dataset)
