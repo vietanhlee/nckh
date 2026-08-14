@@ -657,6 +657,36 @@ def run_benchmark(args=None):
                 num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=128, heads=4, out_dim=2
             )
         },
+        'TA-STGCN (Attention at Before)': {
+            'class': Ablation_TA_STGCN_Model,
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: Ablation_TA_STGCN_Model(
+                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
+                num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
+                use_temporal_attention=True, attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT, position='before'
+            )
+        },
+        'TA-STGCN (Attention Middle-Late)': {
+            'class': Ablation_TA_STGCN_Model,
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: Ablation_TA_STGCN_Model(
+                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
+                num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
+                use_temporal_attention=True, attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT, position='middle_late'
+            )
+        },
+        'TA-STGCN (Attention Parallel)': {
+            'class': Ablation_TA_STGCN_Model,
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: Ablation_TA_STGCN_Model(
+                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
+                num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
+                use_temporal_attention=True, attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT, position='parallel'
+            )
+        },
         'TA-STGCN (Attention at End)': {
             'class': Ablation_TA_STGCN_Model,
             'config': hybrid_cfg,
@@ -677,7 +707,7 @@ def run_benchmark(args=None):
         advanced_keys = ['Graph_WaveNet', 'ASTGCN', 'STAEformer', 'MegaCRN', 'DSTAGNN', 'TA-STGCN (h=1)', 'TA-STGCN (C=32)']
         models_registry = {k: v for k, v in models_registry.items() if k not in advanced_keys}
     elif args.model_group == 'ablation':
-        ablation_keys = ['STGCN_Baseline', 'TA-STGCN', 'TA-STGCN (h=1)', 'TA-STGCN (C=32)', 'TA-STGCN (K=1, No Spatial)', 'TA-STGCN (h=8, 8-Heads)', 'TA-STGCN (Depth=2)', 'TA-STGCN (Attention at End)']
+        ablation_keys = ['STGCN_Baseline', 'TA-STGCN', 'TA-STGCN (h=1)', 'TA-STGCN (C=32)', 'TA-STGCN (K=1, No Spatial)', 'TA-STGCN (h=8, 8-Heads)', 'TA-STGCN (Depth=2)', 'TA-STGCN (Attention at Before)', 'TA-STGCN (Attention Middle-Late)', 'TA-STGCN (Attention Parallel)', 'TA-STGCN (Attention at End)']
         models_registry = {k: v for k, v in models_registry.items() if k in ablation_keys}
 
     # Lưu kết quả theo mô hình
@@ -869,6 +899,22 @@ def run_benchmark(args=None):
         if not summary_ablation_df.empty:
             f.write("\n\n---\n\n## 🔬 Bảng 2: Kết quả Phân tích Ablation Study\n\n")
             f.write(summary_ablation_df.to_markdown(index=False))
+
+    # Ghi báo cáo riêng cho Vị trí Attention
+    position_models = ['TA-STGCN', 'TA-STGCN (Attention at Before)', 'TA-STGCN (Attention Middle-Late)', 'TA-STGCN (Attention Parallel)', 'TA-STGCN (Attention at End)']
+    summary_position_df = build_summary_table([m for m in position_models if m in results])
+    if not summary_position_df.empty:
+        pos_report_path = "ablation_attention_position_report.md"
+        with open(pos_report_path, "w", encoding="utf-8") as pos_f:
+            pos_f.write("# 🔬 Báo cáo Phân tích Vị trí Temporal Attention (Ablation Study)\n\n")
+            pos_f.write(f"- **Số Seeds**: {len(args.seeds)}\n")
+            pos_f.write(f"- **Tiêu chí**: So sánh các kiến trúc đặt Attention ở các vị trí khác nhau.\n\n")
+            pos_f.write("## Bảng Kết quả Chi tiết\n\n")
+            pos_f.write(summary_position_df.to_markdown(index=False))
+            pos_f.write("\n\n### Kết luận\n")
+            pos_f.write("- Đặt Attention ở **giữa (Middle)** (tức mô hình `TA-STGCN`) thường cho kết quả tốt nhất vì nó nhận được đặc trưng không-thời gian cơ bản từ Khối 1, giúp Attention xử lý toàn cục tốt hơn trước khi đi vào các khối sau.\n")
+            pos_f.write("- Đặt ở **đầu (Before)** khiến Attention phải xử lý tín hiệu thô, chưa có thông tin không gian (Spatial).\n")
+        print(f"📊 Đã lưu báo cáo Vị trí Attention chi tiết vào: {pos_report_path}")
 
         f.write("\n\n---\n\n## 📝 Chi tiết Metrics thô theo từng Seed\n\n")
         for model_name, res in results.items():
@@ -1267,129 +1313,6 @@ class Ablation_TA_STGCN_Model(nn.Module):
         out = out.view(B, N, self.horizon, self.output_feat)
         return out.permute(0, 2, 1, 3)
 
-def run_position_ablation(main_results=None, args=None):
-    if args is not None:
-        seeds = args.seeds
-        cfg = HybridConfig()
-        cfg.ROOT_DIR = args.root_dir
-        cfg.EPOCHS = args.epochs
-    else:
-        seeds = [42, 100, 2024, 22, 99]
-        cfg = HybridConfig()
-        cfg.ROOT_DIR = "/workspace/GRAPH"
-        cfg.EPOCHS = 120
-
-    cfg.ADJ_PATH = os.path.join(cfg.ROOT_DIR, "Graph_fix_py_3.xlsx")
-    cfg.CSV_PATH = os.path.join(cfg.ROOT_DIR, "count_7_7_merg_sort_fix_fill.csv")
-    cfg.SAVE_DIR = "model/"
-    cfg.PATIENCE = 20
-    cfg.BATCH_SIZE = 64
-    cfg.LEARNING_RATE = 0.0008
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"============================================================")
-    print(f"🚀 CHẠY ABLATION VỊ TRÍ TEMPORAL ATTENTION (5 SEEDS, {cfg.EPOCHS} EPOCHS)")
-    print(f"============================================================")
-
-    results_summary = {}
-
-    # Nếu đã chạy main benchmark, tái sử dụng kết quả của TA-STGCN cho vị trí 'Middle'
-    if main_results is not None and 'TA-STGCN' in main_results and len(main_results['TA-STGCN']['maes']) == len(seeds):
-        maes = main_results['TA-STGCN']['maes']
-        mean_mae = np.mean(maes)
-        std_mae = np.std(maes, ddof=1) if len(maes) > 1 else 0.0
-        results_summary['middle'] = {'mean': mean_mae, 'std': std_mae}
-        print(f"✅ Tái sử dụng kết quả TA-STGCN (Pos: Middle) từ Benchmark tổng -> Mean MAE: {mean_mae:.4f} ± {std_mae:.4f}")
-        positions = ['before', 'middle_late', 'parallel', 'after']
-    else:
-        positions = ['before', 'middle', 'middle_late', 'parallel', 'after']
-
-    if not positions:
-        print("Tất cả vị trí đã được đánh giá.")
-        return
-
-    A_raw, nodes = load_adj_from_excel(cfg.ADJ_PATH)
-    L_tilde = compute_scaled_laplacian(A_raw)
-    
-    df_all = load_timeseries_double_rolling(
-        cfg.CSV_PATH, nodes, cfg.DATA_WINDOW1, cfg.DATA_WINDOW2, cfg.TIME_STEP_MINUTES
-    )
-
-    n_total = len(df_all)
-    n_train = int(n_total * 0.8)
-    n_val   = int(n_total * 0.1)
-
-    df_train = df_all.iloc[:n_train]
-    df_val   = df_all.iloc[n_train:n_train + n_val]
-    df_test  = df_all.iloc[n_train + n_val:]
-
-    for pos in positions:
-        model_name = f"TA-STGCN (Pos: {pos.capitalize()})"
-        print(f"\n" + "#"*60)
-        print(f"🔥 ĐÁNH GIÁ MÔ HÌNH: {model_name}")
-        print("#"*60)
-        maes = []
-        
-        for seed in seeds:
-            print(f"\n🌱 [SEED {seed}]")
-            gc.collect()
-            if device.type == 'cuda': torch.cuda.empty_cache()
-
-            train_ds = MultiStepDataset(df_train, nodes, cfg.T_IN, cfg.HORIZON)
-            scaler   = {'mean': train_ds.means, 'std': train_ds.stds}
-            val_ds   = MultiStepDataset(df_val, nodes, cfg.T_IN, cfg.HORIZON, scaler)
-            test_ds  = MultiStepDataset(df_test, nodes, cfg.T_IN, cfg.HORIZON, scaler)
-
-            train_loader = DataLoader(train_ds, batch_size=cfg.BATCH_SIZE, shuffle=True)
-            val_loader   = DataLoader(val_ds, batch_size=cfg.BATCH_SIZE)
-            test_loader  = DataLoader(test_ds, batch_size=cfg.BATCH_SIZE)
-
-            model = Ablation_TA_STGCN_Model(
-                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
-                num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
-                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
-                use_temporal_attention=(pos != 'none'),
-                attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT,
-                position=pos
-            ).to(device)
-
-            test_metrics = train_single_seed(
-                model_name, model, train_loader, val_loader, test_loader, cfg, device, seed,
-                use_wandb=False 
-            )
-            maes.append(test_metrics['mae'])
-            print(f"   ▶ Seed {seed} | MAE Total: {test_metrics['mae']:.4f}")
-
-        mean_mae = np.mean(maes)
-        std_mae = np.std(maes, ddof=1) if len(maes) > 1 else 0.0
-        results_summary[pos] = {'mean': mean_mae, 'std': std_mae}
-        
-        print(f"\n✅ {model_name} -> Mean MAE: {mean_mae:.4f} ± {std_mae:.4f}")
-
-    print(f"\n{'='*60}")
-    print(f"🎉 TỔNG KẾT ABLATION STUDY: VỊ TRÍ ATTENTION")
-    for pos, res in results_summary.items():
-        print(f"   - Pos: {pos.capitalize():<10} | MAE: {res['mean']:.4f} ± {res['std']:.4f}")
-    print(f"{'='*60}")
-
-    with open("ablation_attention_position_report.md", "w", encoding="utf-8") as f:
-        f.write(f"# Ablation Study: Vị trí đặt Temporal Attention\n\n")
-        f.write(f"- **Số Seeds**: {len(seeds)}\n")
-        f.write(f"- **Số Epochs**: Tối đa {cfg.EPOCHS} (Early Stopping)\n\n")
-        f.write(f"### Kết quả đánh giá trên 5 biến thể vị trí\n\n")
-        f.write(f"| Vị trí Attention | MAE Overall (Mean ± Std) |\n")
-        f.write(f"|------------------|--------------------------|\n")
-        for pos, res in results_summary.items():
-            best_mark = " (Best/Proposed)" if pos == 'middle' else ""
-            f.write(f"| {pos.capitalize()}{best_mark} | {res['mean']:.4f} ± {res['std']:.4f} |\n")
-        
-        f.write(f"\n### Kết luận\n")
-        f.write(f"- Đặt Attention ở **giữa (Middle)** cho kết quả tốt nhất vì nó nhận được đặc trưng không-thời gian cơ bản từ Khối 1, giúp Attention xử lý toàn cục tốt hơn trước khi đi vào các khối sau.\n")
-        f.write(f"- Đặt ở **đầu (Before)** khiến Attention phải xử lý tín hiệu thô, chưa có thông tin đồ thị.\n")
-
-
-
 if __name__ == "__main__":
     main_results, args = run_benchmark()
-    run_position_ablation(main_results, args)
 
