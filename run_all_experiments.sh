@@ -55,12 +55,10 @@ echo -e "🖥️ GPU Device           : $(nvidia-smi --query-gpu=name --format=c
 if [ "$TEST_MODE" = true ]; then
     echo -e "🧪 Chế độ thực thi     : ${YELLOW}TEST FAST DRY-RUN (Epochs = 1, Seeds = 1)${NC}"
     BENCHMARK_ARGS="--epochs 1 --seeds 42"
-    ATTENTION_ARGS="--epochs 1"
     COUNTING_ARGS="--epochs 1 --seeds 42"
 else
     echo -e "🏆 Chế độ thực thi     : ${GREEN}FULL BENCHMARK SUITE (Tất cả Seeds & Epochs đầy đủ)${NC}"
     BENCHMARK_ARGS=""
-    ATTENTION_ARGS="--epochs 80"
     COUNTING_ARGS=""
 fi
 echo -e "${BLUE}==============================================================================${NC}"
@@ -80,7 +78,7 @@ echo -e "${GREEN}✅ [1/5] Hoàn thành Stage 2! Báo cáo đã lưu tại bench
 # # 📍 THỬ NGHIỆM 2: TEMPORAL ATTENTION WEIGHT INTERPRETABILITY & HEATMAPS
 # # ------------------------------------------------------------------------------
 echo -e "\n${YELLOW}[2/5] 🧠 Đang chạy Temporal Attention Interpretability & Heatmap Analysis ...${NC}"
-python visualize_attention.py --root_dir "${DATA_ROOT}" ${ATTENTION_ARGS}
+python visualize_attention.py --root_dir "${DATA_ROOT}"
 
 echo -e "${GREEN}✅ [2/5] Hoàn thành Temporal Attention Analysis! Ma trận Attention đã lưu vào paper/fig/${NC}"
 
