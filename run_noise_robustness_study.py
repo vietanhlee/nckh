@@ -144,7 +144,7 @@ def run_noise_robustness_experiment():
         cfg_inst.ROOT_DIR = args.root_dir
         cfg_inst.ADJ_PATH = os.path.join(args.root_dir, "Graph_fix_py_3.xlsx")
         cfg_inst.CSV_PATH = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
-        cfg_inst.SAVE_DIR = os.path.join(args.root_dir, "checkpoints")
+        cfg_inst.SAVE_DIR = "model/"
         cfg_inst.BATCH_SIZE = args.batch_size
         os.makedirs(cfg_inst.SAVE_DIR, exist_ok=True)
 
@@ -279,11 +279,17 @@ def run_noise_robustness_experiment():
             model = info['fn'](info['cfg']).to(device)
             
             clean_name = m_name.replace(" ", "_").replace("(", "").replace(")", "").replace(",", "").replace("=", "_")
-            ckpt_path = os.path.join(args.root_dir, 'checkpoints', f"best_{clean_name}_seed_{seed}.pth")
-            fallback_path = os.path.join(args.root_dir, 'model', f"best_{clean_name}_seed_{seed}.pth")
+            candidate_paths = [
+                os.path.join(args.root_dir, 'model', f"best_{clean_name}_seed_{seed}.pth"),
+                os.path.join(os.getcwd(), 'model', f"best_{clean_name}_seed_{seed}.pth"),
+                f"model/best_{clean_name}_seed_{seed}.pth",
+                os.path.join(args.root_dir, 'checkpoints', f"best_{clean_name}_seed_{seed}.pth"),
+                os.path.join(os.getcwd(), 'checkpoints', f"best_{clean_name}_seed_{seed}.pth"),
+                f"checkpoints/best_{clean_name}_seed_{seed}.pth"
+            ]
             
             loaded = False
-            for p in [ckpt_path, fallback_path]:
+            for p in candidate_paths:
                 if os.path.exists(p):
                     try:
                         model.load_state_dict(torch.load(p, map_location=device))

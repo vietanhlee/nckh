@@ -373,15 +373,24 @@ def evaluate_stage2_density(args):
             
             model = info['build_fn'](cfg).to(device)
             clean_name = model_name.replace(" ", "_").replace("(", "").replace(")", "").replace(",", "").replace("=", "_")
-            ckpt_path = os.path.join(args.root_dir, 'checkpoints', f"best_{clean_name}_seed_{seed}.pth")
-            fallback_path = os.path.join(args.root_dir, 'model', f"best_{clean_name}_seed_{seed}.pth")
+            candidate_paths = [
+                os.path.join(args.root_dir, 'model', f"best_{clean_name}_seed_{seed}.pth"),
+                os.path.join(os.getcwd(), 'model', f"best_{clean_name}_seed_{seed}.pth"),
+                f"model/best_{clean_name}_seed_{seed}.pth",
+                os.path.join(args.root_dir, 'checkpoints', f"best_{clean_name}_seed_{seed}.pth"),
+                os.path.join(os.getcwd(), 'checkpoints', f"best_{clean_name}_seed_{seed}.pth"),
+                f"checkpoints/best_{clean_name}_seed_{seed}.pth"
+            ]
             
             loaded = False
-            for p in [ckpt_path, fallback_path, f"checkpoints/best_{clean_name}_seed_{seed}.pth", f"model/best_{clean_name}_seed_{seed}.pth"]:
+            for p in candidate_paths:
                 if os.path.exists(p):
-                    model.load_state_dict(torch.load(p, map_location=device))
-                    loaded = True
-                    break
+                    try:
+                        model.load_state_dict(torch.load(p, map_location=device))
+                        loaded = True
+                        break
+                    except Exception as e:
+                        pass
 
             if loaded:
                 eval_metrics = get_density_metrics(model, test_loader, scaler)
