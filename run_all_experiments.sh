@@ -73,6 +73,7 @@ echo -e "\n${YELLOW}[1/5] 📈 Đang chạy Stage 2: Graph Forecasting Benchmark
 python benchmark_5seeds.py --root_dir "${DATA_ROOT}" ${BENCHMARK_ARGS}
 
 echo -e "${GREEN}✅ [1/5] Hoàn thành Stage 2! Báo cáo đã lưu tại benchmark_5seeds_report.md, JSON kết quả và paper/fig/${NC}"
+git pull
 
 # # ------------------------------------------------------------------------------
 # # 📍 THỬ NGHIỆM 2: TEMPORAL ATTENTION WEIGHT INTERPRETABILITY & HEATMAPS
@@ -89,6 +90,7 @@ echo -e "${GREEN}✅ [2/5] Hoàn thành Temporal Attention Analysis! Ma trận A
 # python train_counting.py ${COUNTING_ARGS}
 
 # echo -e "${GREEN}✅ [3/5] Hoàn thành Stage 1! Báo cáo đã lưu tại counting_benchmark_report.md và paper/fig/${NC}"
+git pull
 
 # ------------------------------------------------------------------------------
 # 📍 THỬ NGHIỆM 4: STAGE 2 DENSITY ERROR PROPAGATION
@@ -97,6 +99,7 @@ echo -e "\n${YELLOW}[4/5] 📊 Đang chạy Stage 2: Density Error Propagation .
 python eval_density.py --root_dir "${DATA_ROOT}" ${BENCHMARK_ARGS}
 
 echo -e "${GREEN}✅ [4/5] Hoàn thành đánh giá theo mật độ! Báo cáo lưu tại eval_stage2_density_report.md${NC}"
+git pull
 
 # ------------------------------------------------------------------------------
 # 📍 THỬ NGHIỆM 5: STAGE 3 NOISE ROBUSTNESS STUDY
