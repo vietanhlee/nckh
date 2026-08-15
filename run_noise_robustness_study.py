@@ -298,12 +298,12 @@ def run_noise_robustness_experiment():
                     except Exception as e:
                         pass
                         
-            if not loaded:
-                raise FileNotFoundError(f"❌ Không tìm thấy checkpoint cho {m_name} (seed {seed}). Vui lòng chạy benchmark_5seeds.py trước!")
-                
-            model.eval()
-            trained_models[m_name][seed] = {'model': model, 'scaler': scaler}
-            print(f"   ▶ Nạp thành công {m_name:<26} | Seed {seed:>4}")
+            if loaded:
+                model.eval()
+                trained_models[m_name][seed] = {'model': model, 'scaler': scaler}
+                print(f"   ▶ Nạp thành công {m_name:<26} | Seed {seed:>4}")
+            else:
+                print(f"   ⚠️ [Seed {seed:>4}] Chưa có checkpoint cho {m_name:<22}, đang bỏ qua.")
 
     # 3. Đánh giá độ bền vững khi bơm nhiễu vào ĐẦU VÀO X nhưng giữ nguyên NHÃN Y_clean
     print(f"\n==========================================================================================")
@@ -322,10 +322,12 @@ def run_noise_robustness_experiment():
         df_test_noisy = df_noisy.iloc[n_train + n_val:]
 
         for m_name, info in models_to_test.items():
+            if not trained_models[m_name]:
+                continue
             maes_seed = []
-            for seed in args.seeds:
-                m_obj = trained_models[m_name][seed]['model']
-                scaler = trained_models[m_name][seed]['scaler']
+            for seed, s_dict in trained_models[m_name].items():
+                m_obj = s_dict['model']
+                scaler = s_dict['scaler']
 
                 test_ds = MultiStepDataset(df_test_noisy, nodes, info['cfg'].T_IN, info['cfg'].HORIZON, scaler, target_df=df_test_clean)
                 test_loader = DataLoader(test_ds, batch_size=min(info['cfg'].BATCH_SIZE, 32), shuffle=False)
@@ -364,6 +366,8 @@ def run_noise_robustness_experiment():
         for n_info in noise_levels:
             noise_mae = n_info['mae_noise']
             maes = results[m_name][noise_mae]
+            if not maes:
+                continue
             mean_mae = np.mean(maes)
             std_mae = np.std(maes)
 
