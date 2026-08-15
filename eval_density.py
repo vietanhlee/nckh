@@ -191,12 +191,14 @@ def evaluate_stage1_density(args):
         plt.tight_layout()
         
         os.makedirs('plots', exist_ok=True)
-        fig_png = os.path.join('plots', 'stage1_density_mae.png')
-        fig_pdf = os.path.join('plots', 'stage1_density_mae.pdf')
-        plt.savefig(fig_png)
-        plt.savefig(fig_pdf, format='pdf', bbox_inches='tight')
+        os.makedirs('paper/fig', exist_ok=True)
+        for d in ['plots', 'paper/fig']:
+            fig_png = os.path.join(d, 'stage1_density_mae.png')
+            fig_pdf = os.path.join(d, 'stage1_density_mae.pdf')
+            plt.savefig(fig_png, dpi=300, bbox_inches='tight')
+            plt.savefig(fig_pdf, format='pdf', bbox_inches='tight')
         plt.close()
-        print(f"📊 Đã lưu biểu đồ Stage 1 MAE: {fig_png} (và .pdf)")
+        print("📊 Đã lưu biểu đồ Stage 1 MAE vào: plots/ & paper/fig/ (stage1_density_mae.png/.pdf)")
 
 def evaluate_stage2_density(args):
     print("\n"+"="*80)
@@ -447,6 +449,39 @@ def evaluate_stage2_density(args):
     with open("eval_stage2_density_report.md", "w", encoding="utf-8") as f:
         f.write(md_content)
     print("\n✅ Đã lưu kết quả Stage 2 chi tiết vào eval_stage2_density_report.md")
+
+    # Vẽ biểu đồ Stage 2 Density Error Propagation
+    plot_data_stage2 = []
+    for model_name in results:
+        for reg in ['Low (<10)', 'Medium (10-25)', 'High (>25)']:
+            maes = results[model_name][reg]['mae_total']
+            if maes:
+                plot_data_stage2.append({
+                    'Model': model_name,
+                    'Density': reg.split()[0],
+                    'MAE': np.mean(maes)
+                })
+
+    if plot_data_stage2:
+        df_plot2 = pd.DataFrame(plot_data_stage2)
+        plt.figure(figsize=(12, 6))
+        sns.barplot(data=df_plot2, x='Density', y='MAE', hue='Model', palette='Set2', errorbar=None)
+        plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0.)
+        plt.title('Stage 2 Forecasting MAE by Density Level (Error Propagation)', fontsize=14, fontweight='bold')
+        plt.ylabel('Mean Absolute Error (MAE)', fontsize=12)
+        plt.xlabel('Density Level', fontsize=12)
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        plt.tight_layout()
+
+        os.makedirs('plots', exist_ok=True)
+        os.makedirs('paper/fig', exist_ok=True)
+        for d in ['plots', 'paper/fig']:
+            fig_png = os.path.join(d, 'stage2_density_mae.png')
+            fig_pdf = os.path.join(d, 'stage2_density_mae.pdf')
+            plt.savefig(fig_png, dpi=300, bbox_inches='tight')
+            plt.savefig(fig_pdf, format='pdf', bbox_inches='tight')
+        plt.close()
+        print("📊 Đã lưu biểu đồ Stage 2 MAE: plots/stage2_density_mae.png & paper/fig/stage2_density_mae.png (và .pdf)")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

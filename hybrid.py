@@ -103,7 +103,7 @@ class Config:
 
     @property
     def MODEL_TAG(self):
-        return "STGCN_Attn" if self.USE_TEMPORAL_ATTENTION else "STGCN"
+        return "TA_STGCN" if self.USE_TEMPORAL_ATTENTION else "STGCN"
 
     @property
     def FULL_SAVE_PATH(self):
