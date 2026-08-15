@@ -96,7 +96,7 @@ echo -e "${GREEN}✅ [2/5] Hoàn thành Temporal Attention Analysis! Ma trận A
 echo -e "\n${YELLOW}[4/5] 📊 Đang chạy Stage 2: Density Error Propagation ...${NC}"
 python eval_density.py --root_dir "${DATA_ROOT}" ${BENCHMARK_ARGS}
 
-echo -e "${GREEN}✅ [4/5] Hoàn thành đánh giá theo mật độ! Báo cáo lưu tại density_error_report.md${NC}"
+echo -e "${GREEN}✅ [4/5] Hoàn thành đánh giá theo mật độ! Báo cáo lưu tại eval_stage2_density_report.md${NC}"
 
 # ------------------------------------------------------------------------------
 # 📍 THỬ NGHIỆM 5: STAGE 3 NOISE ROBUSTNESS STUDY

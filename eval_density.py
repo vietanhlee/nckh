@@ -208,14 +208,14 @@ def evaluate_stage2_density(args):
     
     stgcn_cfg = BaselineConfig()
     stgcn_cfg.BLOCK_HIDDEN = 80
-    stgcn_cfg.NUM_BLOCKS = 3
+    stgcn_cfg.NUM_BLOCKS = 2
     stgcn_cfg.ROOT_DIR = args.root_dir
     stgcn_cfg.ADJ_PATH = os.path.join(args.root_dir, "Graph_fix_py_3.xlsx")
     stgcn_cfg.CSV_PATH = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
     
     hybrid_cfg = HybridConfig()
     hybrid_cfg.BLOCK_HIDDEN = 80
-    hybrid_cfg.NUM_BLOCKS = 3
+    hybrid_cfg.NUM_BLOCKS = 2
     hybrid_cfg.ROOT_DIR = stgcn_cfg.ROOT_DIR
     hybrid_cfg.ADJ_PATH = stgcn_cfg.ADJ_PATH
     hybrid_cfg.CSV_PATH = stgcn_cfg.CSV_PATH

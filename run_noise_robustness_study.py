@@ -136,7 +136,7 @@ def run_noise_robustness_experiment():
 
     stgcn_cfg = BaselineConfig()
     stgcn_cfg.BLOCK_HIDDEN   = 80
-    stgcn_cfg.NUM_BLOCKS     = 3
+    stgcn_cfg.NUM_BLOCKS     = 2
 
     base_cfg = HybridConfig()
 
@@ -144,11 +144,8 @@ def run_noise_robustness_experiment():
         cfg_inst.ROOT_DIR = args.root_dir
         cfg_inst.ADJ_PATH = os.path.join(args.root_dir, "Graph_fix_py_3.xlsx")
         cfg_inst.CSV_PATH = os.path.join(args.root_dir, "count_7_7_merg_sort_fix_fill.csv")
-        cfg_inst.SAVE_DIR = "model/"
-        cfg_inst.EPOCHS = args.epochs
-        cfg_inst.PATIENCE = args.patience
+        cfg_inst.SAVE_DIR = os.path.join(args.root_dir, "checkpoints")
         cfg_inst.BATCH_SIZE = args.batch_size
-        cfg_inst.LEARNING_RATE = args.learning_rate
         os.makedirs(cfg_inst.SAVE_DIR, exist_ok=True)
 
     # Fallback kiểm tra file dữ liệu cục bộ

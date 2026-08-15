@@ -92,10 +92,14 @@ def train_and_visualize():
                 block_hidden = state_dict['blocks.0.sconv.linears.0.weight'].shape[0]
             if 'blocks.0.tconv1.conv.weight' in state_dict:
                 in_feat = state_dict['blocks.0.tconv1.conv.weight'].shape[1]
+            block_keys = [k for k in state_dict.keys() if k.startswith('blocks.')]
+            if block_keys:
+                max_block_idx = max(int(k.split('.')[1]) for k in block_keys)
+                num_blocks = max_block_idx + 1
             if 'final_conv.weight' in state_dict:
                 out_channels = state_dict['final_conv.weight'].shape[0]
                 output_feat = out_channels // CFG.HORIZON
-            print(f"   ℹ️ Checkpoint config: in_feat={in_feat}, block_hidden={block_hidden}, output_feat={output_feat}")
+            print(f"   ℹ️ Checkpoint config: in_feat={in_feat}, block_hidden={block_hidden}, num_blocks={num_blocks}, output_feat={output_feat}")
         except Exception as e:
             print(f"⚠️ Không thể đọc file checkpoint ({e})")
             target_model_path = None
