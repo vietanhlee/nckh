@@ -374,8 +374,14 @@ class STGCN_Model(nn.Module):
         self.use_temporal_attention = use_temporal_attention
         self.attn_position = attn_position
 
+        if use_temporal_attention and attn_position == 'before':
+            self.in_proj = nn.Conv2d(in_feat, block_hidden, kernel_size=1)
+            c_in = block_hidden
+        else:
+            self.in_proj = None
+            c_in = in_feat
+
         blocks = []
-        c_in = in_feat
         for _ in range(num_blocks):
             blocks.append(STGCNBlock(c_in, block_hidden, num_nodes, cheb_K, dropout))
             c_in = block_hidden
@@ -406,7 +412,8 @@ class STGCN_Model(nn.Module):
 
         if self.use_temporal_attention:
             if self.attn_position == 'before':
-                h = self.apply_attn(h)
+                h = self.in_proj(h)      # (B, F=5, N, T) -> (B, C=80, N, T)
+                h = self.apply_attn(h)  # Apply Attention on C=80
 
             mid_idx = max(1, len(self.blocks) // 2)
             for i, block in enumerate(self.blocks):
