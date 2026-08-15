@@ -130,7 +130,7 @@ def run_noise_robustness_experiment():
                         help="Batch size (mặc định: 64).")
     parser.add_argument('--root_dir', type=str, default="/workspace/GRAPH",
                         help="Thư mục gốc chứa dữ liệu.")
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
