@@ -57,8 +57,8 @@ class Config:
     LOSS_DELTA = 1.0
 
     # --- MODEL ---
-    CHEB_K       = 3        # Bậc đa thức Chebyshev (tăng từ 2 → bắt quan hệ xa hơn trên graph)
-    NUM_BLOCKS   = 3        # Số lượng STGCN blocks (3 blocks)
+    CHEB_K       = 3        # Bậc đa thức Chebyshev
+    NUM_BLOCKS   = 2        # Số lượng STGCN blocks (2 blocks chuẩn IJCAI 2018)
     BLOCK_HIDDEN = 80       # Số channels ẩn trong mỗi block (chuẩn 80 channels ~455k params)
     DROPOUT      = 0.25     # Giảm nhẹ (model lớn hơn cần ít regularization hơn)
 
@@ -366,11 +366,13 @@ class STGCN_Model(nn.Module):
     """
     def __init__(self, num_nodes, in_feat, block_hidden, num_blocks, T_in,
                  cheb_K, horizon, output_feat, L_tilde=None, dropout=0.3,
-                 use_temporal_attention=False, attn_num_heads=4, attn_dropout=0.1):
+                 use_temporal_attention=False, attn_num_heads=4, attn_dropout=0.1,
+                 attn_position='middle'):
         super().__init__()
         self.horizon = horizon
         self.output_feat = output_feat
         self.use_temporal_attention = use_temporal_attention
+        self.attn_position = attn_position
 
         blocks = []
         c_in = in_feat
@@ -403,11 +405,17 @@ class STGCN_Model(nn.Module):
         h = x.permute(0, 3, 2, 1)  # (B, F, N, T)
 
         if self.use_temporal_attention:
-            mid_idx = len(self.blocks) // 2
+            if self.attn_position == 'before':
+                h = self.apply_attn(h)
+
+            mid_idx = max(1, len(self.blocks) // 2)
             for i, block in enumerate(self.blocks):
                 h = block(h, self.L_tilde)
-                if i == mid_idx - 1: # Apply after the first half of blocks
+                if self.attn_position == 'middle' and i == mid_idx - 1:
                     h = self.apply_attn(h)
+
+            if self.attn_position == 'end':
+                h = self.apply_attn(h)
         else:
             for block in self.blocks:
                 h = block(h, self.L_tilde)  # (B, C_hidden, N, T)

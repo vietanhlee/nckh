@@ -291,26 +291,45 @@ def evaluate_stage2_density(args):
         }
     }
     
-    results = {m: {'low': [], 'med': [], 'high': []} for m in models_registry}
+    results = {
+        m: {
+            'Low (<10)': {'mae_total': [], 'mae_car': [], 'mae_moto': [], 'bias_car': [], 'bias_moto': []},
+            'Medium (10-25)': {'mae_total': [], 'mae_car': [], 'mae_moto': [], 'bias_car': [], 'bias_moto': []},
+            'High (>25)': {'mae_total': [], 'mae_car': [], 'mae_moto': [], 'bias_car': [], 'bias_moto': []}
+        } for m in models_registry
+    }
     
     def get_density_metrics(model, loader, scaler_stats):
         model.eval()
         means = torch.tensor(scaler_stats['mean'], device=device)
         stds = torch.tensor(scaler_stats['std'], device=device)
-        total_abs_err = [0.0, 0.0, 0.0]
-        total_count = [0, 0, 0]
+        
+        regimes = ['Low (<10)', 'Medium (10-25)', 'High (>25)']
+        metrics = {
+            r: {'abs_total': 0.0, 'abs_car': 0.0, 'abs_moto': 0.0, 'diff_car': 0.0, 'diff_moto': 0.0, 'count': 0}
+            for r in regimes
+        }
         
         with torch.no_grad():
             for X, Y in loader:
                 X, Y = X.to(device), Y.to(device)
                 pred = model(X)
                 
-                y_true = Y * stds + means
-                y_pred = pred * stds + means
-                y_true_total = y_true.sum(dim=-1)
-                y_pred_total = y_pred.sum(dim=-1)
+                y_true = Y * stds + means        # (B, H, N, 2)
+                y_pred = pred * stds + means       # (B, H, N, 2)
+                
+                y_true_car, y_true_moto = y_true[..., 0], y_true[..., 1]
+                y_pred_car, y_pred_moto = y_pred[..., 0], y_pred[..., 1]
+                
+                y_true_total = y_true_car + y_true_moto
+                y_pred_total = y_pred_car + y_pred_moto
                 
                 abs_err_total = torch.abs(y_true_total - y_pred_total)
+                abs_err_car = torch.abs(y_true_car - y_pred_car)
+                abs_err_moto = torch.abs(y_true_moto - y_pred_moto)
+                
+                diff_car = y_pred_car - y_true_car
+                diff_moto = y_pred_moto - y_true_moto
                 
                 # Stratify by MAXIMUM density in the 24-frame INPUT sequence
                 x_unscaled = X[..., :2] * stds + means
@@ -321,17 +340,27 @@ def evaluate_stage2_density(args):
                 mask_med = ((input_max_density >= 10) & (input_max_density <= 25)).unsqueeze(1).expand_as(abs_err_total)
                 mask_high = (input_max_density > 25).unsqueeze(1).expand_as(abs_err_total)
                 
-                total_abs_err[0] += abs_err_total[mask_low].sum().item()
-                total_count[0] += mask_low.sum().item()
-                total_abs_err[1] += abs_err_total[mask_med].sum().item()
-                total_count[1] += mask_med.sum().item()
-                total_abs_err[2] += abs_err_total[mask_high].sum().item()
-                total_count[2] += mask_high.sum().item()
+                masks = {'Low (<10)': mask_low, 'Medium (10-25)': mask_med, 'High (>25)': mask_high}
                 
-        mae_low = total_abs_err[0] / max(1, total_count[0])
-        mae_med = total_abs_err[1] / max(1, total_count[1])
-        mae_high = total_abs_err[2] / max(1, total_count[2])
-        return mae_low, mae_med, mae_high
+                for r_name, mask in masks.items():
+                    metrics[r_name]['abs_total'] += abs_err_total[mask].sum().item()
+                    metrics[r_name]['abs_car'] += abs_err_car[mask].sum().item()
+                    metrics[r_name]['abs_moto'] += abs_err_moto[mask].sum().item()
+                    metrics[r_name]['diff_car'] += diff_car[mask].sum().item()
+                    metrics[r_name]['diff_moto'] += diff_moto[mask].sum().item()
+                    metrics[r_name]['count'] += mask.sum().item()
+                
+        out = {}
+        for r_name in regimes:
+            cnt = max(1, metrics[r_name]['count'])
+            out[r_name] = {
+                'mae_total': metrics[r_name]['abs_total'] / cnt,
+                'mae_car': metrics[r_name]['abs_car'] / cnt,
+                'mae_moto': metrics[r_name]['abs_moto'] / cnt,
+                'bias_car': metrics[r_name]['diff_car'] / cnt,
+                'bias_moto': metrics[r_name]['diff_moto'] / cnt
+            }
+        return out
 
     for seed in seeds:
         set_seed(seed)
@@ -355,11 +384,14 @@ def evaluate_stage2_density(args):
                     break
 
             if loaded:
-                l, m, h = get_density_metrics(model, test_loader, scaler)
-                results[model_name]['low'].append(l)
-                results[model_name]['med'].append(m)
-                results[model_name]['high'].append(h)
-                print(f"Seed {seed} | {model_name:15} | Low: {l:.4f} | Med: {m:.4f} | High: {h:.4f}")
+                eval_metrics = get_density_metrics(model, test_loader, scaler)
+                for reg in ['Low (<10)', 'Medium (10-25)', 'High (>25)']:
+                    results[model_name][reg]['mae_total'].append(eval_metrics[reg]['mae_total'])
+                    results[model_name][reg]['mae_car'].append(eval_metrics[reg]['mae_car'])
+                    results[model_name][reg]['mae_moto'].append(eval_metrics[reg]['mae_moto'])
+                    results[model_name][reg]['bias_car'].append(eval_metrics[reg]['bias_car'])
+                    results[model_name][reg]['bias_moto'].append(eval_metrics[reg]['bias_moto'])
+                print(f"Seed {seed} | {model_name:15} | High Density MAE Total: {eval_metrics['High (>25)']['mae_total']:.4f}")
             else:
                 print(f"   ⚠️ WARNING: Không tìm thấy checkpoint cho {model_name} (Seed {seed})")
                 
@@ -369,25 +401,43 @@ def evaluate_stage2_density(args):
     print("\n" + "="*80)
     print("📊 TỔNG HỢP KẾT QUẢ STAGE 2 DENSITY ERROR PROPAGATION (Mean ± Std)")
     print("="*80)
-    print("| Model | Low (<10) | Medium (10-25) | High (>25) |")
-    print("|---|---|---|---|")
     
     md_content = "# Báo cáo Đánh giá Lan truyền Lỗi Theo Mật độ (Stage 2)\n\n"
-    md_content += "| Model | Low (<10) | Medium (10-25) | High (>25) |\n"
-    md_content += "|---|---|---|---|\n"
+    md_content += "Mật độ đầu vào: Low (<10 xe), Medium (10-25 xe), High (>25 xe/khung hình).\n"
+    md_content += "Báo cáo này phân tích chi tiết khả năng ứng phó với nhiễu đếm xe và hiện tượng lan truyền lỗi (Error Propagation) từ Stage 1 sang Stage 2 trên từng họ mô hình GNN.\n\n"
+    md_content += "## 🏆 1. Bảng So sánh Tổng quan Lan truyền Lỗi (Forecasting Overall MAE)\n\n"
+    md_content += "| Model Architecture | Low (<10) | Medium (10-25) | High (>25) |\n"
+    md_content += "|:---|:---:|:---:|:---:|\n"
     
     for model_name in results:
-        l = results[model_name]['low']
-        m = results[model_name]['med']
-        h = results[model_name]['high']
+        l = results[model_name]['Low (<10)']['mae_total']
+        m = results[model_name]['Medium (10-25)']['mae_total']
+        h = results[model_name]['High (>25)']['mae_total']
         if len(l) > 0:
-            row_str = f"| {model_name} | {np.mean(l):.4f} ± {np.std(l):.4f} | {np.mean(m):.4f} ± {np.std(m):.4f} | {np.mean(h):.4f} ± {np.std(h):.4f} |"
+            row_str = f"| {model_name} | {format_mean_std(l)} | {format_mean_std(m)} | {format_mean_std(h)} |"
             print(row_str)
             md_content += row_str + "\n"
 
+    md_content += "\n---\n\n## 🔬 2. Bảng Phân tích Chi tiết Từng Mô hình (Decomposed by Car / Bike & Bias)\n\n"
+
+    regimes = ['Low (<10)', 'Medium (10-25)', 'High (>25)']
+    for model_name in results:
+        md_content += f"### 🔹 {model_name}\n"
+        md_content += "| Mức mật độ | MAE Tổng thể | MAE Xe ô tô | MAE Xe máy | Độ chệch Ô tô | Độ chệch Xe máy |\n"
+        md_content += "|:---|:---:|:---:|:---:|:---:|:---:|\n"
+        for reg in regimes:
+            data = results[model_name][reg]
+            mae_tot_str = format_mean_std(data['mae_total'])
+            mae_car_str = format_mean_std(data['mae_car'])
+            mae_moto_str = format_mean_std(data['mae_moto'])
+            bias_car_str = format_mean_std_bias(data['bias_car'])
+            bias_moto_str = format_mean_std_bias(data['bias_moto'])
+            md_content += f"| **{reg}** | {mae_tot_str} | {mae_car_str} | {mae_moto_str} | {bias_car_str} | {bias_moto_str} |\n"
+        md_content += "\n"
+
     with open("eval_stage2_density_report.md", "w", encoding="utf-8") as f:
         f.write(md_content)
-    print("\n✅ Đã lưu kết quả Stage 2 vào eval_stage2_density_report.md")
+    print("\n✅ Đã lưu kết quả Stage 2 chi tiết vào eval_stage2_density_report.md")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

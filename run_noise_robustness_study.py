@@ -122,123 +122,12 @@ def add_realistic_perception_noise(df, nodes, target_mae_noise, seed=42):
     return df_noisy
 
 
-def train_single_noise_experiment(model_name, model_fn, df_train, df_val, df_test, nodes, cfg, device, seed):
-    """Huấn luyện và đánh giá mô hình trên tập dữ liệu được bơm nhiễu."""
-    set_seed(seed)
-
-    train_ds = MultiStepDataset(df_train, nodes, cfg.T_IN, cfg.HORIZON)
-    scaler = {'mean': train_ds.means, 'std': train_ds.stds}
-    val_ds = MultiStepDataset(df_val, nodes, cfg.T_IN, cfg.HORIZON, scaler)
-    test_ds = MultiStepDataset(df_test, nodes, cfg.T_IN, cfg.HORIZON, scaler)
-
-    train_loader = DataLoader(train_ds, batch_size=cfg.BATCH_SIZE, shuffle=True)
-    val_loader = DataLoader(val_ds, batch_size=min(cfg.BATCH_SIZE, 32), shuffle=False)
-    test_loader = DataLoader(test_ds, batch_size=min(cfg.BATCH_SIZE, 32), shuffle=False)
-
-    model = model_fn(cfg).to(device)
-    criterion = PureHuberLoss(delta=1.0)
-    optimizer = optim.Adam(model.parameters(), lr=cfg.LEARNING_RATE, weight_decay=getattr(cfg, 'WEIGHT_DECAY', 1e-4))
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=getattr(cfg, 'LR_SCHED_FACTOR', 0.5), patience=getattr(cfg, 'LR_SCHED_PATIENCE', 10)
-    )
-
-    means = torch.tensor(scaler['mean'], device=device)
-    stds = torch.tensor(scaler['std'], device=device)
-
-    best_val_loss = float('inf')
-    patience_counter = 0
-    best_weights = copy.deepcopy(model.state_dict())
-
-    for epoch in range(1, cfg.EPOCHS + 1):
-        model.train()
-        train_loss = 0.0
-        for X_batch, Y_batch in train_loader:
-            X_batch, Y_batch = X_batch.to(device), Y_batch.to(device)
-            optimizer.zero_grad()
-            pred = model(X_batch)
-            loss = criterion(pred, Y_batch)
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
-            optimizer.step()
-            train_loss += loss.item() * len(X_batch)
-
-        train_loss /= len(train_loader.dataset)
-
-        # Validation phase
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for X_batch, Y_batch in val_loader:
-                X_batch, Y_batch = X_batch.to(device), Y_batch.to(device)
-                pred = model(X_batch)
-                loss = criterion(pred, Y_batch)
-                val_loss += loss.item() * len(X_batch)
-
-        val_loss /= len(val_loader.dataset)
-        scheduler.step(val_loss)
-
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            patience_counter = 0
-            best_weights = copy.deepcopy(model.state_dict())
-        else:
-            patience_counter += 1
-
-        if patience_counter >= cfg.PATIENCE:
-            break
-
-    # Đánh giá trên tập Test bằng trọng số tốt nhất
-    model.load_state_dict(best_weights)
-    model.eval()
-
-    total_mae, total_mse, total_mape = 0.0, 0.0, 0.0
-    count_batches = 0
-
-    with torch.no_grad():
-        for X_batch, Y_batch in test_loader:
-            X_batch, Y_batch = X_batch.to(device), Y_batch.to(device)
-            pred = model(X_batch)
-
-            y_true = Y_batch * stds + means
-            y_pred = pred * stds + means
-
-            # Tính tổng phương tiện (Car + Bike)
-            y_true_total = y_true.sum(dim=-1)
-            y_pred_total = y_pred.sum(dim=-1)
-
-            err = y_true_total - y_pred_total
-            abs_err = torch.abs(err)
-            mask = (y_true_total > 0.5).float()
-
-            total_mae += abs_err.mean().item()
-            total_mse += (err ** 2).mean().item()
-            total_mape += (abs_err / (y_true_total + 1e-5) * mask).sum().item() / max(mask.sum().item(), 1.0)
-            count_batches += 1
-
-    avg_mae = total_mae / max(1, count_batches)
-    avg_mse = total_mse / max(1, count_batches)
-    avg_rmse = np.sqrt(avg_mse)
-    avg_mape = total_mape / max(1, count_batches)
-
-    del model
-    if device.type == 'cuda':
-        torch.cuda.empty_cache()
-    gc.collect()
-    return {'mae': avg_mae, 'rmse': avg_rmse, 'mape': avg_mape}
-
-
 def run_noise_robustness_experiment():
     parser = argparse.ArgumentParser(description="Script Phân tích Độ nhạy & Độ bền vững với Nhiễu Nhận dạng Giai đoạn 1 Cho Tất cả Model.")
     parser.add_argument('--seeds', type=int, nargs='+', default=[42, 100, 2024, 22, 99],
                         help="Danh sách seeds thử nghiệm (mặc định: [42, 100, 2024, 22, 99]).")
-    parser.add_argument('--epochs', type=int, default=120,
-                        help="Số epochs tối đa (mặc định: 90).")
-    parser.add_argument('--patience', type=int, default=20,
-                        help="Early stopping patience (mặc định: 18).")
     parser.add_argument('--batch_size', type=int, default=64,
                         help="Batch size (mặc định: 64).")
-    parser.add_argument('--learning_rate', type=float, default=0.0008,
-                        help="Tốc độ học Learning Rate cho AdamW (mặc định: 0.0008).")
     parser.add_argument('--root_dir', type=str, default="/workspace/GRAPH",
                         help="Thư mục gốc chứa dữ liệu.")
     args = parser.parse_args()
@@ -305,7 +194,7 @@ def run_noise_robustness_experiment():
     ]
 
     models_to_test = {
-        'STGCN (Baseline)': {
+        'STGCN_Baseline': {
             'cfg': stgcn_cfg,
             'fn': lambda cfg: Baseline_STGCN_Model(
                 num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
@@ -313,16 +202,16 @@ def run_noise_robustness_experiment():
                 horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT
             )
         },
-        'GraphWaveNet': {
+        'Graph_WaveNet': {
             'cfg': base_cfg,
             'fn': lambda cfg: GraphWaveNet(
-                num_nodes=len(nodes), in_dim=5, out_dim=2, blocks=4, layers=2, horizon=cfg.HORIZON
+                num_nodes=len(nodes), in_dim=5, out_dim=2, residual_channels=64, dilation_channels=64, blocks=4, layers=2, horizon=cfg.HORIZON
             )
         },
         'ASTGCN': {
             'cfg': base_cfg,
             'fn': lambda cfg: ASTGCN(
-                num_nodes=len(nodes), in_channels=5, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=64, L_tilde=L_tilde, out_dim=2
+                num_nodes=len(nodes), in_channels=5, K=cfg.CHEB_K, num_blocks=2, T_in=cfg.T_IN, horizon=cfg.HORIZON, block_channels=36, L_tilde=L_tilde, out_dim=2
             )
         },
         'STAEformer': {
@@ -349,7 +238,7 @@ def run_noise_robustness_experiment():
                 num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=128, heads=4, out_dim=2
             )
         },
-        'TA-STGCN (Proposed / Ours)': {
+        'TA-STGCN': {
             'cfg': base_cfg,
             'fn': lambda cfg: Hybrid_STGCN_Model(
                 num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
@@ -377,10 +266,10 @@ def run_noise_robustness_experiment():
     df_val_clean = df_raw.iloc[n_train:n_train + n_val]
     df_test_clean = df_raw.iloc[n_train + n_val:]
 
-    # 2. Huấn luyện từng mô hình trên tập dữ liệu chuẩn Clean
+    # 2. Nạp trọng số mô hình đã huấn luyện từ Giai đoạn Benchmark
     trained_models = {}
     print(f"\n==========================================================================================")
-    print(f"🏋️ HUẤN LUYỆN TẤT CẢ CÁC MÔ HÌNH TRÊN TẬP DỮ LIỆU GỐC (CLEAN BASELINE)")
+    print(f"🏋️ NẠP TRỌNG SỐ TẤT CẢ CÁC MÔ HÌNH TỪ CHECKPOINT")
     print(f"==========================================================================================")
 
     for m_name, info in models_to_test.items():
@@ -389,55 +278,29 @@ def run_noise_robustness_experiment():
             set_seed(seed)
             train_ds = MultiStepDataset(df_train_clean, nodes, info['cfg'].T_IN, info['cfg'].HORIZON)
             scaler = {'mean': train_ds.means, 'std': train_ds.stds}
-            val_ds = MultiStepDataset(df_val_clean, nodes, info['cfg'].T_IN, info['cfg'].HORIZON, scaler)
-            
-            train_loader = DataLoader(train_ds, batch_size=info['cfg'].BATCH_SIZE, shuffle=True)
-            val_loader = DataLoader(val_ds, batch_size=min(info['cfg'].BATCH_SIZE, 32), shuffle=False)
             
             model = info['fn'](info['cfg']).to(device)
-            criterion = PureHuberLoss(delta=1.0)
-            optimizer = optim.Adam(model.parameters(), lr=info['cfg'].LEARNING_RATE, weight_decay=getattr(info['cfg'], 'WEIGHT_DECAY', 1e-4))
-            scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer, mode='min', factor=getattr(info['cfg'], 'LR_SCHED_FACTOR', 0.5), patience=getattr(info['cfg'], 'LR_SCHED_PATIENCE', 10)
-            )
-
-            best_val_loss = float('inf')
-            best_weights = copy.deepcopy(model.state_dict())
-            patience_counter = 0
-
-            for epoch in range(1, info['cfg'].EPOCHS + 1):
-                model.train()
-                for X_b, Y_b in train_loader:
-                    X_b, Y_b = X_b.to(device), Y_b.to(device)
-                    optimizer.zero_grad()
-                    loss = criterion(model(X_b), Y_b)
-                    loss.backward()
-                    nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
-                    optimizer.step()
-
-                model.eval()
-                val_loss = 0.0
-                with torch.no_grad():
-                    for X_b, Y_b in val_loader:
-                        X_b, Y_b = X_b.to(device), Y_b.to(device)
-                        val_loss += criterion(model(X_b), Y_b).item() * len(X_b)
-                val_loss /= len(val_loader.dataset)
-                scheduler.step(val_loss)
-
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
-                    patience_counter = 0
-                    best_weights = copy.deepcopy(model.state_dict())
-                else:
-                    patience_counter += 1
-
-                if patience_counter >= info['cfg'].PATIENCE:
-                    break
-
-            model.load_state_dict(best_weights)
+            
+            clean_name = m_name.replace(" ", "_").replace("(", "").replace(")", "").replace(",", "").replace("=", "_")
+            ckpt_path = os.path.join(args.root_dir, 'checkpoints', f"best_{clean_name}_seed_{seed}.pth")
+            fallback_path = os.path.join(args.root_dir, 'model', f"best_{clean_name}_seed_{seed}.pth")
+            
+            loaded = False
+            for p in [ckpt_path, fallback_path]:
+                if os.path.exists(p):
+                    try:
+                        model.load_state_dict(torch.load(p, map_location=device))
+                        loaded = True
+                        break
+                    except Exception as e:
+                        pass
+                        
+            if not loaded:
+                raise FileNotFoundError(f"❌ Không tìm thấy checkpoint cho {m_name} (seed {seed}). Vui lòng chạy benchmark_5seeds.py trước!")
+                
             model.eval()
             trained_models[m_name][seed] = {'model': model, 'scaler': scaler}
-            print(f"   ▶ Trained {m_name:<26} | Seed {seed:>4} -> Best Val Loss: {best_val_loss:.4f}")
+            print(f"   ▶ Nạp thành công {m_name:<26} | Seed {seed:>4}")
 
     # 3. Đánh giá độ bền vững khi bơm nhiễu vào ĐẦU VÀO X nhưng giữ nguyên NHÃN Y_clean
     print(f"\n==========================================================================================")
@@ -528,20 +391,18 @@ def run_noise_robustness_experiment():
     plt.rcParams['font.size'] = 11
 
     colors = {
-        'GCN-LSTM': '#d62728',
-        'STGCN (Baseline)': '#1f77b4',
-        'GraphWaveNet': '#ff7f0e',
+        'STGCN_Baseline': '#1f77b4',
+        'Graph_WaveNet': '#2ca02c',
         'ASTGCN': '#9467bd',
         'STAEformer': '#8c564b',
         'MegaCRN': '#e377c2',
         'DSTAGNN': '#7f7f7f',
-        'iTransformer': '#17becf',
-        'TA-STGCN (Proposed / Ours)': '#2ca02c'
+        'iTransformer': '#bcbd22',
+        'TA-STGCN': '#d62728'
     }
     markers = {
-        'GCN-LSTM': 's',
-        'STGCN (Baseline)': '^',
-        'GraphWaveNet': 'D',
+        'STGCN_Baseline': 's',
+        'Graph_WaveNet': '^',
         'ASTGCN': 'p',
         'STAEformer': 'h',
         'MegaCRN': 'v',

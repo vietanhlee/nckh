@@ -489,11 +489,11 @@ def run_benchmark(args=None):
     # Khởi tạo các Config (Cùng hạng cân ~450k-570k params)
     stgcn_cfg = BaselineConfig()
     stgcn_cfg.BLOCK_HIDDEN   = 80
-    stgcn_cfg.NUM_BLOCKS     = 3
+    stgcn_cfg.NUM_BLOCKS     = 2
 
     hybrid_cfg = HybridConfig()
     hybrid_cfg.BLOCK_HIDDEN = 80
-    hybrid_cfg.NUM_BLOCKS = 3
+    hybrid_cfg.NUM_BLOCKS = 2
 
     for cfg_inst in [stgcn_cfg, hybrid_cfg]:
         cfg_inst.ROOT_DIR = args.root_dir
@@ -618,7 +618,18 @@ def run_benchmark(args=None):
                 attn_num_heads=8, attn_dropout=cfg.ATTN_DROPOUT
             )
         },
-        'TA-STGCN (Depth=2)': {
+        'TA-STGCN (Depth=3)': {
+            'class': Hybrid_STGCN_Model,
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: Hybrid_STGCN_Model(
+                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
+                num_blocks=3, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
+                use_temporal_attention=cfg.USE_TEMPORAL_ATTENTION,
+                attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT
+            )
+        },
+        'TA-STGCN (Attention at Before)': {
             'class': Hybrid_STGCN_Model,
             'config': hybrid_cfg,
             'build_fn': lambda cfg: Hybrid_STGCN_Model(
@@ -626,7 +637,32 @@ def run_benchmark(args=None):
                 num_blocks=2, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
                 horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
                 use_temporal_attention=cfg.USE_TEMPORAL_ATTENTION,
-                attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT
+                attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT,
+                attn_position='before'
+            )
+        },
+        'TA-STGCN (Attention Middle)': {
+            'class': Hybrid_STGCN_Model,
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: Hybrid_STGCN_Model(
+                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
+                num_blocks=2, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
+                use_temporal_attention=cfg.USE_TEMPORAL_ATTENTION,
+                attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT,
+                attn_position='middle'
+            )
+        },
+        'TA-STGCN (Attention at End)': {
+            'class': Hybrid_STGCN_Model,
+            'config': hybrid_cfg,
+            'build_fn': lambda cfg: Hybrid_STGCN_Model(
+                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
+                num_blocks=2, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
+                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
+                use_temporal_attention=cfg.USE_TEMPORAL_ATTENTION,
+                attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT,
+                attn_position='end'
             )
         },
         'STAEformer': {
@@ -656,46 +692,6 @@ def run_benchmark(args=None):
             'build_fn': lambda cfg: iTransformerProxy(
                 num_nodes=len(nodes), in_channels=5, T_in=cfg.T_IN, horizon=cfg.HORIZON, embed_size=128, heads=4, out_dim=2
             )
-        },
-        'TA-STGCN (Attention at Before)': {
-            'class': Ablation_TA_STGCN_Model,
-            'config': hybrid_cfg,
-            'build_fn': lambda cfg: Ablation_TA_STGCN_Model(
-                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
-                num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
-                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
-                use_temporal_attention=True, attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT, position='before'
-            )
-        },
-        'TA-STGCN (Attention Middle-Late)': {
-            'class': Ablation_TA_STGCN_Model,
-            'config': hybrid_cfg,
-            'build_fn': lambda cfg: Ablation_TA_STGCN_Model(
-                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
-                num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
-                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
-                use_temporal_attention=True, attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT, position='middle_late'
-            )
-        },
-        'TA-STGCN (Attention Parallel)': {
-            'class': Ablation_TA_STGCN_Model,
-            'config': hybrid_cfg,
-            'build_fn': lambda cfg: Ablation_TA_STGCN_Model(
-                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
-                num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
-                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
-                use_temporal_attention=True, attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT, position='parallel'
-            )
-        },
-        'TA-STGCN (Attention at End)': {
-            'class': Ablation_TA_STGCN_Model,
-            'config': hybrid_cfg,
-            'build_fn': lambda cfg: Ablation_TA_STGCN_Model(
-                num_nodes=len(nodes), in_feat=5, block_hidden=cfg.BLOCK_HIDDEN,
-                num_blocks=cfg.NUM_BLOCKS, T_in=cfg.T_IN, cheb_K=cfg.CHEB_K,
-                horizon=cfg.HORIZON, output_feat=2, L_tilde=L_tilde, dropout=cfg.DROPOUT,
-                use_temporal_attention=True, attn_num_heads=4, attn_dropout=cfg.ATTN_DROPOUT, position='after'
-            )
         }
     }
 
@@ -707,7 +703,7 @@ def run_benchmark(args=None):
         advanced_keys = ['Graph_WaveNet', 'ASTGCN', 'STAEformer', 'MegaCRN', 'DSTAGNN', 'TA-STGCN (h=1)', 'TA-STGCN (C=32)']
         models_registry = {k: v for k, v in models_registry.items() if k not in advanced_keys}
     elif args.model_group == 'ablation':
-        ablation_keys = ['STGCN_Baseline', 'STGCN (Large)', 'TA-STGCN', 'TA-STGCN (h=1)', 'TA-STGCN (C=32)', 'TA-STGCN (K=1, No Spatial)', 'TA-STGCN (h=8, 8-Heads)', 'TA-STGCN (Depth=2)', 'TA-STGCN (Attention at Before)', 'TA-STGCN (Attention Middle-Late)', 'TA-STGCN (Attention Parallel)', 'TA-STGCN (Attention at End)']
+        ablation_keys = ['STGCN_Baseline', 'STGCN (Large)', 'TA-STGCN', 'TA-STGCN (h=1)', 'TA-STGCN (C=32)', 'TA-STGCN (K=1, No Spatial)', 'TA-STGCN (h=8, 8-Heads)', 'TA-STGCN (Depth=3)', 'TA-STGCN (Attention at Before)', 'TA-STGCN (Attention Middle)', 'TA-STGCN (Attention at End)']
         models_registry = {k: v for k, v in models_registry.items() if k in ablation_keys}
 
     # Lưu kết quả theo mô hình

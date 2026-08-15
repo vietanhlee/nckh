@@ -85,10 +85,10 @@ echo -e "${GREEN}✅ [2/5] Hoàn thành Temporal Attention Analysis! Ma trận A
 # # ------------------------------------------------------------------------------
 # # 📍 THỬ NGHIỆM 3: STAGE 1 VISION PERCEPTION BENCHMARK (COUNTING & GRAD-CAM++)
 # # ------------------------------------------------------------------------------
-echo -e "\n${YELLOW}[3/5] 📸 Đang chạy Stage 1: Vision Perception Benchmark & Grad-CAM++ ...${NC}"
-python train_counting.py ${COUNTING_ARGS}
+# echo -e "\n${YELLOW}[3/5] 📸 Đang chạy Stage 1: Vision Perception Benchmark & Grad-CAM++ ...${NC}"
+# python train_counting.py ${COUNTING_ARGS}
 
-echo -e "${GREEN}✅ [3/5] Hoàn thành Stage 1! Báo cáo đã lưu tại counting_benchmark_report.md và paper/fig/${NC}"
+# echo -e "${GREEN}✅ [3/5] Hoàn thành Stage 1! Báo cáo đã lưu tại counting_benchmark_report.md và paper/fig/${NC}"
 
 # ------------------------------------------------------------------------------
 # 📍 THỬ NGHIỆM 4: STAGE 2 DENSITY ERROR PROPAGATION

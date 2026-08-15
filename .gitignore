@@ -1,8 +1,10 @@
 __pycache__
-paper
 temp
 .gemini
 note.md
 nckh
 *.pdf
 *.png
+*.md
+*.json
+paper
