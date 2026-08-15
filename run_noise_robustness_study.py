@@ -296,7 +296,7 @@ def run_noise_robustness_experiment():
                         loaded = True
                         break
                     except Exception as e:
-                        pass
+                        print(f"❌ Lỗi nạp weight từ '{p}':\n{e}\n")
                         
             if loaded:
                 model.eval()

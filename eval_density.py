@@ -392,7 +392,7 @@ def evaluate_stage2_density(args):
                         loaded = True
                         break
                     except Exception as e:
-                        pass
+                        print(f"❌ Lỗi nạp weight từ '{p}':\n{e}\n")
 
             if loaded:
                 eval_metrics = get_density_metrics(model, test_loader, scaler)
