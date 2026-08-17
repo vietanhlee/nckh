@@ -248,11 +248,14 @@ def train_and_visualize():
     os.makedirs(CFG.PLOT_DIR, exist_ok=True)
     paper_fig_dir = os.path.join('paper', 'fig')
 
+    # Fixed color scale limits for fair visual comparison across periods
+    vmin_attn, vmax_attn = 0.0, 0.07
+
     # A. Lưu ảnh đơn lẻ cho cả 5 khung giờ
     for pkey, pinfo in periods.items():
         attn_mat = attn_matrices[pkey]
         plt.figure(figsize=(9, 7))
-        sns.heatmap(attn_mat, cmap='viridis', annot=False, cbar_kws={'label': 'Attention Weight'})
+        sns.heatmap(attn_mat, cmap='viridis', vmin=vmin_attn, vmax=vmax_attn, annot=False, cbar_kws={'label': 'Attention Weight'})
         plt.title(f"Global Temporal Attention Heatmap ({loaded_seeds_count}-Seed Mean)\n{pinfo['title']}", fontsize=13, fontweight='bold', pad=12)
         plt.xlabel('Historical Key Steps (Past Mins)', fontsize=11, labelpad=8)
         plt.ylabel('Query Time Steps (Current Mins)', fontsize=11, labelpad=8)
@@ -281,7 +284,8 @@ def train_and_visualize():
 
         # B.1. Lưu riêng 1 bức ảnh độc lập cho Difference Heatmap
         plt.figure(figsize=(9, 7))
-        sns.heatmap(attn_diff, cmap='coolwarm', center=0, annot=False, cbar_kws={'label': 'Δ Attention Weight'})
+        vmax_diff = max(abs(attn_diff.min()), abs(attn_diff.max()))
+        sns.heatmap(attn_diff, cmap='coolwarm', center=0, vmin=-vmax_diff, vmax=vmax_diff, annot=False, cbar_kws={'label': 'Δ Attention Weight'})
         plt.title(f"Attention Difference Heatmap ({loaded_seeds_count}-Seed Mean)\n({pinfo['short']} - Off-Peak)", fontsize=13, fontweight='bold', pad=12)
         plt.xlabel('Historical Key Steps (Past Mins)', fontsize=11, labelpad=8)
         plt.ylabel('Current Query Steps (Current Mins)', fontsize=11, labelpad=8)
@@ -302,9 +306,10 @@ def train_and_visualize():
 
         # B.2. Vẽ biểu đồ 3-Subplot So sánh (Target vs Night Off-Peak vs Difference)
         fig, axes = plt.subplots(1, 3, figsize=(22, 6))
+        vmax_diff = max(abs(attn_diff.min()), abs(attn_diff.max()))
 
         # (a) Target Period
-        sns.heatmap(attn_target, ax=axes[0], cmap='viridis', cbar_kws={'label': 'Weight'})
+        sns.heatmap(attn_target, ax=axes[0], cmap='viridis', vmin=vmin_attn, vmax=vmax_attn, cbar_kws={'label': 'Weight'})
         axes[0].set_title(f"(a) {pinfo['title']}", fontsize=12, fontweight='bold')
         axes[0].set_xlabel('Historical Key Steps', fontsize=10, labelpad=6)
         axes[0].set_ylabel('Current Query Steps', fontsize=10, labelpad=6)
@@ -314,7 +319,7 @@ def train_and_visualize():
         axes[0].set_yticklabels(time_ticks)
 
         # (b) Night Off-Peak
-        sns.heatmap(attn_offpeak, ax=axes[1], cmap='viridis', cbar_kws={'label': 'Weight'})
+        sns.heatmap(attn_offpeak, ax=axes[1], cmap='viridis', vmin=vmin_attn, vmax=vmax_attn, cbar_kws={'label': 'Weight'})
         axes[1].set_title(f"(b) {periods['Night_OffPeak']['title']}", fontsize=12, fontweight='bold')
         axes[1].set_xlabel('Historical Key Steps', fontsize=10, labelpad=6)
         axes[1].set_ylabel('Current Query Steps', fontsize=10, labelpad=6)
@@ -324,7 +329,7 @@ def train_and_visualize():
         axes[1].set_yticklabels(time_ticks)
 
         # (c) Difference (Target - Off-Peak)
-        sns.heatmap(attn_diff, ax=axes[2], cmap='coolwarm', center=0, cbar_kws={'label': 'Δ Weight'})
+        sns.heatmap(attn_diff, ax=axes[2], cmap='coolwarm', center=0, vmin=-vmax_diff, vmax=vmax_diff, cbar_kws={'label': 'Δ Weight'})
         axes[2].set_title(f"(c) Difference ({pinfo['short']} - Off-Peak)", fontsize=12, fontweight='bold')
         axes[2].set_xlabel('Historical Key Steps', fontsize=10, labelpad=6)
         axes[2].set_ylabel('Current Query Steps', fontsize=10, labelpad=6)

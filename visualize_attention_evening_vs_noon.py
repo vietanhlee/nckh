@@ -222,8 +222,13 @@ def main():
 
     fig, axes = plt.subplots(1, 3, figsize=(22, 6.5))
 
+    # Fixed color scale limits for fair visual comparison
+    vmin_attn, vmax_attn = 0.0, 0.07
+    vmax_diff = max(abs(attn_diff.min()), abs(attn_diff.max()))
+    vmin_diff, vmax_diff = -vmax_diff, vmax_diff
+
     # (a) Evening Peak (16:30 - 18:30)
-    sns.heatmap(attn_evening, ax=axes[0], cmap='viridis', cbar_kws={'label': 'Attention Weight'})
+    sns.heatmap(attn_evening, ax=axes[0], cmap='viridis', vmin=vmin_attn, vmax=vmax_attn, cbar_kws={'label': 'Attention Weight'})
     axes[0].set_title("(a) Evening Peak (16:30 - 18:30)", fontsize=13, fontweight='bold', pad=10)
     axes[0].set_xlabel('Historical Key Steps (Past Mins)', fontsize=11, labelpad=8)
     axes[0].set_ylabel('Current Query Steps (Current Mins)', fontsize=11, labelpad=8)
@@ -233,7 +238,7 @@ def main():
     axes[0].set_yticklabels(time_ticks, rotation=0)
 
     # (b) Noon Normal (11:30 - 13:30)
-    sns.heatmap(attn_noon, ax=axes[1], cmap='viridis', cbar_kws={'label': 'Attention Weight'})
+    sns.heatmap(attn_noon, ax=axes[1], cmap='viridis', vmin=vmin_attn, vmax=vmax_attn, cbar_kws={'label': 'Attention Weight'})
     axes[1].set_title("(b) Noon Normal (11:30 - 13:30)", fontsize=13, fontweight='bold', pad=10)
     axes[1].set_xlabel('Historical Key Steps (Past Mins)', fontsize=11, labelpad=8)
     axes[1].set_ylabel('Current Query Steps (Current Mins)', fontsize=11, labelpad=8)
@@ -243,7 +248,7 @@ def main():
     axes[1].set_yticklabels(time_ticks, rotation=0)
 
     # (c) Difference (Evening Peak - Noon Normal)
-    sns.heatmap(attn_diff, ax=axes[2], cmap='coolwarm', center=0, cbar_kws={'label': 'Δ Attention Weight'})
+    sns.heatmap(attn_diff, ax=axes[2], cmap='coolwarm', center=0, vmin=vmin_diff, vmax=vmax_diff, cbar_kws={'label': 'Δ Attention Weight'})
     axes[2].set_title("(c) Difference (Evening Peak - Noon Normal)", fontsize=13, fontweight='bold', pad=10)
     axes[2].set_xlabel('Historical Key Steps (Past Mins)', fontsize=11, labelpad=8)
     axes[2].set_ylabel('Current Query Steps (Current Mins)', fontsize=11, labelpad=8)
