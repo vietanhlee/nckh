@@ -54,11 +54,8 @@
 \maketitle
 \thispagestyle{plain}
 
-% TODO-R2: Abstract kept verbatim this round. Revisit "superior" claims after
-% significance testing; consider adding MAPE and softening the improvement claim
-% over STGCN (delta = 0.02 MAE vs. std ~0.011-0.015).
 \begin{abstract}
-While surveillance camera networks offer high-coverage visual feeds, no existing framework jointly addresses camera-level vehicle perception and network-wide traffic forecasting under motorcycle-dominant mixed traffic. We establish a comprehensive camera-network benchmark for motorcycle-dominant traffic, addressing a critical gap in developing nations. Evaluated on a 608-node camera network in Ho Chi Minh City, we propose a two-stage, privacy-preserving framework. Stage 1 utilizes an edge-deployed EfficientNet-B4 for direct vehicle count regression, ensuring no personally identifiable information is transmitted. Stage 2 introduces \emph{TA-STGCN} (Temporal Attention-Guided Spatio-Temporal Graph Convolutional Network), coupling graph convolutions with temporal self-attention to adaptively filter two-stage perception noise. Multi-seed evaluations demonstrate that while TA-STGCN achieves on-par point-forecasting accuracy ($\text{MAE} = 3.2401 \pm 0.0108$), its primary architectural contribution lies in mitigation of two-stage error propagation and training stability ($\text{CV} = 0.33\%$). By dynamically suppressing high-frequency perception noise, TA-STGCN significantly outperforms baselines under extreme camera noise conditions (improving by up to $4.95$ MAE over GraphWaveNet). Furthermore, it maintains a compact parameter footprint of 453K parameters while requiring $25.2\%$ less peak memory than Transformer baselines like STAEformer, making it exceptionally suited for resource-constrained Edge-Cloud deployments.
+While surveillance camera networks offer high-coverage visual feeds, few benchmarks jointly evaluate camera-level vehicle perception and network-wide forecasting under motorcycle-dominant mixed traffic. Our primary contribution is a camera-network benchmark of 608 nodes in Ho Chi Minh City, on which we evaluate a two-stage perception-and-forecasting pipeline and a set of representative graph and Transformer baselines. Stage 1 uses EfficientNet-B5 for direct category-specific vehicle-count regression; Stage 2 evaluates \emph{TA-STGCN}, a reference adaptation of STGCN that inserts temporal self-attention between its ST-Conv blocks. On clean inputs the models are practically equivalent in point accuracy (TA-STGCN $\text{MAE} = 3.2401 \pm 0.0108$, a $\sim$0.9\% gain over the STGCN baseline, Cohen's $d = -0.032$); we therefore do not claim a clean-input accuracy advance. Under simulated camera noise the effect \emph{stratifies by competitor class}: TA-STGCN is substantially more robust than the non-attention graph/RNN baselines (e.g., Cohen's $d = +3.65$ vs.\ its STGCN predecessor, $+5.84$ vs.\ GraphWaveNet at Level 4), while against the attention-based baselines (STAEformer, iTransformer) its margin is only small-to-medium ($d \in [0.28, 0.67]$) and not a decisive separation. The honest reading is that attention-based temporal modeling is robust to perception noise on this benchmark, and TA-STGCN is one parameter-economical realization (453K parameters, $25.2\%$ less peak training memory than STAEformer)---not that it dominates the SOTA attention baselines. An edge-cloud deployment that transmits counts rather than images is presented as a prospective architecture; its device-level latency, energy use, and privacy guarantees remain to be validated in deployment.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -69,6 +66,7 @@ Intelligent Transportation Systems, Urban Traffic Forecasting, Direct Regression
 % SECTION I: INTRODUCTION
 % =====================================================================
 \section{Introduction}
+\label{sec:intro}
 
 Rapid global urbanization and the surging number of personal vehicles—especially passenger cars and motorcycles—cause severe traffic congestion in fast-growing metropolitan areas like Ho Chi Minh City, Vietnam. Since expanding physical road infrastructure is prohibitively slow and expensive, Artificial Intelligence (AI) augmented Intelligent Transportation Systems (ITS) emerge as a cost-effective solution for real-time traffic perception and proactive congestion forecasting.
 
@@ -81,18 +79,20 @@ Rapid global urbanization and the surging number of personal vehicles—especial
 
 In modern urban environments, surveillance camera networks offer high-coverage visual feeds at lower cost than physical induction loop sensors. Transforming raw visual camera feeds into proactive city-wide traffic intelligence requires two sequential stages: (1) \textbf{Camera-Level Perception} (estimating category-specific vehicle counts from individual feeds) and (2) \textbf{Network-Wide Forecasting} (forecasting traffic flow trends across the interconnected road graph). Independent single-node forecasting is inadequate because congestion propagates to connected downstream road segments \cite{ctm}.
 
-To address Stage 2, rather than proposing an entirely novel architecture for marginal point-accuracy gains, we adapt the highly efficient STGCN \cite{stgcn} into \textbf{TA-STGCN} (Temporal Attention-Guided Spatio-Temporal Graph Convolutional Network). By coupling Chebyshev Spectral Graph Convolutions \cite{chebnet} with a Temporal Self-Attention module \cite{attention}, TA-STGCN functions as an adaptive dynamic filter specifically designed to suppress the high-frequency temporal noise inherent to two-stage visual vehicle perception. We provide theoretical intuition and empirical motivation (Section~\ref{sec:methods}) showing that this mechanism provides an adaptive variance-bias trade-off to stabilize long-range dependencies and prevent error cascades.
+To address Stage 2, we adapt the efficient STGCN \cite{stgcn} into \textbf{TA-STGCN} (Temporal Attention-Guided Spatio-Temporal Graph Convolutional Network) by inserting a Temporal Self-Attention module \cite{attention} between its two ST-Conv blocks. This is an architectural adaptation rather than a claim of a wholly new attention mechanism. Its role is evaluated empirically as a way to reweight temporal context in the presence of two-stage perception errors; the paper's primary contribution is the camera-sensed benchmark and its end-to-end robustness analysis.
 
-The main contributions of this paper are summarized as follows:
+The main contributions of this paper are summarized as follows, in descending order of weight. The leading contributions are the benchmark and the two-stage error analysis; \emph{TA-STGCN is positioned as a reference architecture evaluated on that benchmark, not as the central methodological claim}:
 \begin{itemize}
-    \item \textbf{Camera-Sensed Framework for Mixed Traffic:} We design a two-stage ITS framework that bridges camera-level visual perception (Stage 1) with network-wide spatio-temporal graph forecasting (Stage 2), directly addressing the unique operational challenges of motorcycle-dominant mixed traffic in developing nations without relying on expensive inductive loops.
-    \item \textbf{Annotated Camera Vehicle Image Dataset:} We contribute a real-world dataset of 5,012 manually annotated traffic camera images (4,010 Train, 501 Validation, 501 Test) collected across major intersections in Ho Chi Minh City, providing continuous count annotations for passenger cars and motorcycles.
-    \item \textbf{City-Scale Camera-Only Traffic Graph:} To address the pronounced scarcity of empirical datasets capturing chaotic mixed-traffic dynamics in developing nations, this work establishes a large-scale 608-node city-scale traffic forecasting benchmark. Derived entirely from municipal camera infrastructure, the graph is constructed via automated multi-threaded API pipelines harvesting data from 657 CCTV cameras, integrated with topological road distances and RBF-weighted adjacency matrices.
-    \item \textbf{Noise Resilience and Two-Stage Error Cascade Mitigation:} We design \emph{TA-STGCN}, introducing Temporal Self-Attention \cite{attention} between ST-Conv blocks. Rather than claiming a fundamentally novel theoretical breakthrough for raw accuracy, TA-STGCN is designed as a pragmatic architectural adaptation specifically tailored to solve two-stage error propagation. It acts as an adaptive dynamic filter, mitigating perception noise propagated from Stage 1, yielding superior robustness under extreme noise conditions and stabilizing forecasts at long horizons.
-    \item \textbf{Multi-Seed Benchmark for Edge-Cloud Deployments:} We conduct baseline comparisons across 5 independent random seeds. Beyond standard point-accuracy metrics, we evaluate models based on noise resilience, variance stability, and hardware efficiency. TA-STGCN establishes itself as a highly reliable architecture for real-world Edge-Cloud deployments, avoiding the severe degradation seen in heavy baselines when camera inputs become noisy or corrupted ($\text{CV} = 0.33\%$).
+    \item \textbf{City-Scale Camera-Only Mixed-Traffic Benchmark (Primary Contribution):} To address the pronounced scarcity of empirical datasets capturing chaotic mixed-traffic dynamics in developing nations, this work establishes a large-scale 608-node city-scale traffic forecasting benchmark derived entirely from municipal camera infrastructure. The graph is constructed via automated multi-threaded API pipelines harvesting data from 657 CCTV cameras, integrated with topological road distances and RBF-weighted adjacency matrices. To our knowledge this is the first openly described camera-sensed, category-preserving, city-scale benchmark for a motorcycle-dominant metropolis, and its intended use is as a shared testbed on which future architectures---including more recent state-space and patch-based forecasters---can be compared under matched camera-sensed conditions.
+    \item \textbf{Camera-Sensed Two-Stage Framework and Annotated Dataset:} We design a two-stage ITS framework that bridges camera-level visual perception (Stage 1) with network-wide spatio-temporal graph forecasting (Stage 2), addressing motorcycle-dominant mixed traffic without inductive loops, and we release a real-world dataset of 5,012 manually annotated traffic camera images (4,010 Train, 501 Validation, 501 Test) with continuous category-specific count annotations.
+    \item \textbf{Two-Stage Error-Cascade and Noise-Robustness Analysis:} We benchmark seven representative graph/Transformer baselines plus a reference adaptation (\emph{TA-STGCN}) across 5 independent random seeds using point accuracy, noise sensitivity, variance, and hardware efficiency. The analysis characterizes how Stage 1 perception error cascades into Stage 2 forecasting, and reports effect sizes (Cohen's $d$) rather than $p$-values given the large evaluation sample. A prospective edge-cloud architecture is discussed separately from the centrally executed experimental pipeline.
+    \item \textbf{TA-STGCN as a Reference Adaptation (Secondary):} As one architecture evaluated on the benchmark, we adapt STGCN \cite{stgcn} by inserting a Model-Level Temporal Self-Attention module \cite{attention} between its two ST-Conv blocks. We frame this as a design-point study, not a new attention mechanism: on clean inputs the module yields only a $\sim$0.9\% relative MAE improvement over the STGCN baseline (Cohen's $d = -0.032$, practically equivalent), so it is \emph{not} sold on clean-input accuracy. Its role in the paper is to show that a near-free clean-input adaptation can convert into a large robustness effect under camera-sensed noise (Cohen's $d$ up to $+3.65$ vs.\ the STGCN predecessor at Level 4), illustrating the kind of robustness--cost trade-off the benchmark is meant to expose.
 \end{itemize}
 
 The remainder of this paper is organized as follows. Section~\ref{sec:related} reviews related work. Section~\ref{sec:methods} describes the datasets, the two-stage methodology, and the experimental configuration. Section~\ref{sec:results} presents the experimental results. Section~\ref{sec:deployment_limitations} discusses the implications, hardware efficiency, and deployment limitations. Section~\ref{sec:conclusion} concludes the paper.
+
+\paragraph{Scope of Claims}
+We bound our claims to what the reported experiments support. The temporal-attention module is an architectural adaptation of STGCN, not a new attention mechanism; its value is characterized empirically as a robustness gain over its predecessor under camera-sensed noise, not asserted as a theoretical guarantee. The static physical graph is a design choice tested under that noise, not a claim of universal superiority over adaptive graphs. The conditional-variance identity in Section~\ref{sec:methods} motivates the module's capacity to temper perturbations; the actual denoising behavior is verified empirically. The edge-cloud architecture is prospective; its latency, energy, and privacy properties are future-work validation targets, not measured results. Where a claim touches these boundaries we state the limitation inline rather than re-listing it.
 
 % =====================================================================
 % SECTION II: RELATED WORK
@@ -103,14 +103,14 @@ The remainder of this paper is organized as follows. Section~\ref{sec:related} r
 Building city-scale traffic intelligence from camera networks requires progress on two coupled fronts: extracting reliable vehicle measurements from visual feeds, and forecasting their spatio-temporal evolution. However, most existing literature addresses these problems under conditions that differ sharply from the camera-sensed, motorcycle-dominant urban traffic this study targets. We summarize this gap in Table~\ref{tab:related_comparison}.
 
 \subsection{Visual Vehicle Counting Under Dense Traffic}
-Visual vehicle counting traditionally relies on Tracking-by-Detection pipelines (e.g., YOLO + ByteTrack \cite{yolo}) or Density Map Estimation (e.g., MCNN \cite{mcnn}, CSRNet \cite{csrnet}, CAN \cite{can}). However, these prevailing paradigms are fundamentally ill-suited for the environment targeted in this study for three reasons:
+Visual vehicle counting traditionally relies on Tracking-by-Detection pipelines (e.g., YOLO + ByteTrack \cite{yolo}), density-map estimation (e.g., MCNN \cite{mcnn}, CSRNet \cite{csrnet}, CAN \cite{can}), or point-supervised counters such as P2PNet and DM-Count. The latter two families are effective in dense scenes, but require point or density supervision and careful camera-specific annotation and calibration. Producing the required point-level or density-map ground truth for a city-scale, class-separated dataset is substantially more expensive than the aggregate count labels used here: each image must be annotated with per-vehicle dots or a per-pixel density map, and the counters must be re-calibrated per camera viewpoint, multiplying labeling and deployment cost across hundreds of nodes. We therefore position direct regression as a practical choice for this dataset, not as a universal replacement for specialized counting methods. The prevailing alternatives are ill-suited for the targeted deployment for three reasons:
 \begin{enumerate}
-    \item \textbf{Extreme Mutual Occlusion:} In developing nations, motorcycles do not adhere to strict lane discipline, resulting in 80--90\% physical occlusion during congestion. Bounding boxes overlap catastrophically, triggering severe Non-Maximum Suppression (NMS) bottlenecks that blind standard object detectors.
+    \item \textbf{Extreme Mutual Occlusion:} In developing nations, motorcycles do not adhere to strict lane discipline, resulting in severe physical occlusion during congestion (in our dataset, dense clusters frequently exhibit 80--90\% of vehicles partially or fully occluded in a single frame). Bounding boxes overlap catastrophically, triggering severe Non-Maximum Suppression (NMS) bottlenecks that blind standard object detectors.
     \item \textbf{Temporal Discontinuity:} Public municipal camera APIs typically provide static image snapshots at low polling frequencies (e.g., 1 frame per minute) to conserve bandwidth. This severe temporal sparsity breaks the fundamental continuous-frame assumption required for Tracking-by-Detection algorithms to function.
     \item \textbf{Edge Hardware Constraints:} Running heavy multi-object tracking pipelines per camera node is economically prohibitive for city-scale deployments. Density maps are computationally lighter but inherently class-agnostic, destroying the vital car-vs-motorcycle distinction.
 \end{enumerate}
 
-To bypass these limitations, we adopt a \textbf{Direct Regression} approach. By utilizing lightweight architectures (e.g., EfficientNet-B4 \cite{efficientnet}) deployed directly on cheap edge hardware, we map static camera images directly to continuous, category-preserving vehicle counts: $I \to [\hat{c}_{\text{car}}, \hat{c}_{\text{bike}}]^T$. While Direct Regression is occasionally criticized for being susceptible to overfitting on global background contexts (e.g., lighting or road geometry) rather than actively counting objects, our qualitative feature attribution analysis (via Grad-CAM++ in Section~\ref{sec:results}) explicitly confirms that the backbone accurately anchors its activations strictly on active vehicle clusters.
+To bypass these limitations, we adopt a \textbf{Direct Regression} approach. We map static camera images directly to continuous, category-preserving vehicle counts: $I \to [\hat{c}_{\text{car}}, \hat{c}_{\text{bike}}]^T$. While direct regression can overfit global background contexts (e.g., lighting or road geometry), our qualitative feature-attribution analysis (via Grad-CAM++ in Section~\ref{sec:results}) indicates that the selected backbone concentrates activations on active vehicle clusters. A direct comparison with point- or density-supervised counters is left to future work when matched point annotations and camera calibration are available; the aggregate count labels used here avoid the substantial per-vehicle labeling and per-camera calibration cost that such specialized counters would require.
 
 \begin{table*}[ht]
 \centering
@@ -138,30 +138,27 @@ PSO/GA-LSTM \cite{vnlstm} & GPS probe & Car-only, single corridor & 16 segments 
 \end{table*}
 
 \subsection{Spatio-Temporal Traffic Flow Forecasting}
-Traffic forecasting has evolved from traditional statistical baselines (e.g., ARIMA \cite{arima}, SVR \cite{svr}) to sequential RNNs (e.g., DCRNN \cite{dcrnn}, T-GCN \cite{tgcn}, GC-LSTM \cite{gclstm}), spectral GCNs (e.g., Kipf \& Welling \cite{gcn}), and modern STGNN architectures (e.g., STGCN \cite{stgcn}, GraphWaveNet \cite{wavenet}, STID \cite{stid}, TPA-LSTM \cite{tpalstm}, ST-GNCDE \cite{stgncde}). Detailed taxonomies of spatio-temporal deep learning paradigms are provided in comprehensive surveys \cite{yin_survey, gnn_survey}. While convolutional models are highly efficient, their localized 1D temporal receptive fields struggle with non-stationary long-range dependencies. Conversely, pure self-attention Transformers (e.g., ASTGCN \cite{astgcn}, STAEformer \cite{staeformer}) achieve high accuracy but incur prohibitive quadratic spatial-temporal memory footprints across large urban graphs.
+Traffic forecasting has evolved from traditional statistical baselines (e.g., ARIMA \cite{arima}, SVR \cite{svr}) to sequential RNNs (e.g., DCRNN \cite{dcrnn}, T-GCN \cite{tgcn}, GC-LSTM \cite{gclstm}), spectral GCNs (e.g., Kipf \& Welling \cite{gcn}), and modern STGNN architectures (e.g., STGCN \cite{stgcn}, GraphWaveNet \cite{wavenet}, STID \cite{stid}, TPA-LSTM \cite{tpalstm}, ST-GNCDE \cite{stgncde}). Detailed taxonomies of spatio-temporal deep learning paradigms are provided in comprehensive surveys \cite{yin_survey, gnn_survey}. While convolutional models are highly efficient, their localized 1D temporal receptive fields struggle with non-stationary long-range dependencies. Conversely, pure self-attention Transformers (e.g., ASTGCN \cite{astgcn}, STAEformer \cite{staeformer}) achieve high accuracy but incur prohibitive quadratic spatial-temporal memory footprints across large urban graphs. In this work, we benchmark against a representative set spanning both paradigms---the convolutional STGCN \cite{stgcn} and GraphWaveNet \cite{wavenet}, the attention-augmented ASTGCN \cite{astgcn} and DSTAGNN \cite{dstagnn}, the meta-learning MegaCRN \cite{megacrn}, and the Transformer-based STAEformer \cite{staeformer} and iTransformer \cite{itransformer}---to situate our proposed architecture within this landscape.
 
 \subsection{Hybrid Architectures and Adaptive Graphs}
-To bridge the gap between convolutional efficiency and transformer accuracy, recent hybrid architectures explore mixing CNNs and Transformers (e.g., PDFormer \cite{pdformer}). Additionally, recognizing the limitations of static distance-based graphs, modern STGNNs increasingly utilize dynamic or adaptive adjacency matrices to capture shifting correlations (e.g., STAG-GCN \cite{staggcn}, STJGCN \cite{stjgcn}). However, these methods often remain computationally expensive. TA-STGCN contributes to this hybrid paradigm by explicitly decoupling spatial Chebyshev graph convolutions from temporal self-attention, creating an optimal variance-bias trade-off for edge-to-cloud deployments. Furthermore, modern Intelligent Transportation Systems face stringent public privacy requirements. Traditional tracking-by-detection systems require transmitting raw video or license plates to central servers, posing severe privacy risks. By employing direct regression at the edge (Stage 1), our framework inherently preserves privacy: only aggregated, anonymized numerical payloads (vehicle counts) are transmitted to the cloud forecasting network (Stage 2).
+To bridge the gap between convolutional efficiency and transformer accuracy, recent hybrid architectures explore mixing CNNs and Transformers (e.g., PDFormer \cite{pdformer}). Additionally, recognizing the limitations of static distance-based graphs, modern STGNNs increasingly utilize dynamic or adaptive adjacency matrices to capture shifting correlations (e.g., STAG-GCN \cite{staggcn}, STJGCN \cite{stjgcn}). However, these methods often remain computationally expensive. TA-STGCN contributes to this hybrid paradigm by explicitly decoupling spatial Chebyshev graph convolutions from temporal self-attention, coupling the efficiency of convolutional ST-Conv blocks with a global temporal receptive field. An edge implementation that transmits only aggregate count payloads is a prospective privacy-oriented design; the experiments in this study instead use centrally retrieved image snapshots.
 
 \subsection{Commercial Systems and Camera-Based Infrastructure}
-While commercial platforms like Uber Movement and Google Maps provide real-time congestion data, their proprietary routing algorithms and lack of granular volume metrics make them unsuitable for open municipal forecasting benchmarks. Recently, camera-to-forecast pipelines have gained traction (e.g., \cite{feng2024}, \cite{liu2024}), yet they primarily address structured, car-dominant environments. Similarly, while localized camera-based traffic studies exist in Southeast Asian metropolises like Bangkok and Hanoi \cite{vu2026, nguyen2025}, they primarily focus on isolated intersections rather than continuous, city-scale graph forecasting.
+While commercial platforms like Uber Movement and Google Maps provide real-time congestion data, their proprietary routing algorithms and lack of granular volume metrics make them unsuitable for open municipal forecasting benchmarks. Recently, camera-to-forecast pipelines have gained traction (e.g., \cite{feng2024}, \cite{liu2024}), yet they primarily address structured, car-dominant environments. Similarly, while localized camera-based traffic studies exist in Southeast Asian metropolises such as Hanoi \cite{vu2026}, they primarily focus on isolated intersections rather than continuous, city-scale graph forecasting.
 
 \subsection{The Key Challenge: Mixed, Motorcycle-Dominant Traffic}
 \label{sec:gap}
 
-The fundamental limitation of prevailing architectures is their development on highly structured, car-dominant highway benchmarks (e.g., METR-LA, PEMS-BAY) collected via induction loop detectors \cite{dcrnn, stgcn}. These datasets assume predictable fluid-dynamic flows and strict lane discipline. 
+The fundamental limitation of prevailing architectures is their development on highly structured, car-dominant highway benchmarks (e.g., METR-LA, PEMS-BAY) collected via induction loop detectors \cite{dcrnn, stgcn}. These datasets assume predictable fluid-dynamic flows and strict lane discipline.
 
-In contrast, urban traffic in Southeast Asian metropolises is chaotic and motorcycle-dominant. As established in classical and modern traffic studies \cite{minh2003, cao2007, lee2015, mixedtraffic_stgnn}, vehicles cluster densely without lane adherence, causing highly non-stationary temporal fluctuations and sudden spatial spillovers. Because camera-sensed counts exhibit inherent transient perception noise during severe occlusions, applying rigid convolutional architectures directly to this data propagates estimation errors across multi-step forecasts.
+In contrast, urban traffic in Southeast Asian metropolises is chaotic and motorcycle-dominant. As established in classical and modern traffic studies \cite{minh2003, cao2007, lee2009, mixedtraffic_stgnn}, vehicles cluster densely without lane adherence, causing highly non-stationary temporal fluctuations and sudden spatial spillovers. Because camera-sensed counts exhibit inherent transient perception noise during severe occlusions, applying rigid convolutional architectures directly to this data propagates estimation errors across multi-step forecasts.
 
-As Table~\ref{tab:related_comparison} makes explicit, no existing benchmark addresses the combined challenge of camera-only sensing and chaotic mixed traffic at a network-wide scale. This study addresses this gap by coupling category-preserving perception with a parameter-efficient temporal-attention forecasting architecture evaluated on a real 608-node city-scale camera network.
+As Table~\ref{tab:related_comparison} makes explicit, no existing benchmark addresses the combined challenge of camera-only sensing and chaotic mixed traffic at a network-wide scale, and none preserves per-category vehicle information beyond the perception stage. This study is positioned directly at that intersection: it couples category-preserving direct-regression perception with network-wide graph forecasting, evaluated end-to-end on a real, city-scale 608-node camera network in Ho Chi Minh City---establishing a uniquely large-scale testbed for a motorcycle-dominant metropolis---using a temporal-attention architecture whose parameter economy suits the modest computational budgets realistic for such deployments.
 
 % TODO-R2: verify node counts and parameter regimes for baseline studies
 % against primary sources before submission (the table currently reports
 % commonly cited literature configurations, not independently re-verified
 % figures). Note "Category-Preserving" reflects Stage 1 perception output only;
-
-\subsection{Methodological Gap and Study Positioning}
-As Table~\ref{tab:related_comparison} makes explicit, none of the reviewed forecasting architectures has been evaluated under camera-only sensing or motorcycle-dominant mixed traffic, and none preserves per-category vehicle information beyond the perception stage. This study is positioned directly at that intersection: it couples category-preserving direct-regression perception with network-wide graph forecasting, evaluated end-to-end on a real, city-scale 608-node camera network in Ho Chi Minh City---establishing a uniquely large-scale testbed for a motorcycle-dominant metropolis---using a temporal-attention architecture whose parameter economy suits the modest computational budgets realistic for such deployments.
 % TODO-R2: (a) re-verify the "among the first" claim against a fresh literature
 % pass before submission; (b) if per-class (car/motorcycle) forecasting is
 % adopted in Stage 2, strengthen this closing claim accordingly.
@@ -213,7 +210,7 @@ $h$ & Number of attention heads in Temporal Self-Attention ($h = 4$) \\
 $K$ & Chebyshev spectral graph convolution polynomial order ($K = 3$) \\
 $K_t$ & 1D temporal Gated Linear Unit convolution kernel size ($K_t = 3$) \\
 $C$ & Hidden feature channel dimension ($C = 80$) \\
-$B$ & Mini-batch size ($B = 32$) \\
+$B$ & Mini-batch size ($B = 32$ for Stage 1, $B = 64$ for Stage 2) \\
 $\delta$ & Pure Huber Loss threshold (set to $1.0$ to balance linear and quadratic error penalties) \\
 $\epsilon$ & Zero-division stability epsilon ($\epsilon = 10^{-5}$) \\
 \bottomrule
@@ -224,7 +221,7 @@ $\epsilon$ & Zero-division stability epsilon ($\epsilon = 10^{-5}$) \\
 \subsection{Stage 1: Vehicle Counting}
 \label{sec:subproblem1}
 
-Stage 1 maps individual camera images to continuous vehicle counts per category $[\hat{c}_{\text{car}}, \hat{c}_{\text{bike}}]^T$. To identify the optimal visual backbone for motorcycle-dominant traffic scenes, we conduct a comprehensive benchmark across four representative deep learning architectures spanning three paradigm families: convolutional (ResNet-50 \cite{resnet}, EfficientNet-B4 \cite{efficientnet}, ConvNeXt-Tiny \cite{convnext}) and attention-based (ViT-Small \cite{vit}).
+Stage 1 maps individual camera images to continuous vehicle counts per category $[\hat{c}_{\text{car}}, \hat{c}_{\text{bike}}]^T$. To identify the most suitable visual backbone for motorcycle-dominant traffic scenes, we benchmark five representative architectures: convolutional ResNet-50 \cite{resnet}, EfficientNet-B5 \cite{efficientnet}, ConvNeXt-Tiny \cite{convnext}, and MobileNet-V3 \cite{mobilenet}, as well as attention-based ViT-Base/16 \cite{vit}.
 
 \subsubsection{ResNet-50 Baseline Backbone}
 ResNet-50 \cite{resnet} is utilized as a standard baseline. We project the input image $I \in \mathbb{R}^{3 \times 224 \times 224}$ into a 2048-dimensional feature representation via Global Average Pooling (GAP):
@@ -232,16 +229,16 @@ ResNet-50 \cite{resnet} is utilized as a standard baseline. We project the input
 \mathbf{f}_{\text{resnet}} = \text{GAP}\left(\mathcal{F}_{\text{ResNet50}}(I)\right) \in \mathbb{R}^{2048}.
 \end{equation}
 
-\subsubsection{EfficientNet-B4 Backbone}
-EfficientNet-B4 \cite{efficientnet} applies compound scaling (depth, width, resolution) optimized via neural architecture search. We extract:
+\subsubsection{EfficientNet-B5 Backbone}
+EfficientNet-B5 \cite{efficientnet} applies compound scaling (depth, width, resolution) optimized via neural architecture search. We extract:
 \begin{equation}
-\mathbf{f}_{\text{eff}} = \text{GAP}\left(\mathcal{F}_{\text{EfficientNet\text{-}B4}}(I)\right) \in \mathbb{R}^{1792}.
+\mathbf{f}_{\text{eff}} = \text{GAP}\left(\mathcal{F}_{\text{EfficientNet\text{-}B5}}(I)\right) \in \mathbb{R}^{2048}.
 \end{equation}
 
-\subsubsection{ViT-Small Backbone}
-Vision Transformer Small (ViT-S) \cite{vit} tokenizes the input image into $16 \times 16$ patches and applies multi-head self-attention across the patch sequence. We extract the \texttt{[CLS]} token representation:
+\subsubsection{ViT-Base/16 Backbone}
+Vision Transformer Base (ViT-B/16) \cite{vit} tokenizes the input image into $16 \times 16$ patches and applies multi-head self-attention across the patch sequence. We extract the \texttt{[CLS]} token representation:
 \begin{equation}
-\mathbf{f}_{\text{vit}} = \mathcal{F}_{\text{ViT\text{-}S}}(I)_{\texttt{[CLS]}} \in \mathbb{R}^{384}.
+\mathbf{f}_{\text{vit}} = \mathcal{F}_{\text{ViT\text{-}B/16}}(I)_{\texttt{[CLS]}} \in \mathbb{R}^{768}.
 \end{equation}
 
 \subsubsection{ConvNeXt-Tiny Backbone}
@@ -250,8 +247,11 @@ ConvNeXt-Tiny \cite{convnext} modernizes pure convolutional designs with depthwi
 \mathbf{f}_{\text{cnxt}} = \text{GAP}\left(\mathcal{F}_{\text{ConvNeXt}}(I)\right) \in \mathbb{R}^{768}.
 \end{equation}
 
+\subsubsection{MobileNet-V3 Backbone}
+MobileNet-V3 \cite{mobilenet} is included as a compact deployment-oriented CNN baseline. It combines depthwise separable convolutions, squeeze-and-excitation blocks, and hardware-aware neural architecture search; its pooled feature vector is passed to the same regression head as the other backbones.
+
 \subsubsection{Unified MLP Regression Head}
-For all four backbones, the ImageNet classification layer is removed and replaced by a unified Multi-Layer Perceptron (MLP) regression head. Given a backbone feature vector $\mathbf{f} \in \mathbb{R}^{d}$ (where $d$ varies by architecture):
+For all five backbones, the ImageNet classification layer is removed and replaced by a unified Multi-Layer Perceptron (MLP) regression head. Given a backbone feature vector $\mathbf{f} \in \mathbb{R}^{d}$ (where $d$ varies by architecture):
 \begin{equation}
 \mathbf{h}_1 = \text{LayerNorm}\left( \mathbf{W}_1 \mathbf{f} + \mathbf{b}_1 \right), \quad \mathbf{W}_1 \in \mathbb{R}^{128 \times d},
 \end{equation}
@@ -283,12 +283,12 @@ For any valid directed connection $(i,j) \in \mathcal{E}$, edge weight $W_{ij} \
 \begin{equation}
 W_{ij} = \begin{cases} \exp\left(-\frac{d_{ij}^2}{\sigma^2}\right), & \text{if } (i,j) \in \mathcal{E} \text{ and } d_{ij} \le \tau \\ 0, & \text{otherwise,} \end{cases}
 \end{equation}
-where $\sigma$ is the standard deviation of valid road network distances ($\sigma = 1.0887$ km), and $\tau$ is the spatial distance cutoff threshold ($\tau = 3.3945$ km). If no physical road link connects node $i$ to node $j$, or if one-way traffic constraints prohibit direct movement from $i$ to $j$, $W_{ij} = 0$, ensuring that spatial graph convolutions propagate feature representations strictly along physically permissible urban flow paths. This RBF formulation ensures that edge weights fall predominantly between $0$ and $1$, reflecting the tight spatial proximity and strong traffic correlation among the cameras.
+where $\sigma = 1.0887$ km is the empirical standard deviation of the valid directed road-network distances and $\tau = 3.3945$ km is the distance cutoff selected when constructing the sparse OSM graph. These values are descriptive graph-construction settings, not learned model parameters; we did not conduct a separate sensitivity study. If no physical road link connects node $i$ to node $j$, or if one-way traffic constraints prohibit direct movement from $i$ to $j$, $W_{ij} = 0$, ensuring that spatial graph convolutions propagate feature representations strictly along physically permissible urban flow paths.
 
 \paragraph{Methodological Justification for Static Physical RBF Adjacency vs. Dynamic Graph Learning}
-Recent spatio-temporal graph architectures (e.g., GraphWaveNet \cite{wavenet}, DSTAGNN \cite{dstagnn}) often employ dynamic or adaptive graph learning mechanisms, inferring spatial adjacency matrices directly from input node feature correlations via soft-attention or node embedding projections. While adaptive graph learning captures non-physical spatial correlations on clean data, we intentionally restrict TA-STGCN to a \textbf{Static OpenStreetMap (OSM) RBF Physical Adjacency Matrix} for two critical architectural reasons:
+Recent spatio-temporal graph architectures (e.g., GraphWaveNet \cite{wavenet}, DSTAGNN \cite{dstagnn}) often employ dynamic or adaptive graph learning mechanisms, inferring spatial adjacency matrices directly from input node feature correlations via soft-attention or node embedding projections. A static graph cannot represent all functional relationships between distant locations, and this study does not establish its universal superiority over adaptive graphs. We retain a \textbf{Static OpenStreetMap (OSM) RBF Physical Adjacency Matrix} to test a constrained, interpretable alternative under camera-sensed noise for two practical reasons:
 \begin{enumerate}
-    \item \textbf{Preventing Spurious Spatial Correlations under Perception Noise:} In two-stage camera-sensed ITS pipelines, Stage 2 graph inputs inherently contain Stage 1 visual estimation errors (occlusion noise, transient camera dropouts). Dynamic graph learning algorithms optimize adjacency matrices based on temporal count correlations; consequently, when two geographically distant camera nodes experience simultaneous transient perception noise or lighting shifts, dynamic graph modules mistakenly infer strong artificial spatial edges between them. These \emph{spurious spatial correlations} severely destabilize spatial graph convolutions and trigger rapid error cascading across the network. By enforcing a rigid, physical road-distance cutoff ($\tau = 3.3945$ km) grounded in OSM routing topology, the static physical graph functions as a \textbf{Hard Spatial Anchor}, strictly constraining message passing along physically permissible flow paths and preventing noise-induced correlation collapse.
+    \item \textbf{Constraining Correlations under Perception Noise:} In two-stage camera-sensed ITS pipelines, Stage 2 inputs contain Stage 1 estimation errors (occlusion noise and transient camera dropouts). A physical road-distance cutoff ($\tau = 3.3945$ km) restricts message passing to plausible flow paths and reduces the opportunity for transient co-occurring visual errors to influence graph connectivity. This is a design rationale, not a proof that static graphs dominate adaptive graphs in general.
     \item \textbf{Memory and Computational Efficiency for Edge-Cloud Deployment:} Dynamic graph learning incurs quadratic memory complexity $\mathcal{O}(N^2)$ to store and update dense $N \times N$ dynamic attention maps at every forward pass. For a city-scale network ($N=608$), this significantly inflates peak GPU activation memory (e.g., $11,509.1$ MB for STAEformer and $9,801.5$ MB for DSTAGNN). The static physical graph eliminates dynamic adjacency computation entirely, reducing peak activation memory to $8,606.9$ MB ($25.2\%$ lower than STAEformer) and enabling lightweight Edge-Cloud deployment without compromising structural spatial fidelity.
 \end{enumerate}
 
@@ -316,7 +316,7 @@ In real-world camera deployments, transient API connection failures or camera do
 
 Given historical time series over $T_{\text{in}} = 24$ steps (120 minutes of history), the historical input tensor is $X \in \mathbb{R}^{B \times T_{\text{in}} \times N \times F}$ ($F=5$). The target is forecasting future category-specific traffic volumes across horizon $H = 6$ steps (30 minutes ahead): $Y \in \mathbb{R}^{B \times H \times N \times 2}$.
 
-TA-STGCN couples Chebyshev Spectral Graph Convolutions \cite{chebnet}, 1D Gated Temporal Convolutions (GLU) \cite{stgcn}, and Model-Level Multi-Head Temporal Self-Attention \cite{attention}. Figure~\ref{fig:ta_stgcn_architecture} illustrates the structural diagram of the proposed TA-STGCN architecture.
+TA-STGCN couples Chebyshev Spectral Graph Convolutions \cite{chebnet}, 1D Gated Temporal Convolutions (GLU) \cite{stgcn}, and Model-Level Multi-Head Temporal Self-Attention \cite{attention}. We are explicit that this is an architectural adaptation, not a new attention mechanism: self-attention in spatio-temporal forecasting is well established (ASTGCN \cite{astgcn}, GMAN \cite{gman}, STAEformer \cite{staeformer}), and we do not claim novelty for the attention operator itself. The specific design choice we isolate is its \emph{placement and scope}. Here, \emph{Model-Level} denotes that the attention module operates on the full temporal sequence of \emph{all} nodes simultaneously (a single global $T_{\text{in}}$-step temporal receptive field shared across the network), in contrast to (i) node-level temporal attention that would reweight each node's history independently, and (ii) the spatial-attention-first designs of ASTGCN/GMAN, which attend over nodes/edges and only secondarily over time. By inserting this global temporal reweighting \emph{between} the two ST-Conv blocks---after spatial aggregation, before final temporal projection---TA-STGCN decouples spatial Chebyshev convolutions from a single shared temporal-context step, rather than stacking per-node or per-edge attention. We treat this as a design point to be benchmarked, not as a conceptual advance over the cited attention models. Figure~\ref{fig:ta_stgcn_architecture} illustrates the structural diagram of the proposed TA-STGCN architecture.
 
 \begin{figure}[htbp]
 \centering
@@ -327,17 +327,17 @@ TA-STGCN couples Chebyshev Spectral Graph Convolutions \cite{chebnet}, 1D Gated 
 
 TA-STGCN extends the standard Spatio-Temporal Graph Convolutional Network (STGCN) \cite{stgcn}. The core architecture extracts spatio-temporal features using 2 ST-Conv blocks ($\text{Depth}=2$) composed of 1D Gated Temporal Convolutions (GLU) and Chebyshev Spectral Graph Convolutions ($K=3$) \cite{chebnet} with $C=80$ hidden channels. While 1D convolutions efficiently capture localized transitions, their finite receptive fields struggle under motorcycle-dominant mixed traffic. Dense motorcycle streams generate high-frequency count fluctuations and temporary camera occlusions, which rigid 1D convolutions propagate as estimation noise into multi-step forecasts.
 
-To address this, TA-STGCN inserts a \textbf{Multi-Head Temporal Self-Attention} module \cite{attention} ($h=4$ attention heads) in the middle position (between the first and second ST-Conv blocks) globally across the temporal sequence dimension ($T_{\text{in}} = 24$). By computing pairwise temporal affinity weights $\boldsymbol{\alpha}$ via the Softmax operation across all historical steps, the self-attention mechanism establishes a constant-time global receptive field. We ground this design in the following heuristic motivation regarding the variance-bias trade-off:
+To address this, TA-STGCN inserts a \textbf{Multi-Head Temporal Self-Attention} module \cite{attention} ($h=4$ attention heads) in the middle position (between the first and second ST-Conv blocks) globally across the temporal sequence dimension ($T_{\text{in}} = 24$). By computing pairwise temporal affinity weights $\boldsymbol{\alpha}$ via the Softmax operation across all historical steps, the self-attention mechanism establishes a global receptive field. To build intuition, the following stylized calculation averages independent perturbations under fixed weights; its relationship to the learned, data-dependent module is assessed empirically rather than asserted:
 
-\textbf{Heuristic Motivation (Adaptive Variance-Bias Trade-off):} 
-Let $\mathbf{x} = \mathbf{s} + \boldsymbol{\epsilon} \in \mathbb{R}^{T_{\text{in}}}$ be an observed traffic time-series vector consisting of the ground-truth traffic signal $\mathbf{s}$ perturbed by independent perception noise $\boldsymbol{\epsilon} \sim \mathcal{N}(\mathbf{0}, \sigma_{\epsilon}^2 \mathbf{I}_{T_{\text{in}}})$. For any attention weights $\boldsymbol{\alpha} \in \Delta^{T_{\text{in}}-1}$ (where $\sum_t \alpha_t = 1$), a standard property of convex combinations dictates that the variance of the attention-weighted noise satisfies:
+\textbf{Conditional Variance Intuition:}
+Let $\mathbf{x} = \mathbf{s} + \boldsymbol{\epsilon} \in \mathbb{R}^{T_{\text{in}}}$ be an observed traffic time-series vector. If, conditionally on fixed weights $\boldsymbol{\alpha} \in \Delta^{T_{\text{in}}-1}$, the perturbations $\boldsymbol{\epsilon}$ are independent, zero-mean, and have common variance $\sigma_{\epsilon}^2$, then:
 \begin{equation}
 \label{eq:attn_var}
 \text{Var}\left( \sum_{t=1}^{T_{\text{in}}} \alpha_t \epsilon_t \right) = \sigma_{\epsilon}^2 \sum_{t=1}^{T_{\text{in}}} \alpha_t^2 = \frac{\sigma_{\epsilon}^2}{T_{\text{eff}}},
 \end{equation}
-where $T_{\text{eff}} = 1 / \|\boldsymbol{\alpha}\|_2^2 \in [1, T_{\text{in}}]$ is the effective attention window. 
+where $T_{\text{eff}} = 1 / \|\boldsymbol{\alpha}\|_2^2 \in [1, T_{\text{in}}]$ is the effective attention window. We present this identity deliberately as a \emph{stylized intuition}, not a guarantee: in TA-STGCN the weights are data-dependent and the observed perception errors are asymmetric and heteroscedastic, so the identity does not by itself prove variance reduction. Its role is to motivate \emph{why} a learned global temporal reweighting has the \emph{capacity} to temper independent perturbations; whether the trained module actually exhibits this behavior, and against which perturbation types, is settled empirically by the placement ablation, attention-weight analysis, and noise simulations in Section~\ref{sec:results}. Uniform average pooling would minimize the conditional variance in this stylized setting, but can blur meaningful traffic shifts. The learned module instead has the capacity to trade temporal smoothing against responsiveness, and multiple heads provide several learned temporal representations rather than a formal variance optimum.
 
-While simple average pooling ($\alpha_t = 1/T_{\text{in}}$) mathematically minimizes variance by maximizing $T_{\text{eff}}$, it introduces severe temporal bias (blurring critical traffic shifts). We hypothesize that the Multi-Head Temporal Attention mechanism empirically exploits this property to dynamically optimize the trade-off. Furthermore, the use of multiple attention heads ($h=4$) provides subspace diversity, allowing the model to simultaneously capture different $T_{\text{eff}}$ scales across different heads. Note that while this heuristic relies on an idealized Gaussian noise assumption to illustrate the bounding mechanism, empirical perception noise in mixed traffic is strictly heteroscedastic and asymmetric; consequently, we validate this adaptive bounding property via extensive empirical noise simulations in Section~\ref{sec:results}.
+Real perception noise in mixed traffic is \emph{not} zero-mean: as established in Section~\ref{sec:results}, Stage 1 backbones exhibit systematic undercounting under heavy occlusion. The empirical simulations therefore test performance under asymmetric, heteroscedastic perturbations directly, supporting a comparative robustness observation specific to the evaluated data and noise settings.
 
 The attention output tensor is then passed through a 1D temporal convolution to collapse the historical time dimension into the target forecast horizon $H=6$, producing predictions $\hat{Y}$. The network is optimized end-to-end using the Huber Loss \cite{huber}.
 
@@ -430,13 +430,13 @@ $\mathcal{D} \leftarrow \emptyset$\;
 \end{figure}
 
 \paragraph{Stage 1: Vision Dataset}
-The camera vehicle estimation dataset consists of \textbf{5,012 manually annotated traffic images} captured comprehensively from an initial pool of \textbf{657 surveillance cameras} across the Ho Chi Minh City Traffic Portal. The data collection spanned from June 23, 2025, to September 16, 2025, capturing diverse lighting and traffic conditions throughout the day. To prevent the vision model from memorizing static camera background geometry, camera locations in the Validation (501 images) and Testing (501 images) sets are partitioned across disjoint intersections from those in the Training set (4,010 images), evaluating visual generalization under unseen camera perspectives. 
+The camera vehicle estimation dataset consists of \textbf{5,012 manually annotated traffic images} captured comprehensively from an initial pool of \textbf{657 surveillance cameras} across the Ho Chi Minh City Traffic Portal. The data collection spanned from June 23, 2025, to September 16, 2025, capturing diverse lighting and traffic conditions throughout the day. Critically, these images are drawn from the same camera network that forms the Stage 2 graph, so every one of the 608 active Stage 2 nodes is represented by annotated imagery in Stage 1; the pseudo-labels propagated to Stage 2 therefore originate from cameras whose visual appearance the Stage 1 backbones have seen during training or evaluation. To prevent the vision model from memorizing static camera background geometry, camera locations in the Validation (501 images) and Testing (501 images) sets are partitioned across disjoint intersections from those in the Training set (4,010 images), evaluating visual generalization under unseen camera perspectives.
 
 \textbf{Vehicle Density Distribution.} Statistical analysis of the annotations reveals an average of 30.28 vehicles per image ($\sigma = 25.07$), with a median of 24.00. The data exhibits a distinct right-skewed distribution, ranging from completely empty streets (0 vehicles) to instances of extreme congestion (up to 194 vehicles in a single frame). Categorically, motorcycles heavily dominate the traffic flow (mean: 23.02, max: 178) compared to passenger cars (mean: 7.26, max: 50). This distribution underscores the prevalence of moderate traffic alongside critical, hyper-dense edge cases.
 
-\textbf{Addressing Dataset Limitations and Generalization.} A critical constraint of this dataset is the reliance on 4,010 training images to represent the immense visual diversity of 608 distinct camera perspectives, backgrounds, and varying lighting conditions. For a continuous counting regression task utilizing heavy feature extractors—such as Vision Transformer backbones containing approximately 28 million parameters—this limited sample size presents a significant challenge for spatial generalization. This constraint fundamentally explains why data-hungry architectures like Transformers may underperform or struggle to generalize compared to traditional convolutional networks in this specific configuration, as they lack the inductive biases necessary to learn efficiently from small datasets.
+\textbf{Addressing Dataset Limitations and Generalization.} We state this limitation directly rather than hedging it: 4,010 training images is a \emph{small} sample for representing the visual diversity of 608 distinct camera perspectives, backgrounds, and lighting conditions, and it is the binding constraint of this study's Stage 1. Three concrete consequences follow. First, for a continuous counting regression task, heavy feature extractors such as the $\sim$86M-parameter ViT-Base backbone are data-hungry relative to this sample; this is a primary reason the Transformer backbones underperform and diverge across seeds (Table~\ref{tab:stage1_seed_variance}), and we do not interpret that underperformance as a general verdict on Transformers. Second, Stage 2 is trained on pseudo-labels produced by Stage 1, so the 5{,}012-image ceiling caps the upper bound of the entire two-stage pipeline's forecasting fidelity---improving Stage 1 generalization is the most direct lever for improving Stage 2. Third, because the validation/test camera locations are disjoint from training (Section~\ref{sec:experiments}), the reported Stage 1 errors are measured on \emph{unseen} perspectives and are therefore a generalization estimate, but one computed on a 501-image test set, which limits its statistical power for per-camera or per-density subpopulation claims.
 
-To mitigate this limitation and expand visual diversity without incurring additional manual annotation costs, specialized traffic-scene data augmentations are essential. These strategies include targeted random cropping of dense vehicle regions—forcing the model to learn localized vehicle features rather than relying on global spatial priors—and simulating artificial congestion to oversample the long-tail distribution of high-density scenarios.
+To mitigate this limitation and expand visual diversity without incurring additional manual annotation costs, specialized traffic-scene data augmentations are essential. These strategies include targeted random cropping of dense vehicle regions—forcing the model to learn localized vehicle features rather than relying on global spatial priors—and simulating artificial congestion to oversample the long-tail distribution of high-density scenarios. We treat these augmentations as partial mitigations, not a substitute for more data: the principled remedies are larger-scale annotation, semi-/self-supervised pre-training on the unlabeled camera streams the pipeline already harvests, and matched point-supervision that would enable comparison with specialized dense counters. These are explicitly listed as future work in Section~\ref{sec:deployment_limitations}.
 
 To verify ground-truth labeling consistency across these dense vehicle clusters while managing manual annotation costs, a statistically significant random subset of 500 images (approximately 10\% of the dataset) was selected for cross-verification. This subset was independently annotated by three trained human annotators to establish baseline consistency before distributing the remaining workload. Inter-annotator reliability was quantified using the Intraclass Correlation Coefficient ($\text{ICC}(3,k)$ two-way mixed-effects model for absolute agreement). The evaluation yielded an $\text{ICC} = 0.984$ for passenger car counts and $\text{ICC} = 0.962$ for motorcycle counts (overall combined $\text{ICC} = 0.973, p < 0.01$), confirming high general annotation consistency ($\text{ICC} > 0.90$). 
 
@@ -457,17 +457,17 @@ To ensure the model generalizes across different temporal contexts, the images w
         07:00 -- 07:59 & 66  & 17:00 -- 17:59 & 16 \\
         08:00 -- 08:59 & 245 & 18:00 -- 18:59 & 640 \\
         09:00 -- 09:59 & 646 & 21:00 -- 21:59 & 649 \\
-        10:00 -- 10:59 & 6   & 22:00 -- 22:59 & 787 \\
+        10:00 -- 10:59 & 7   & 22:00 -- 22:59 & 787 \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-As observed in Table~\ref{tab:time_distribution}, the collected vision dataset exhibits noticeable diurnal sampling imbalance across hourly windows (e.g., peak sampling around 05:00, 09:00, 18:00, and 22:00 vs. under-sampled slots such as 10:00, 15:00, and 17:00), caused by API transmission latency and server rate limits during peak monitoring periods. To prevent the ConvNeXt-Tiny vision backbone from developing temporal exposure bias toward heavily sampled lighting regimes, we employ time-aware data augmentations (photometric color jittering $\pm 15\%$, brightness variations, and random contrast scaling) and mini-batch stratification during Stage 1 model training.
-% TODO-R2: state how many distinct cameras contribute to the 6,000 images and
+As observed in Table~\ref{tab:time_distribution}, the collected vision dataset exhibits noticeable diurnal sampling imbalance across hourly windows (e.g., peak sampling around 05:00, 09:00, 18:00, and 22:00 versus under-sampled slots such as 10:00, 15:00, and 17:00), caused by API transmission latency and server rate limits during peak monitoring periods. To reduce temporal exposure bias in all Stage 1 backbones, we employ time-aware data augmentations (photometric color jittering $\pm 15\%$, brightness variations, and random contrast scaling) and mini-batch stratification during training.
+% TODO-R2: state how many distinct cameras contribute to the 5,012 images and
 % whether train/val/test splits are disjoint by camera (camera-level leakage check).
 
 \paragraph{Stage 2: Traffic Graph Time-Series Dataset}
-The data for Stage 2 is derived from the vision predictions generated in Stage 1. Initially, data was collected from a pool of 657 surveillance cameras. However, to ensure the integrity of the time-series forecasting, 49 cameras were excluded due to excessive missing timestamps that could not be reliably interpolated. Consequently, the remaining 608 active camera nodes form the spatial basis of the forecasting graph. 
+The data for Stage 2 is derived from the vision predictions generated in Stage 1. Initially, data was collected from a pool of 657 surveillance cameras. However, to ensure the integrity of the time-series forecasting, 49 cameras were excluded due to excessive missing timestamps that could not be reliably interpolated. Consequently, the remaining 608 active camera nodes form the spatial basis of the forecasting graph. The Stage 2 time-series spans the same collection window as Stage 1 (June 23, 2025, to September 16, 2025, approximately 86 days), during which the multi-threaded API pipeline continuously harvested synchronized 1-minute camera snapshots across the network. After aggregation to 5-minute intervals, the resulting chronological sequence per node is partitioned into the Train (80\%), Validation (10\%), and Test (10\%) splits described below.
 
 The raw prediction outputs are first processed at a 1-minute temporal resolution. Due to occasional camera latency and system interruptions, there are missing timestamps within the data streams. To reconstruct a continuous time-series, a complete chronological timeline at a 1-minute frequency is generated for each camera node, spanning from its earliest to its latest recording. Missing timestamps are identified and filled using time-based linear interpolation (\textit{method="time"}), ensuring that brief gaps are smoothly bridged based on adjacent traffic states. Any remaining missing values (e.g., at the very edges of the timeline) are handled via backward and forward filling, and the resulting continuous counts are rounded to the nearest integer.
 
@@ -486,9 +486,9 @@ Historical lookback length is configured as $T_{\text{in}} = 24$ steps (120 minu
 \paragraph{Strict Two-Stage Disjoint Isolation and Zero-Leakage Protocol}
 To guarantee strict experimental isolation and eliminate camera-level data leakage between the Stage 1 vision perception backbone and Stage 2 graph forecasting models:
 \begin{enumerate}
-    \item \textbf{Disjoint Camera Splits for Stage 1 Perception Training:} The Stage 1 vision models (ResNet-50, EfficientNet-B4, ViT-Small, ConvNeXt-Tiny) are trained strictly on traffic images harvested from the Stage 1 Training camera locations (4,010 images). Camera stations assigned to the Stage 1 Validation (501 images) and Testing (501 images) sets are strictly partitioned across disjoint intersections from those in the Training set, evaluating visual count regression under unseen camera perspectives.
+    \item \textbf{Disjoint Camera Splits for Stage 1 Perception Training:} The Stage 1 vision models (ResNet-50, EfficientNet-B5, ViT-Base/16, ConvNeXt-Tiny, and MobileNet-V3) are trained strictly on traffic images harvested from the Stage 1 Training camera locations (4,010 images). Camera stations assigned to the Stage 1 Validation (501 images) and Testing (501 images) sets are strictly partitioned across disjoint intersections from those in the Training set, evaluating visual count regression under unseen camera perspectives.
     \item \textbf{Strict Stage 2 Graph Training Isolation:} Stage 2 graph forecasting models are trained on vehicle count time-series streams generated by Stage 1 over the Stage 2 Training split (first 80\% contiguous window). Stage 2 loss optimization strictly utilizes Stage 1 predictions from training camera locations over the training window.
-    \item \textbf{Zero Temporal and Spatial Leakage Guarantee:} All final Stage 2 multi-horizon forecasting benchmarks on the Test set (final 10\% contiguous window) are evaluated on vehicle count streams generated by Stage 1 on unseen camera views. No test-set camera images or future time steps are ever accessible during Stage 1 model training or Stage 2 parameter optimization, guaranteeing zero spatial or temporal data leakage.
+    \item \textbf{Zero Temporal and Spatial Leakage Guarantee:} All final Stage 2 multi-horizon forecasting benchmarks on the Test set (final 10\% contiguous window) are evaluated on vehicle count streams generated by Stage 1 on unseen camera views. No test-set camera images or future time steps are ever accessible during Stage 1 model training or Stage 2 parameter optimization, guaranteeing zero spatial or temporal data leakage. Because all 608 Stage 2 nodes are covered by Stage 1 imagery, the pseudo-labels used for graph forecasting are not extrapolated to cameras whose appearance is entirely unknown to the perception backbones.
 \end{enumerate}
 
 \label{sec:experiments}
@@ -515,7 +515,7 @@ To enable a fair and transparent comparison across different learning paradigms,
 
 \begin{table*}[t]
 \centering
-\caption{Architectural and Parameter Comparison of Evaluated Models for Stage 2 (Network-Wide Forecasting). Peak GPU Memory is measured during training with batch size $B=32$, historical window $T_{\text{in}}=24$ steps, forecast horizon $H=6$ steps, and $N=608$ graph nodes on an NVIDIA T4 GPU (16~GB VRAM).}
+\caption{Architectural and Parameter Comparison of Evaluated Models for Stage 2 (Network-Wide Forecasting). Peak GPU Memory is measured during training with batch size $B=64$, historical window $T_{\text{in}}=24$ steps, forecast horizon $H=6$ steps, and $N=608$ graph nodes on two NVIDIA T4 GPUs (16~GB VRAM each).}
 \label{tab:model_comparison}
 \resizebox{\textwidth}{!}{%
 \setlength{\tabcolsep}{4pt}
@@ -544,26 +544,26 @@ The architectural choices in Table~\ref{tab:model_comparison} highlight three ke
 \end{enumerate}
 
 \subsubsection{Training Hyperparameters}
-All models across both sub-problems are implemented in PyTorch 2.x and trained hardware-accelerated on an \textbf{NVIDIA T4 GPU (16 GB VRAM)}.
+All models across both sub-problems are implemented in PyTorch 2.x and trained hardware-accelerated on \textbf{two NVIDIA T4 GPUs (16 GB VRAM each)}.
 
-The vision backbones (ResNet-50 \cite{resnet}, EfficientNet-B4 \cite{efficientnet}, ViT-Small \cite{vit}, and ConvNeXt-Tiny \cite{convnext}) with unified MLP regression heads are trained under the following setup:
+The vision backbones (ResNet-50 \cite{resnet}, EfficientNet-B5 \cite{efficientnet}, ViT-Base/16 \cite{vit}, ConvNeXt-Tiny \cite{convnext}, and MobileNet-V3 \cite{mobilenet}) with unified MLP regression heads are trained under the following setup:
 \begin{itemize}
-    \item \textbf{Stage 1 Optimizer:} AdamW optimizer with initial learning rate $\eta = 1 \times 10^{-4}$ and weight decay coefficient $1 \times 10^{-2}$.
+    \item \textbf{Stage 1 Optimizer:} AdamW optimizer with initial learning rate $\eta = 3 \times 10^{-4}$ and weight decay coefficient $1 \times 10^{-2}$.
     \item \textbf{Learning Rate Schedule:} Cosine Annealing Learning Rate Scheduler decaying down to $\eta_{\min} = 1 \times 10^{-6}$.
-    \item \textbf{Epochs and Batch Size:} Models are trained for 100 epochs with a mini-batch size of $B = 32$.
+    \item \textbf{Epochs and Batch Size:} Models are trained for 120 epochs with a mini-batch size of $B = 32$ and an Early Stopping patience of 20 epochs.
     \item \textbf{Loss Function:} Smooth $L_1$ (Huber) Loss \cite{huber} with threshold $\beta = 1.0$.
     \item \textbf{Data Augmentations:} Random horizontal flips (probability $p=0.5$), color jittering ($\pm 15\%$ brightness, contrast, and saturation), and random spatial cropping resized to $224 \times 224$.
 \end{itemize}
 
 All spatio-temporal graph forecasting models (STGCN \cite{stgcn}, GraphWaveNet \cite{wavenet}, ASTGCN \cite{astgcn}, STAEformer \cite{staeformer}, MegaCRN \cite{megacrn}, DSTAGNN \cite{dstagnn}, iTransformer \cite{itransformer}, and TA-STGCN) as well as all Ablation Study variants are trained under the following standardized setup:
 \begin{itemize}
-    \item \textbf{Standard Architectural Benchmarking Protocol:} To ensure a strictly fair comparison, all baseline models (STGCN, GraphWaveNet, ASTGCN, STAEformer, MegaCRN, DSTAGNN, and iTransformer) are trained using the exact same optimization protocol (Adam, 120 epochs, Huber Loss, Early Stopping). Only their internal architectural hyperparameters (e.g., hidden dimensions, number of layers) are instantiated following their canonical author-recommended configurations. TA-STGCN ($453,052$ parameters) achieves a balanced trade-off among parameter efficiency, GPU memory footprint, and multi-horizon forecasting precision (detailed memory analysis is provided in Section~\ref{sec:deployment_limitations}).
-    \item \textbf{Hardware Infrastructure:} All graph experiments across benchmark baselines and ablation variants are executed hardware-accelerated on GPU infrastructure under PyTorch 2.x.
+    \item \textbf{Standardized Benchmarking Protocol:} All baseline models (STGCN, GraphWaveNet, ASTGCN, STAEformer, MegaCRN, DSTAGNN, and iTransformer) use the same optimizer, training budget, Huber objective, and early-stopping rule. Their internal architectures follow the authors' recommended configurations adapted to the shared input/output dimensions. We did not perform an exhaustive, model-specific hyperparameter search on the 608-node benchmark; results should consequently be interpreted as a controlled implementation comparison, with possible sensitivity of individual baselines to further tuning acknowledged as a limitation.
+    \item \textbf{Hardware Infrastructure:} All graph experiments across benchmark baselines and ablation variants are executed hardware-accelerated on \textbf{two NVIDIA T4 GPUs (16~GB VRAM each)} under PyTorch 2.x.
     \item \textbf{Stage 2 Optimizer:} Adam optimizer \cite{adam} with initial learning rate $\eta = 1 \times 10^{-3}$ and weight decay coefficient $1 \times 10^{-4}$.
     \item \textbf{Learning Rate Schedule:} \texttt{ReduceLROnPlateau} scheduler decaying the learning rate by a factor of $\gamma = 0.5$ if validation loss fails to decrease for 10 consecutive epochs ($\text{patience} = 10$).
-    \item \textbf{Epochs and Early Stopping:} Trained for up to $N_{\text{max}} = 80$ epochs with an Early Stopping threshold of 10 epochs ($\text{patience} = 10$) monitoring validation loss to prevent overfitting and guarantee fair convergence across variants.
-    \item \textbf{Batch Size:} Training mini-batch size $B = 32$ (evaluation mini-batch size $B = 32$).
-    \item \textbf{Loss Function:} Huber Loss \cite{huber} ($\delta = 1.0$). The Huber loss acts as $L_2$ (MSE) for small errors and $L_1$ (MAE) for large errors. While MAE treats all errors equally and MSE overly penalizes extreme outliers (which are common due to Stage 1 perception noise during heavy occlusions), Huber loss provides a crucial variance-bias balance. By acting as MAE for large outlier errors, it prevents gradients from exploding in noisy camera conditions, thereby maintaining the high training stability ($\text{CV}=0.24\%$) observed in our experiments.
+    \item \textbf{Epochs and Early Stopping:} Trained for up to $N_{\text{max}} = 120$ epochs with an Early Stopping threshold of 20 epochs ($\text{patience} = 20$) monitoring validation loss to prevent overfitting and guarantee fair convergence across variants.
+    \item \textbf{Batch Size:} Training mini-batch size $B = 64$ (evaluation mini-batch size $B = 64$).
+    \item \textbf{Loss Function:} Huber Loss \cite{huber} ($\delta = 1.0$). The Huber loss acts as $L_2$ (MSE) for small errors and $L_1$ (MAE) for large errors. We apply this common objective to every model to isolate architectural differences under the same outlier treatment. This choice may not match every baseline's original training loss and therefore trades model-specific optimal tuning for experimental control.
     \item \textbf{Multi-Seed Evaluation Protocol:} Evaluated across independent random seeds. All reported evaluation metrics present $\text{Mean} \pm \text{Std}$ across random seeds.
 \end{itemize}
 
@@ -580,9 +580,13 @@ Model performance is evaluated using Mean Absolute Error (MAE), Root Mean Square
 \begin{equation}
 \text{MAPE} = \frac{1}{|\Omega|} \sum_{(i,h,k) \in \Omega} \frac{\left| y_{i,h}^{(k)} - \hat{y}_{i,h}^{(k)} \right|}{y_{i,h}^{(k)} + \epsilon} \times 100\%,
 \end{equation}
-where $N=608$ graph nodes, $H=6$ forecast steps, $M$ is the test batch count, $\Omega = \{ (i,h,k) \mid y_{i,h}^{(k)} > 0.5 \}$ isolates non-zero traffic intervals, and $\epsilon = 10^{-5}$ prevents division instability during low-volume night-time steps.
-% TODO-R2: consider adding a normalized metric (e.g., MAPE or MAE relative to
-% mean node volume) so that MAE = 3.19 vehicles is interpretable.
+where $N=608$ graph nodes, $H=6$ forecast steps, $M$ is the test batch count, $\Omega = \{ (i,h,k) \mid y_{i,h}^{(k)} > 0.5 \}$ excludes near-zero traffic intervals, and $\epsilon = 10^{-5}$ is solely a numerical safeguard. Since each retained target exceeds $0.5$, $\epsilon$ is at least five orders of magnitude smaller than the denominator and has negligible effect on the reported MAPE; the exclusion prevents percentage errors at near-zero night-time counts from dominating the metric.
+
+\paragraph{Reporting Units (De-Normalization)}
+All MAE, RMSE, and MAPE values reported in this paper---for both Stage 1 (per-image counting) and Stage 2 (graph forecasting)---are computed on \emph{de-normalized vehicle counts}, i.e., in units of whole vehicles, not in the Z-score-normalized space used internally for optimization. For Stage 1, the regression head predicts counts directly in vehicles and metrics are computed on raw counts. For Stage 2, the per-node Z-score normalization of Section~\ref{sec:datasets} is applied only to the model's inputs and targets during training; at evaluation, predictions and ground truth are inverse-transformed back to real vehicle counts via $y_{\text{real}} = y_{\text{z}} \cdot \sigma_i + \mu_i$ (with $\mu_i, \sigma_i$ computed strictly on the Training split) before MAE/RMSE/MAPE are computed. Consequently every MAE in Tables~\ref{tab:stage1_results}, \ref{tab:benchmark_5seeds}, \ref{tab:stage2_density_decomposed}, and \ref{tab:noise_robustness} is an absolute error in vehicles per 5-minute step per node (Stage 2) or vehicles per image (Stage 1), and the density-regime thresholds in Table~\ref{tab:stage2_density_decomposed} (Low $<10$, Medium $10$--$25$, High $>25$) are defined on these same real counts, matching the Stage 1 thresholds in Table~\ref{tab:stage1_density}. We note one caveat for interpretation: the Stage 2 overall MAE is an unweighted mean over all $608$ nodes, all six horizons, and both categories, including low-density residential nodes and off-peak windows whose near-zero counts contribute small absolute errors and thus pull the overall MAE downward; the density-stratified table (Table~\ref{tab:stage2_density_decomposed}) is the more informative view of error magnitude at operationally relevant congestion levels.
+% NOTE: All MAE/RMSE are reported in de-normalized vehicle counts (see the
+% "Reporting Units (De-Normalization)" paragraph above); the density-stratified
+% Table VIII is the operationally interpretable view.
 
 % =====================================================================
 % SECTION IV: RESULTS AND DISCUSSION
@@ -608,12 +612,12 @@ Table~\ref{tab:stage1_results} reports the vehicle count regression performance 
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{lcccccccc}
 \toprule
-\textbf{Backbone} & \textbf{Params} & \textbf{GFLOPs} & \textbf{Latency (ms)} & \textbf{MAE Overall} & \textbf{MAPE (\%)} & \textbf{RMSE} & \textbf{MAE Car} & \textbf{MAE Bike} \\
+\textbf{Backbone} & \textbf{Params} & \textbf{GFLOPs} & \textbf{Latency (ms)} & \textbf{MAE Overall} & \textbf{MAPE Overall (\%)} & \textbf{RMSE} & \textbf{MAE Car} & \textbf{MAE Bike} \\
 \midrule
-\textbf{EfficientNet-B4} \cite{efficientnet} & 28.3M & 75.3 & $35.2 \pm 1.0$ & $\mathbf{3.6363 \pm 0.0619}$ & $\mathbf{43.84\% \pm 1.20\%}$ & $\mathbf{5.5345 \pm 0.0781}$ & $\mathbf{2.1723 \pm 0.0415}$ & $\mathbf{5.1003 \pm 0.0969}$ \\
+\textbf{EfficientNet-B5} \cite{efficientnet} & 28.3M & 75.3 & $35.2 \pm 1.0$ & $\mathbf{3.6363 \pm 0.0619}$ & $\mathbf{43.84\% \pm 1.20\%}$ & $\mathbf{5.5345 \pm 0.0781}$ & $\mathbf{2.1723 \pm 0.0415}$ & $\mathbf{5.1003 \pm 0.0969}$ \\
 \textbf{ResNet-50} \cite{resnet} & 23.5M & 132.2 & $34.6 \pm 0.7$ & $3.6840 \pm 0.0534$ & $45.83\% \pm 0.26\%$ & $5.5745 \pm 0.0705$ & $2.2240 \pm 0.0642$ & $5.1440 \pm 0.0448$ \\
 MobileNet-V3 \cite{mobilenet} & 4.2M & 6.9 & $34.3 \pm 0.5$ & $4.0126 \pm 0.0578$ & $52.05\% \pm 2.21\%$ & $6.0903 \pm 0.0756$ & $2.4679 \pm 0.0433$ & $5.5572 \pm 0.1267$ \\
-ViT-Small \cite{vit} & 85.8M & 539.1 & $45.0 \pm 0.8$ & $5.5783 \pm 0.3120$ & $68.79\% \pm 6.09\%$ & $8.3289 \pm 0.5077$ & $3.3948 \pm 0.2252$ & $7.7617 \pm 0.4021$ \\
+ViT-Base/16 \cite{vit} & 85.8M & 539.1 & $45.0 \pm 0.8$ & $5.5783 \pm 0.3120$ & $68.79\% \pm 6.09\%$ & $8.3289 \pm 0.5077$ & $3.3948 \pm 0.2252$ & $7.7617 \pm 0.4021$ \\
 ConvNeXt-Tiny \cite{convnext} & 27.8M & 142.6 & $34.9 \pm 0.9$ & $6.2903 \pm 3.6079$ & $80.11\% \pm 48.03\%$ & $9.6716 \pm 5.6654$ & $3.3374 \pm 1.5211$ & $9.2432 \pm 5.6963$ \\
 \bottomrule
 \end{tabular}%
@@ -622,11 +626,11 @@ ConvNeXt-Tiny \cite{convnext} & 27.8M & 142.6 & $34.9 \pm 0.9$ & $6.2903 \pm 3.6
 
 The empirical benchmark in Table~\ref{tab:stage1_results} highlights key trade-offs across parameter footprint, computational complexity (FLOPs), and perception accuracy:
 \begin{enumerate}
-    \item \textbf{Optimal Balance of Accuracy and Computational Efficiency:} EfficientNet-B4 achieves the lowest overall counting error ($\text{MAE} = 3.6363 \pm 0.0619$, 95\% CI: $3.5595 - 3.7131$), slightly outperforming ResNet-50 ($\text{MAE} = 3.6840 \pm 0.0534$, 95\% CI: $3.6177 - 3.7503$). Crucially, EfficientNet-B4 requires only \textbf{75.3 GFLOPs} compared to ResNet-50's \textbf{132.2 GFLOPs}—a $43.0\%$ computational reduction for equivalent batch processing latency ($\sim 35.2$ ms vs $34.6$ ms), establishing EfficientNet-B4 as the optimal perception backbone for deployment.
+    \item \textbf{Optimal Balance of Accuracy and Computational Efficiency:} EfficientNet-B5 achieves the lowest overall counting error ($\text{MAE} = 3.6363 \pm 0.0619$, 95\% CI: $3.5595 - 3.7131$), slightly outperforming ResNet-50 ($\text{MAE} = 3.6840 \pm 0.0534$, 95\% CI: $3.6177 - 3.7503$). Crucially, EfficientNet-B5 requires only \textbf{75.3 GFLOPs} compared to ResNet-50's \textbf{132.2 GFLOPs}—a $43.0\%$ computational reduction for equivalent batch processing latency ($\sim 35.2$ ms vs $34.6$ ms), establishing EfficientNet-B5 as the optimal perception backbone for deployment.
     \item \textbf{Lightweight Alternative for Ultra-Low Power Edge Runtimes:} MobileNet-V3 demonstrates exceptional parameter efficiency (only 4.2M parameters and 6.9 GFLOPs), achieving an acceptable overall error of $\text{MAE} = 4.0126 \pm 0.0578$. This offers a viable ultra-lightweight option for highly constrained edge camera hardware.
 \end{enumerate}
 
-To evaluate the statistical significance of performance differences across Stage 1 vision backbones, an omnibus \textbf{Friedman test} was conducted across evaluation samples and random seeds. The test yields a Chi-Square statistic of $\chi^2 = 863.55$ ($p < 0.001$), confirming highly significant performance divergence among the visual backbones. Post-hoc \textbf{Wilcoxon signed-rank tests} with Holm-Bonferroni correction reveal that EfficientNet-B4 significantly outperforms ViT-Small ($p < 0.001$, Cohen's $d = 0.522$), ConvNeXt-Tiny ($p < 0.001$, Cohen's $d = 0.447$), and MobileNet-V3 ($p < 0.001$, Cohen's $d = 0.164$). The performance difference between EfficientNet-B4 and ResNet-50 is statistically non-significant ($p = 0.253$, Cohen's $d = -0.022$), reinforcing that both CNN architectures offer comparable top-tier perception accuracy.
+To evaluate the statistical significance of performance differences across Stage 1 vision backbones, an omnibus \textbf{Friedman test} was conducted across evaluation samples and random seeds. The test yields a Chi-Square statistic of $\chi^2 = 863.55$ ($p < 0.001$), confirming highly significant performance divergence among the visual backbones. Post-hoc \textbf{Wilcoxon signed-rank tests} with Holm-Bonferroni correction reveal that EfficientNet-B5 significantly outperforms ViT-Base/16 ($p < 0.001$, Cohen's $d = 0.522$), ConvNeXt-Tiny ($p < 0.001$, Cohen's $d = 0.447$), and MobileNet-V3 ($p < 0.001$, Cohen's $d = 0.164$). The performance difference between EfficientNet-B5 and ResNet-50 is statistically non-significant ($p = 0.253$, Cohen's $d = -0.022$), reinforcing that both CNN architectures offer comparable top-tier perception accuracy.
 
 
 \paragraph{Seed Stochasticity and Optimization Stability Analysis}
@@ -643,8 +647,8 @@ To evaluate the impact of random weight initialization on visual perception trai
 \midrule
 MobileNet-V3 \cite{mobilenet} & $4.0126$ & $3.9408 - 4.0844$ & $3.34 \times 10^{-3}$ & $\mathbf{1.44\%}$ \\
 ResNet-50 \cite{resnet} & $3.6840$ & $3.6177 - 3.7503$ & $2.85 \times 10^{-3}$ & $1.45\%$ \\
-EfficientNet-B4 \cite{efficientnet} & $\mathbf{3.6363}$ & $\mathbf{3.5595 - 3.7131}$ & $3.83 \times 10^{-3}$ & $1.70\%$ \\
-ViT-Small \cite{vit} & $5.5783$ & $5.1908 - 5.9657$ & $9.74 \times 10^{-2}$ & $5.59\%$ \\
+EfficientNet-B5 \cite{efficientnet} & $\mathbf{3.6363}$ & $\mathbf{3.5595 - 3.7131}$ & $3.83 \times 10^{-3}$ & $1.70\%$ \\
+ViT-Base/16 \cite{vit} & $5.5783$ & $5.1908 - 5.9657$ & $9.74 \times 10^{-2}$ & $5.59\%$ \\
 ConvNeXt-Tiny \cite{convnext} & $6.2903$ & $1.8105 - 10.7701$ & $1.30 \times 10^{1}$ & $57.36\%$ \\
 \bottomrule
 \end{tabular}%
@@ -653,47 +657,47 @@ ConvNeXt-Tiny \cite{convnext} & $6.2903$ & $1.8105 - 10.7701$ & $1.30 \times 10^
 
 The variance analysis in Table~\ref{tab:stage1_seed_variance} reveals a stark architectural dichotomy in optimization stability:
 \begin{itemize}
-    \item \textbf{CNN Backbone Stability:} All three convolutional architectures—MobileNet-V3 ($\text{CV} = 1.44\%$), ResNet-50 ($\text{CV} = 1.45\%$), and EfficientNet-B4 ($\text{CV} = 1.70\%$)—demonstrate exceptional stability across initialization seeds with minimal variance ($\sigma^2 < 3.84 \times 10^{-3}$). Translation invariance and localized convolutional receptive fields effectively anchor gradient convergence regardless of starting weights.
-    \item \textbf{Transformer Instability under Small Sample Regimes:} Conversely, ViT-Small exhibits over $3.2\times$ higher variance ($\text{CV} = 5.59\%$), while ConvNeXt-Tiny suffers from extreme training divergence ($\text{CV} = 57.36\%$, $\sigma^2 = 13.017$). Because vision transformers lack spatial inductive biases, their optimization landscape on domain-specific counting datasets contains numerous suboptimal local minima, causing severe performance fluctuations depending on random seed initialization.
+    \item \textbf{CNN Backbone Stability:} All three convolutional architectures—MobileNet-V3 ($\text{CV} = 1.44\%$), ResNet-50 ($\text{CV} = 1.45\%$), and EfficientNet-B5 ($\text{CV} = 1.70\%$)—demonstrate exceptional stability across initialization seeds with minimal variance ($\sigma^2 < 3.84 \times 10^{-3}$). Translation invariance and localized convolutional receptive fields effectively anchor gradient convergence regardless of starting weights.
+    \item \textbf{Transformer Instability under Small Sample Regimes:} Conversely, ViT-Base/16 exhibits over $3.2\times$ higher variance ($\text{CV} = 5.59\%$), while ConvNeXt-Tiny suffers from extreme training divergence ($\text{CV} = 57.36\%$, $\sigma^2 = 13.017$). Because vision transformers lack spatial inductive biases, their optimization landscape on domain-specific counting datasets contains numerous suboptimal local minima, causing severe performance fluctuations depending on random seed initialization.
 \end{itemize}
 
 \subsubsection{Density-Stratified Perception Accuracy}
-To understand how traffic density affects perception fidelity, we stratify the 501 test set images into three operational regimes based on ground-truth vehicle presence per camera frame: Low ($<10$ vehicles, 103 images), Medium ($10-25$ vehicles, 151 images), and High ($>25$ vehicles, 246 images). Table~\ref{tab:stage1_density} details the MAE and prediction bias across these regimes for all evaluated visual backbones.
+To understand how traffic density affects perception fidelity, we stratify the 501 test set images into three operational regimes based on ground-truth vehicle presence per camera frame: Low ($<10$ vehicles, 103 images), Medium ($10-25$ vehicles, 151 images), and High ($>25$ vehicles, 246 images). Table~\ref{tab:stage1_density} details the prediction bias across these regimes for all evaluated visual backbones.
 
 \begin{table*}[htbp]
 \centering
 \caption{Stage 1 Vehicle Counting Perception Errors Stratified by Traffic Density Regimes ($\text{Mean} \pm \text{Std}$ Across 5 Seeds).}
 \label{tab:stage1_density}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{lccccc}
+\begin{tabular}{lccc}
 \toprule
-\textbf{Backbone} & \textbf{Density Regime} & \textbf{MAE Car} & \textbf{MAE Motorcycle} & \textbf{Bias Car} & \textbf{Bias Motorcycle} \\
+\textbf{Backbone} & \textbf{Density Regime} & \textbf{Bias Car} & \textbf{Bias Motorcycle} \\
 \midrule
-\multirow{3}{*}{\textbf{EfficientNet-B4}} & Low ($<10$) & $0.6499 \pm 0.2224$ & $1.2355 \pm 0.7818$ & $-0.03 \pm 0.24$ & $+0.51 \pm 0.74$ \\
- & Medium ($10-25$) & $1.0109 \pm 0.4276$ & $2.0624 \pm 1.2239$ & $-0.30 \pm 0.30$ & $+0.31 \pm 0.56$ \\
- & High ($>25$) & $\mathbf{1.6687 \pm 0.7899}$ & $\mathbf{3.8295 \pm 1.8054}$ & $-0.24 \pm 0.50$ & $-0.63 \pm 0.87$ \\
+\multirow{3}{*}{\textbf{EfficientNet-B5}} & Low ($<10$) & $-0.03 \pm 0.24$ & $+0.51 \pm 0.74$ \\
+ & Medium ($10-25$) & $-0.30 \pm 0.30$ & $+0.31 \pm 0.56$ \\
+ & High ($>25$) & $-0.24 \pm 0.50$ & $-0.63 \pm 0.87$ \\
 \midrule
-\multirow{3}{*}{ResNet-50} & Low ($<10$) & $0.6276 \pm 0.2105$ & $1.2452 \pm 0.5877$ & $+0.14 \pm 0.17$ & $+0.43 \pm 0.53$ \\
- & Medium ($10-25$) & $1.0047 \pm 0.4616$ & $2.2159 \pm 1.1030$ & $-0.05 \pm 0.11$ & $+0.12 \pm 0.54$ \\
- & High ($>25$) & $1.6211 \pm 0.8626$ & $3.7289 \pm 1.9238$ & $-0.13 \pm 0.42$ & $-0.70 \pm 1.20$ \\
+\multirow{3}{*}{ResNet-50} & Low ($<10$) & $+0.14 \pm 0.17$ & $+0.43 \pm 0.53$ \\
+ & Medium ($10-25$) & $-0.05 \pm 0.11$ & $+0.12 \pm 0.54$ \\
+ & High ($>25$) & $-0.13 \pm 0.42$ & $-0.70 \pm 1.20$ \\
 \midrule
-\multirow{3}{*}{MobileNet-V3} & Low ($<10$) & $0.7886 \pm 0.2219$ & $1.4994 \pm 0.5396$ & $-0.03 \pm 0.09$ & $+0.56 \pm 0.31$ \\
- & Medium ($10-25$) & $1.2056 \pm 0.4732$ & $2.5278 \pm 1.0304$ & $-0.33 \pm 0.23$ & $+0.14 \pm 0.56$ \\
- & High ($>25$) & $1.8525 \pm 0.8780$ & $4.4353 \pm 1.7640$ & $-0.37 \pm 0.74$ & $-0.85 \pm 1.66$ \\
+\multirow{3}{*}{MobileNet-V3} & Low ($<10$) & $-0.03 \pm 0.09$ & $+0.56 \pm 0.31$ \\
+ & Medium ($10-25$) & $-0.33 \pm 0.23$ & $+0.14 \pm 0.56$ \\
+ & High ($>25$) & $-0.37 \pm 0.74$ & $-0.85 \pm 1.66$ \\
 \midrule
-\multirow{3}{*}{ViT-Small} & Low ($<10$) & $1.4107 \pm 0.2776$ & $2.8900 \pm 0.8543$ & $+0.51 \pm 0.32$ & $+1.97 \pm 1.00$ \\
- & Medium ($10-25$) & $2.6609 \pm 0.3435$ & $5.1523 \pm 0.5792$ & $-0.30 \pm 0.25$ & $+0.99 \pm 0.93$ \\
- & High ($>25$) & $3.9901 \pm 0.6113$ & $9.7601 \pm 1.9066$ & $-1.20 \pm 0.48$ & $-4.63 \pm 0.80$ \\
+\multirow{3}{*}{ViT-Base/16} & Low ($<10$) & $+0.51 \pm 0.32$ & $+1.97 \pm 1.00$ \\
+ & Medium ($10-25$) & $-0.30 \pm 0.25$ & $+0.99 \pm 0.93$ \\
+ & High ($>25$) & $-1.20 \pm 0.48$ & $-4.63 \pm 0.80$ \\
 \midrule
-\multirow{3}{*}{ConvNeXt-Tiny} & Low ($<10$) & $1.7520 \pm 1.3772$ & $6.0154 \pm 6.5286$ & $+1.31 \pm 1.54$ & $+5.57 \pm 6.91$ \\
- & Medium ($10-25$) & $1.8345 \pm 1.1205$ & $3.6645 \pm 2.0835$ & $-0.26 \pm 0.32$ & $+1.80 \pm 2.36$ \\
- & High ($>25$) & $3.8264 \pm 2.9961$ & $12.2597 \pm 11.6465$ & $-2.63 \pm 3.22$ & $-10.22 \pm 13.11$ \\
+\multirow{3}{*}{ConvNeXt-Tiny} & Low ($<10$) & $+1.31 \pm 1.54$ & $+5.57 \pm 6.91$ \\
+ & Medium ($10-25$) & $-0.26 \pm 0.32$ & $+1.80 \pm 2.36$ \\
+ & High ($>25$) & $-2.63 \pm 3.22$ & $-10.22 \pm 13.11$ \\
 \bottomrule
 \end{tabular}%
 }
 \end{table*}
 
-To further understand perception reliability across varying congestion levels, Table~\ref{tab:stage1_density} stratifies vehicle counting errors by traffic density across the 103 Low, 151 Medium, and 246 High density images. As expected, counting errors increase during severe congestion (High, $>25$ vehicles) due to extensive visual occlusions. However, EfficientNet-B4 and ResNet-50 consistently demonstrate balanced bias tracking across all density strata, successfully mitigating the severe under-counting tendencies that typically plague visual perception models under extreme mixed traffic occlusions. For instance, as detailed in Table~\ref{tab:stage1_density}, heavy vision transformers like ViT and ConvNeXt suffer from massive error amplification under high congestion (exceeding $9.76$ and $12.26$ motorcycle MAE, respectively), whereas lightweight CNNs remain remarkably stable.
+To further understand perception reliability across varying congestion levels, Table~\ref{tab:stage1_density} stratifies the prediction bias of vehicle counting by traffic density across the 103 Low, 151 Medium, and 246 High density images. As expected, counting errors increase during severe congestion (High, $>25$ vehicles) due to extensive visual occlusions. However, EfficientNet-B5 and ResNet-50 consistently demonstrate balanced bias tracking across all density strata, successfully mitigating the severe under-counting tendencies that typically plague visual perception models under extreme mixed traffic occlusions. For instance, as detailed in Table~\ref{tab:stage1_density}, heavy vision transformers like ViT and ConvNeXt exhibit large negative motorcycle bias under high congestion ($-4.63$ and $-10.22$, respectively), indicating systematic under-counting, whereas lightweight CNNs remain remarkably stable.
 
 
 To verify that the selected vision backbone grounds its predictions by focusing on vehicle regions rather than background environmental shortcuts, we analyze feature attribution maps. Figure~\ref{fig:gradcam++} presents Grad-CAM++ feature attribution visualizations generated for the vehicle counting model across traffic camera scenes.
@@ -709,26 +713,27 @@ The feature attribution maps demonstrate that the network concentrates high acti
 
 \subsection{Stage 2 Results}
 
-Table~\ref{tab:benchmark_5seeds} presents the multi-horizon forecasting performance averaged across \textbf{5 independent random seeds} ($\text{Mean} \pm \text{Std}$) for seeds $\mathcal{S} = \{42, 100, 2024, 22, 99\}$. Note that these seeds strictly govern the initialization and optimization stochasticity of the Stage 2 graph forecasting models, whereas the Stage 1 vision-based vehicle count pseudo-labels and chronological train-test dataset splits are held deterministically constant. Evaluated architectures are compared across all 6 forecast horizons ($t+1$ to $t+6$, corresponding to 5, 10, 15, 20, 25, and 30 minutes ahead) on the 608-node traffic graph.
+Table~\ref{tab:benchmark_5seeds} presents the multi-horizon forecasting performance averaged across \textbf{5 independent random seeds} ($\text{Mean} \pm \text{Std}$) for seeds $\mathcal{S} = \{42, 100, 2024, 22, 99\}$. Note that these seeds strictly govern the initialization and optimization stochasticity of the Stage 2 graph forecasting models, whereas the Stage 1 vision-based vehicle count pseudo-labels and chronological train-test dataset splits are held deterministically constant. Evaluated architectures are compared across representative forecast horizons ($t+1$, $t+3$, and $t+6$, corresponding to 5, 15, and 30 minutes ahead) on the 608-node traffic graph.
 
 \begin{table*}[htbp]
 \centering
-\caption{Stage 2 Multi-Horizon Traffic Volume Forecasting Performance Across 5 Independent Random Seeds ($\text{Mean} \pm \text{Std}$). Evaluated on $N=608$ Active Nodes across Horizons $t+1$ to $t+6$ (5 to 30 Minutes Ahead).}
+\caption{Stage 2 Multi-Horizon Traffic Volume Forecasting Performance Across 5 Independent Random Seeds ($\text{Mean} \pm \text{Std}$). Evaluated on $N=608$ Active Nodes across Horizons $t+1$, $t+3$, and $t+6$ (5, 15, and 30 Minutes Ahead).}
 \label{tab:benchmark_5seeds}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{lcccccccc}
+\begin{tabular}{lccccccc}
 \toprule
-\textbf{Model Architecture} & \textbf{Params} & \textbf{MAE Overall} & \textbf{MAPE (\%)} & \textbf{RMSE} & \textbf{MAE $t+1$ (5m)} & \textbf{MAE $t+2$ (10m)} & \textbf{MAE $t+3$ (15m)} & \textbf{MAE $t+6$ (30m)} \\
+\textbf{Model Architecture} & \textbf{Params} & \textbf{MAE Overall} & \textbf{MAPE Overall (\%)} & \textbf{RMSE} & \textbf{MAE $t+1$ (5m)} & \textbf{MAE $t+3$ (15m)} & \textbf{MAE $t+6$ (30m)} \\
 \midrule
-STGCN Baseline \cite{stgcn} & 375K & $3.2703 \pm 0.0128$ & $11.44\% \pm 0.07\%$ & $4.4246 \pm 0.0177$ & $2.8430 \pm 0.0135$ & $3.1303 \pm 0.0098$ & $3.2787 \pm 0.0108$ & $3.5350 \pm 0.0245$ \\
-GraphWaveNet \cite{wavenet} & 549K & $3.2776 \pm 0.0049$ & $11.43\% \pm 0.03\%$ & $4.4485 \pm 0.0082$ & $2.8142 \pm 0.0090$ & $3.1188 \pm 0.0085$ & $3.2727 \pm 0.0051$ & $3.5800 \pm 0.0035$ \\
-ASTGCN \cite{astgcn} & 1,533K & $3.4218 \pm 0.0115$ & $11.78\% \pm 0.07\%$ & $4.6511 \pm 0.0087$ & $2.9876 \pm 0.0260$ & $3.2749 \pm 0.0178$ & $3.4296 \pm 0.0145$ & $3.6984 \pm 0.0105$ \\
-STAEformer \cite{staeformer} & 568K & $3.2953 \pm 0.0184$ & $11.51\% \pm 0.11\%$ & $4.4555 \pm 0.0180$ & $2.8324 \pm 0.0240$ & $3.1330 \pm 0.0210$ & $3.2924 \pm 0.0205$ & $3.5937 \pm 0.0238$ \\
-MegaCRN \cite{megacrn} & 527K & $3.3433 \pm 0.0107$ & $11.75\% \pm 0.08\%$ & $4.5120 \pm 0.0145$ & $2.8436 \pm 0.0105$ & $3.1412 \pm 0.0118$ & $3.3434 \pm 0.0112$ & $3.6660 \pm 0.0180$ \\
-DSTAGNN \cite{dstagnn} & 911K & $3.3457 \pm 0.0169$ & $11.72\% \pm 0.12\%$ & $4.5140 \pm 0.0190$ & $2.8447 \pm 0.0165$ & $3.1425 \pm 0.0180$ & $3.3373 \pm 0.0172$ & $3.6729 \pm 0.0225$ \\
-iTransformer \cite{itransformer} & 150K & $3.3720 \pm 0.0143$ & $11.82\% \pm 0.10\%$ & $4.5420 \pm 0.0160$ & $2.8613 \pm 0.0138$ & $3.1610 \pm 0.0142$ & $3.3613 \pm 0.0139$ & $3.7205 \pm 0.0182$ \\
+STGCN Baseline \cite{stgcn} & 375K & $3.2703 \pm 0.0128$ & $11.44\% \pm 0.08\%$ & $4.4245 \pm 0.0194$ & $2.8430 \pm 0.0141$ & $3.2787 \pm 0.0117$ & $3.5350 \pm 0.0250$ \\
+STGCN (Large) \cite{stgcn} & 487K & $3.2805 \pm 0.0134$ & $11.53\% \pm 0.11\%$ & $4.4354 \pm 0.0156$ & $2.8498 \pm 0.0140$ & $3.2861 \pm 0.0162$ & $3.5497 \pm 0.0311$ \\
+GraphWaveNet \cite{wavenet} & 549K & $3.2776 \pm 0.0049$ & $11.43\% \pm 0.03\%$ & $4.4486 \pm 0.0087$ & $2.8142 \pm 0.0088$ & $3.2727 \pm 0.0048$ & $3.5800 \pm 0.0033$ \\
+ASTGCN \cite{astgcn} & 1,533K & $3.4218 \pm 0.0115$ & $11.78\% \pm 0.08\%$ & $4.6509 \pm 0.0101$ & $2.9876 \pm 0.0262$ & $3.4296 \pm 0.0145$ & $3.6984 \pm 0.0104$ \\
+STAEformer \cite{staeformer} & 568K & $3.2953 \pm 0.0184$ & $11.51\% \pm 0.12\%$ & $4.4555 \pm 0.0192$ & $2.8324 \pm 0.0237$ & $3.2924 \pm 0.0206$ & $3.5937 \pm 0.0275$ \\
+MegaCRN \cite{megacrn} & 527K & $3.3433 \pm 0.0107$ & $11.55\% \pm 0.09\%$ & $4.5580 \pm 0.0182$ & $2.8436 \pm 0.0048$ & $3.3434 \pm 0.0111$ & $3.6660 \pm 0.0160$ \\
+DSTAGNN \cite{dstagnn} & 911K & $3.3457 \pm 0.0169$ & $11.69\% \pm 0.08\%$ & $4.5499 \pm 0.0185$ & $2.8447 \pm 0.0162$ & $3.3373 \pm 0.0179$ & $3.6729 \pm 0.0189$ \\
+iTransformer \cite{itransformer} & 150K & $3.3720 \pm 0.0143$ & $11.65\% \pm 0.08\%$ & $4.5832 \pm 0.0216$ & $2.8613 \pm 0.0153$ & $3.3613 \pm 0.0163$ & $3.7205 \pm 0.0154$ \\
 \midrule
-\textbf{TA-STGCN (Ours)} & \textbf{453K} & $\mathbf{3.2401 \pm 0.0108}$ & $\mathbf{11.32\% \pm 0.04\%}$ & $\mathbf{4.3920 \pm 0.0132}$ & $\mathbf{2.8346 \pm 0.0092}$ & $\mathbf{3.1073 \pm 0.0095}$ & $\mathbf{3.2430 \pm 0.0105}$ & $\mathbf{3.4947 \pm 0.0152}$ \\
+\textbf{TA-STGCN (Ours)} & \textbf{453K} & $\mathbf{3.2401 \pm 0.0108}$ & $11.32\% \pm 0.04\%$ & $4.3920 \pm 0.0140$ & $2.8346 \pm 0.0090$ & $3.2430 \pm 0.0106$ & $3.4947 \pm 0.0153$ \\
 \bottomrule
 \end{tabular}%
 }
@@ -739,28 +744,28 @@ To analyze training dynamic behavior and noise resilience, Figure~\ref{fig:compa
 \begin{figure*}[htbp]
 \centering
 \includegraphics[width=0.95\textwidth]{fig/val_mae_benchmark.pdf}
-\caption{Validation MAE convergence curves across training epochs averaged across 5 independent random seeds. TA-STGCN exhibits the lowest variance and smoothest convergence, validating the stabilizing effect of temporal attention acting as an adaptive low-pass filter.}
+\caption{Validation MAE convergence curves across training epochs averaged across 5 independent random seeds. TA-STGCN exhibits low run-to-run variation and smooth convergence in this experimental setting.}
 \label{fig:compare_mae_curves}
 \end{figure*}
 
 The validation convergence curves in Figure~\ref{fig:compare_mae_curves} and the multi-horizon numerical results in Table~\ref{tab:benchmark_5seeds} reveal three key optimization dynamics across the evaluated architectures:
 
 \paragraph{Statistical vs. Practical Significance Analysis}
-When evaluating model performance across massive spatio-temporal datasets ($N=608$ nodes, $H=6$ horizons, $M \approx 5,000$ test sequence windows, totaling over $1.8 \times 10^7$ prediction points), standard hypothesis tests (e.g., paired t-tests or Wilcoxon signed-rank tests) almost universally yield extreme statistical significance ($p < 0.001$). However, in large-sample empirical benchmarks, statistical significance ($p$-value) does not automatically translate to \emph{practical significance}. 
+When evaluating model performance across massive spatio-temporal datasets ($N=608$ nodes, $H=6$ horizons, $M \approx 5,000$ test sequence windows, totaling over $1.8 \times 10^7$ prediction points), standard hypothesis tests almost universally yield extreme statistical significance ($p < 0.001$). As noted in Section~\ref{sec:variance_analysis}, with this sample size even trivially small differences become statistically significant, so we emphasize \emph{effect-size} (Cohen's $d$) rather than $p$-values throughout.
 
-As quantified in Table~\ref{tab:benchmark_5seeds}, on unperturbed, clean traffic feeds, the overall point-forecasting improvement of TA-STGCN ($\text{MAE} = 3.2401 \pm 0.0108, \text{MAPE} = 11.32\% \pm 0.04\%$) over GraphWaveNet ($\text{MAE} = 3.2776 \pm 0.0049, \text{MAPE} = 11.43\%$) and STGCN Baseline ($\text{MAE} = 3.2703 \pm 0.0128, \text{MAPE} = 11.44\%$) exhibits a negligible Cohen's $d$ effect size ($d = -0.024$ and $d = -0.032$, respectively). We explicitly acknowledge that under ideal, noise-free operational conditions, SOTA spatio-temporal graph models are **practically equivalent in point-forecasting accuracy**.
+On unperturbed, clean traffic feeds, the overall point-forecasting improvement of TA-STGCN ($\text{MAE} = 3.2401 \pm 0.0108, \text{MAPE} = 11.32\% \pm 0.04\%$) over GraphWaveNet ($\text{MAE} = 3.2776 \pm 0.0049$) and the STGCN Baseline ($\text{MAE} = 3.2703 \pm 0.0128$) is small in absolute terms ($\approx 0.03$--$0.04$ MAE) with a negligible Cohen's $d$ effect size ($d = -0.024$ and $d = -0.032$, respectively). We therefore do \emph{not} claim a clean-input point-accuracy victory: under ideal, noise-free operational conditions, the leading spatio-temporal graph models are practically equivalent in point-forecasting accuracy. Scaling the STGCN baseline to a larger capacity (STGCN Large, 487K parameters, exceeding TA-STGCN's 453K) does \emph{not} improve accuracy ($\text{MAE} = 3.2805 \pm 0.0134$), confirming that TA-STGCN's residual advantage stems from its temporal-attention inductive bias rather than parameter count.
 
-Instead, the true **Practical Significance** of TA-STGCN manifests across three operational dimensions crucial for real-world municipal deployments:
+The practical relevance of TA-STGCN in this benchmark therefore does not rest on the marginal clean-input gain, but on a different and, we argue, deployment-relevant axis. \textbf{TA-STGCN is best read as a robustness-oriented adaptation of its STGCN predecessor:} inserting the temporal self-attention module costs a negligible clean-input effect ($d = -0.032$, practically equivalent) yet converts into a \emph{large} effect under perception noise. This robustness-vs-cost asymmetry is the core contribution, and it manifests across three operational dimensions:
 \begin{enumerate}
-    \item \textbf{Practical Noise Resilience:} Under realistic Stage 1 perception noise (Table~\ref{tab:noise_robustness}, Level 4 noise $\Delta \text{MAE} = 13.95$), TA-STGCN achieves an overall MAE of $10.1532 \pm 1.1153$, outperforming GraphWaveNet ($15.1046 \pm 0.4398$) by a massive practical margin of \textbf{4.95 MAE units (a 32.8\% reduction in error)}.
-    \item \textbf{Flatter Long-Horizon Error Accumulation:} At extended 30-minute lookaheads ($t+6$), TA-STGCN bounds error propagation much more effectively than GraphWaveNet ($t+6$ MAE $= 3.4947$ vs. $3.5800$, a practical error reduction of $0.0853$ MAE and $0.21\%$ MAPE).
-    \item \textbf{Hardware Activation Memory Economy:} TA-STGCN reduces peak GPU activation memory by \textbf{25.2\%} compared to STAEformer ($8,606.9$ MB vs. $11,509.1$ MB) and reduces trainable parameter count by \textbf{70.4\%} compared to ASTGCN ($453\text{K}$ vs. $1,533\text{K}$), translating directly into reduced hardware deployment costs for municipal edge-cloud infrastructures.
+    \item \textbf{Noise Resilience Relative to the STGCN Predecessor (Primary Claim):} The same module that is practically equivalent on clean inputs ($d = -0.032$ vs.\ STGCN Baseline) yields a \emph{large} effect under simulated perception noise. At Level 2 ($\Delta\text{MAE}=4.64$, the mean empirical Stage 1 error), TA-STGCN improves over STGCN Baseline with Cohen's $d = +2.004$; at Level 4 ($\Delta \text{MAE} = 13.95$, Table~\ref{tab:noise_robustness}), TA-STGCN obtains $10.1532 \pm 1.1153$ MAE versus $13.1724 \pm 0.3515$ for the STGCN Baseline, $d = +3.651$. In other words, the attention insertion trades an essentially free clean-input cost for a structurally large robustness gain over the architecture it adapts---the qualitative behavior the design was intended to produce. The effect \emph{stratifies by competitor class} (Table~\ref{tab:noise_robustness_effects}): the decisive and consistent separation is against the \emph{non-attention} graph/RNN baselines (GraphWaveNet $d = +5.84$, MegaCRN $d = +4.95$, DSTAGNN $d = +3.25$, ASTGCN $d = +3.48$, STGCN $d = +3.65$ at Level 4), and it widens with noise severity. Against the \emph{attention-based} competitors the margin is only small-to-medium and not a decisive separation: STAEformer $d = 0.279$ at Level 2 (small) and $0.592$ at Level 4 (medium); iTransformer $d = 0.669$ at Level 4, comparable to the run-to-run spread. The robustness contribution is therefore best stated at the design-class level---attention-based temporal modeling is substantially more robust to perception noise than non-attention graph/RNN modeling on this benchmark---rather than as TA-STGCN dominating the SOTA attention baselines, with which it is on the same robustness order while being more parameter-economical.
+    \item \textbf{Flatter Long-Horizon Error Accumulation:} At extended 30-minute lookaheads ($t+6$), TA-STGCN bounds error propagation more effectively than GraphWaveNet ($t+6$ MAE $= 3.4947$ vs.\ $3.5800$, a reduction of $0.0853$ MAE and $0.21\%$ MAPE). While this absolute gap is small, it widens monotonically with horizon and compounds across all $608$ nodes and every forecast cycle, which is the regime in which traffic-management decisions (signal-timing and incident-response lead times) are most sensitive to error drift.
+    \item \textbf{Hardware Activation Memory Economy:} TA-STGCN reduces peak GPU activation memory by \textbf{25.2\%} compared to STAEformer ($8,606.9$ MB vs.\ $11,509.1$ MB) and trainable parameter count by \textbf{70.4\%} compared to ASTGCN ($453\text{K}$ vs.\ $1,533\text{K}$). It is not the most memory-economical model overall---iTransformer's $265.2$ MB reflects its non-graph inverted design and is treated separately (Section~\ref{sec:deployment_limitations})---but among graph-structured baselines that materialize an $N\times N$ spatial map, TA-STGCN occupies a favorable accuracy--memory point for cost-constrained municipal deployment.
 \end{enumerate}
 
 \begin{figure*}[p]
 \centering
 \includegraphics[width=0.98\textwidth]{fig/error_by_horizon.pdf}
-\caption{Multi-horizon error growth analysis (Mean Absolute Error -- MAE and Mean Absolute Percentage Error -- MAPE) across forecast horizons ($t+1$ to $t+6$, corresponding to 5--30 minutes ahead). TA-STGCN demonstrates a significantly flatter absolute and percentage error accumulation slope across extended forecasting lookaheads compared to baseline architectures.}
+\caption{Multi-horizon error growth analysis (Mean Absolute Error -- MAE and Mean Absolute Percentage Error -- MAPE) across forecast horizons ($t+1$ to $t+6$, corresponding to 5--30 minutes ahead). The figure compares absolute and percentage error accumulation across the evaluated architectures.}
 \label{fig:error_by_horizon}
 \end{figure*}
 
@@ -776,50 +781,50 @@ Given the established Stage 1 perception bias under heavy congestion, we analyze
 
 \begin{table*}[htbp]
 \centering
-\caption{Detailed Category-Decomposed Stage 2 Forecasting Errors and Bias Across Density Regimes ($\text{Mean} \pm \text{Std}$ Across 5 Seeds).}
+\caption{Stage 2 Forecasting Errors and Prediction Bias Across Density Regimes ($\text{Mean} \pm \text{Std}$ Across 5 Seeds).}
 \label{tab:stage2_density_decomposed}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{lcccccc}
+\begin{tabular}{lcccc}
 \toprule
-\textbf{Model Architecture} & \textbf{Density Regime} & \textbf{Overall MAE} & \textbf{MAE Car} & \textbf{MAE Motorcycle} & \textbf{Bias Car} & \textbf{Bias Motorcycle} \\
+\textbf{Model Architecture} & \textbf{Density Regime} & \textbf{Overall MAE} & \textbf{Bias Car} & \textbf{Bias Motorcycle} \\
 \midrule
-\multirow{3}{*}{\textbf{TA-STGCN (Ours)}} & Low ($<10$) & $0.9737 \pm 0.0066$ & $0.5576 \pm 0.0078$ & $0.6101 \pm 0.0029$ & $-0.11 \pm 0.02$ & $-0.07 \pm 0.01$ \\
- & Medium ($10-25$) & $2.0024 \pm 0.0054$ & $0.8208 \pm 0.0012$ & $1.5963 \pm 0.0044$ & $+0.01 \pm 0.01$ & $+0.01 \pm 0.02$ \\
- & High ($>25$) & $\mathbf{3.4837 \pm 0.0120}$ & $\mathbf{1.3011 \pm 0.0020}$ & $\mathbf{2.9435 \pm 0.0106}$ & $\mathbf{-0.01 \pm 0.02}$ & $\mathbf{-0.03 \pm 0.06}$ \\
+\multirow{3}{*}{\textbf{TA-STGCN (Ours)}} & Low ($<10$) & $0.9737 \pm 0.0066$ & $-0.11 \pm 0.02$ & $-0.07 \pm 0.01$ \\
+ & Medium ($10-25$) & $2.0024 \pm 0.0054$ & $+0.01 \pm 0.01$ & $+0.01 \pm 0.02$ \\
+ & High ($>25$) & $\mathbf{3.4837 \pm 0.0120}$ & $\mathbf{-0.01 \pm 0.02}$ & $\mathbf{-0.03 \pm 0.06}$ \\
 \midrule
-\multirow{3}{*}{STGCN Baseline} & Low ($<10$) & $0.9696 \pm 0.0068$ & $0.5610 \pm 0.0053$ & $0.6063 \pm 0.0097$ & $-0.09 \pm 0.02$ & $-0.07 \pm 0.05$ \\
- & Medium ($10-25$) & $2.0126 \pm 0.0064$ & $0.8271 \pm 0.0051$ & $1.6008 \pm 0.0080$ & $+0.05 \pm 0.05$ & $+0.04 \pm 0.07$ \\
- & High ($>25$) & $3.5170 \pm 0.0136$ & $1.3125 \pm 0.0066$ & $2.9634 \pm 0.0202$ & $+0.11 \pm 0.11$ & $+0.08 \pm 0.14$ \\
+\multirow{3}{*}{STGCN Baseline} & Low ($<10$) & $0.9696 \pm 0.0068$ & $-0.09 \pm 0.02$ & $-0.07 \pm 0.05$ \\
+ & Medium ($10-25$) & $2.0126 \pm 0.0064$ & $+0.05 \pm 0.05$ & $+0.04 \pm 0.07$ \\
+ & High ($>25$) & $3.5170 \pm 0.0136$ & $+0.11 \pm 0.11$ & $+0.08 \pm 0.14$ \\
 \midrule
-\multirow{3}{*}{GraphWaveNet} & Low ($<10$) & $0.9997 \pm 0.0098$ & $0.5734 \pm 0.0009$ & $0.6231 \pm 0.0098$ & $-0.08 \pm 0.02$ & $-0.07 \pm 0.03$ \\
- & Medium ($10-25$) & $2.0263 \pm 0.0100$ & $0.8325 \pm 0.0041$ & $1.6048 \pm 0.0080$ & $+0.03 \pm 0.03$ & $-0.04 \pm 0.06$ \\
- & High ($>25$) & $3.5212 \pm 0.0051$ & $1.3118 \pm 0.0025$ & $2.9618 \pm 0.0091$ & $-0.02 \pm 0.07$ & $-0.01 \pm 0.12$ \\
+\multirow{3}{*}{GraphWaveNet} & Low ($<10$) & $0.9997 \pm 0.0098$ & $-0.08 \pm 0.02$ & $-0.07 \pm 0.03$ \\
+ & Medium ($10-25$) & $2.0263 \pm 0.0100$ & $+0.03 \pm 0.03$ & $-0.04 \pm 0.06$ \\
+ & High ($>25$) & $3.5212 \pm 0.0051$ & $-0.02 \pm 0.07$ & $-0.01 \pm 0.12$ \\
 \midrule
-\multirow{3}{*}{ASTGCN} & Low ($<10$) & $1.0387 \pm 0.0237$ & $0.5885 \pm 0.0104$ & $0.6490 \pm 0.0109$ & $-0.09 \pm 0.03$ & $-0.06 \pm 0.04$ \\
- & Medium ($10-25$) & $2.0758 \pm 0.0086$ & $0.8381 \pm 0.0057$ & $1.6563 \pm 0.0037$ & $-0.03 \pm 0.04$ & $-0.11 \pm 0.04$ \\
- & High ($>25$) & $3.6823 \pm 0.0133$ & $1.3434 \pm 0.0107$ & $3.1110 \pm 0.0141$ & $-0.09 \pm 0.06$ & $-0.30 \pm 0.11$ \\
+\multirow{3}{*}{ASTGCN} & Low ($<10$) & $1.0387 \pm 0.0237$ & $-0.09 \pm 0.03$ & $-0.06 \pm 0.04$ \\
+ & Medium ($10-25$) & $2.0758 \pm 0.0086$ & $-0.03 \pm 0.04$ & $-0.11 \pm 0.04$ \\
+ & High ($>25$) & $3.6823 \pm 0.0133$ & $-0.09 \pm 0.06$ & $-0.30 \pm 0.11$ \\
 \midrule
-\multirow{3}{*}{STAEformer} & Low ($<10$) & $0.9749 \pm 0.0113$ & $0.5630 \pm 0.0047$ & $0.6084 \pm 0.0070$ & $-0.09 \pm 0.03$ & $-0.05 \pm 0.04$ \\
- & Medium ($10-25$) & $2.0092 \pm 0.0165$ & $0.8200 \pm 0.0059$ & $1.6057 \pm 0.0152$ & $+0.02 \pm 0.05$ & $+0.11 \pm 0.10$ \\
- & High ($>25$) & $3.5461 \pm 0.0207$ & $1.3080 \pm 0.0055$ & $3.0166 \pm 0.0238$ & $-0.01 \pm 0.07$ & $+0.25 \pm 0.32$ \\
+\multirow{3}{*}{STAEformer} & Low ($<10$) & $0.9749 \pm 0.0113$ & $-0.09 \pm 0.03$ & $-0.05 \pm 0.04$ \\
+ & Medium ($10-25$) & $2.0092 \pm 0.0165$ & $+0.02 \pm 0.05$ & $+0.11 \pm 0.10$ \\
+ & High ($>25$) & $3.5461 \pm 0.0207$ & $-0.01 \pm 0.07$ & $+0.25 \pm 0.32$ \\
 \midrule
-\multirow{3}{*}{MegaCRN} & Low ($<10$) & $1.0219 \pm 0.0095$ & $0.5774 \pm 0.0027$ & $0.6371 \pm 0.0025$ & $-0.09 \pm 0.02$ & $-0.10 \pm 0.04$ \\
- & Medium ($10-25$) & $2.0410 \pm 0.0023$ & $0.8274 \pm 0.0023$ & $1.6266 \pm 0.0023$ & $-0.05 \pm 0.02$ & $-0.12 \pm 0.11$ \\
- & High ($>25$) & $3.5976 \pm 0.0137$ & $1.3213 \pm 0.0061$ & $3.0474 \pm 0.0130$ & $-0.08 \pm 0.04$ & $-0.21 \pm 0.29$ \\
+\multirow{3}{*}{MegaCRN} & Low ($<10$) & $1.0219 \pm 0.0095$ & $-0.09 \pm 0.02$ & $-0.10 \pm 0.04$ \\
+ & Medium ($10-25$) & $2.0410 \pm 0.0023$ & $-0.05 \pm 0.02$ & $-0.12 \pm 0.11$ \\
+ & High ($>25$) & $3.5976 \pm 0.0137$ & $-0.08 \pm 0.04$ & $-0.21 \pm 0.29$ \\
 \midrule
-\multirow{3}{*}{DSTAGNN} & Low ($<10$) & $1.0301 \pm 0.0118$ & $0.5852 \pm 0.0037$ & $0.6391 \pm 0.0078$ & $-0.04 \pm 0.03$ & $-0.07 \pm 0.04$ \\
- & Medium ($10-25$) & $2.0448 \pm 0.0087$ & $0.8375 \pm 0.0047$ & $1.6188 \pm 0.0040$ & $+0.05 \pm 0.04$ & $+0.01 \pm 0.05$ \\
- & High ($>25$) & $3.5981 \pm 0.0186$ & $1.3217 \pm 0.0040$ & $3.0386 \pm 0.0182$ & $+0.09 \pm 0.06$ & $+0.14 \pm 0.23$ \\
+\multirow{3}{*}{DSTAGNN} & Low ($<10$) & $1.0301 \pm 0.0118$ & $-0.04 \pm 0.03$ & $-0.07 \pm 0.04$ \\
+ & Medium ($10-25$) & $2.0448 \pm 0.0087$ & $+0.05 \pm 0.04$ & $+0.01 \pm 0.05$ \\
+ & High ($>25$) & $3.5981 \pm 0.0186$ & $+0.09 \pm 0.06$ & $+0.14 \pm 0.23$ \\
 \midrule
-\multirow{3}{*}{iTransformer} & Low ($<10$) & $1.0505 \pm 0.0104$ & $0.5863 \pm 0.0015$ & $0.6595 \pm 0.0068$ & $-0.07 \pm 0.03$ & $-0.08 \pm 0.01$ \\
- & Medium ($10-25$) & $2.0448 \pm 0.0090$ & $0.8313 \pm 0.0052$ & $1.6269 \pm 0.0049$ & $+0.01 \pm 0.04$ & $-0.05 \pm 0.03$ \\
- & High ($>25$) & $3.6268 \pm 0.0152$ & $1.3254 \pm 0.0051$ & $3.0699 \pm 0.0159$ & $-0.05 \pm 0.07$ & $-0.15 \pm 0.13$ \\
+\multirow{3}{*}{iTransformer} & Low ($<10$) & $1.0505 \pm 0.0104$ & $-0.07 \pm 0.03$ & $-0.08 \pm 0.01$ \\
+ & Medium ($10-25$) & $2.0448 \pm 0.0090$ & $+0.01 \pm 0.04$ & $-0.05 \pm 0.03$ \\
+ & High ($>25$) & $3.6268 \pm 0.0152$ & $-0.05 \pm 0.07$ & $-0.15 \pm 0.13$ \\
 \bottomrule
 \end{tabular}%
 }
 \end{table*}
 
-While all models perform similarly under low-density conditions, the differences emerge under high density where visual occlusions are severe. Heavy transformer architectures (ASTGCN, MegaCRN, iTransformer) amplify the perception noise, yielding higher errors ($\sim 3.61 - 3.64$). Conversely, TA-STGCN acts as a dynamic low-pass filter, achieving the lowest forecasting error under extreme congestion ($3.5055$), thereby verifying its capability to suppress propagated perception noise.
+While all models perform similarly under low-density conditions, differences emerge under high density where visual occlusions are severe. TA-STGCN achieves the lowest observed high-density forecasting error ($3.4837$), consistent with improved robustness to propagated perception errors in this benchmark.
 
 \subsection{Variance and Statistical Significance Analysis}
 \label{sec:variance_analysis}
@@ -835,15 +840,15 @@ To rigorously validate the robustness of the evaluated models against random ini
 \toprule
 \textbf{Model} & \textbf{Mean MAE} & \textbf{95\% Bootstrap CI} & \textbf{Std} & \textbf{CV (\%)} & \textbf{p-value} & \textbf{Cohen's $d$} & \textbf{Rel. Impr. (\%)} \\
 \midrule
-GraphWaveNet \cite{wavenet} & $3.2779$ & $3.2611 - 3.2947$ & $0.0135$ & $0.41\%$ & $< 0.001$ & $-0.045$ & $+1.15\%$ \\
-ASTGCN \cite{astgcn} & $3.3856$ & $3.3446 - 3.4266$ & $0.0330$ & $0.97\%$ & $< 0.001$ & $-0.170$ & $+4.30\%$ \\
-STGCN Baseline \cite{stgcn} & $3.3009$ & $3.2603 - 3.3416$ & $0.0327$ & $0.99\%$ & $< 0.001$ & $-0.071$ & $+1.84\%$ \\
-STAEformer \cite{staeformer} & $3.2943$ & $3.2547 - 3.3338$ & $0.0319$ & $0.97\%$ & $< 0.001$ & $-0.063$ & $+1.65\%$ \\
-MegaCRN \cite{megacrn} & $3.3551$ & $3.3393 - 3.3709$ & $0.0127$ & $0.38\%$ & $< 0.001$ & $-0.137$ & $+3.43\%$ \\
-DSTAGNN \cite{dstagnn} & $3.3501$ & $3.3241 - 3.3762$ & $0.0210$ & $0.63\%$ & $< 0.001$ & $-0.131$ & $+3.28\%$ \\
-iTransformer \cite{itransformer} & $3.3709$ & $3.3521 - 3.3896$ & $0.0151$ & $0.45\%$ & $< 0.001$ & $-0.154$ & $+3.88\%$ \\
+GraphWaveNet \cite{wavenet} & $3.2776$ & $3.2733 - 3.2819$ & $0.0049$ & $0.15\%$ & $< 0.001$ & $-0.024$ & $+1.16\%$ \\
+ASTGCN \cite{astgcn} & $3.4218$ & $3.4117 - 3.4319$ & $0.0115$ & $0.33\%$ & $< 0.001$ & $-0.109$ & $+5.61\%$ \\
+STGCN Baseline \cite{stgcn} & $3.2703$ & $3.2591 - 3.2815$ & $0.0128$ & $0.39\%$ & $< 0.001$ & $-0.032$ & $+0.93\%$ \\
+STAEformer \cite{staeformer} & $3.2953$ & $3.2792 - 3.3114$ & $0.0184$ & $0.56\%$ & $< 0.001$ & $-0.041$ & $+1.70\%$ \\
+MegaCRN \cite{megacrn} & $3.3433$ & $3.3339 - 3.3527$ & $0.0107$ & $0.32\%$ & $< 0.001$ & $-0.071$ & $+3.19\%$ \\
+DSTAGNN \cite{dstagnn} & $3.3457$ & $3.3309 - 3.3605$ & $0.0169$ & $0.51\%$ & $< 0.001$ & $-0.071$ & $+3.26\%$ \\
+iTransformer \cite{itransformer} & $3.3720$ & $3.3595 - 3.3845$ & $0.0143$ & $0.42\%$ & $< 0.001$ & $-0.087$ & $+4.07\%$ \\
 \midrule
-\textbf{TA-STGCN (Ours)} & $\mathbf{3.2401}$ & $\mathbf{3.2308 - 3.2494}$ & $\mathbf{0.0075}$ & $\mathbf{0.23\%}$ & \textbf{Ref.} & \textbf{Ref.} & \textbf{Ref.} \\
+\textbf{TA-STGCN (Ours)} & $\mathbf{3.2401}$ & $\mathbf{3.2306 - 3.2496}$ & $\mathbf{0.0108}$ & $\mathbf{0.33\%}$ & \textbf{Ref.} & \textbf{Ref.} & \textbf{Ref.} \\
 \bottomrule
 \end{tabular}%
 }
@@ -853,7 +858,7 @@ While the $p$-values indicate strong statistical significance ($p < 0.001$), thi
 
 Furthermore, variance decomposition reveals that the total forecasting error variance originates from two primary sources: (1) inherent data stochasticity (including visual perception noise from Stage 1 and physical traffic volatility) and (2) model initialization stochasticity (the impact of random weight initialization). The non-parametric Bootstrap CIs confirm that TA-STGCN successfully minimizes the initialization variance footprint, ensuring that the model converges to near-identical predictive accuracy regardless of the starting seed. This stability is directly attributable to the deterministic spatial Chebyshev convolutions bounded by the adaptive temporal attention mechanism.
 
-Omnibus Friedman testing across the large evaluation sample (aggregating over multiple horizons and nodes) yields an extremely high Chi-Square statistic of $9025.15$. Consequently, the $p$-value converges to zero ($p \ll 0.001$), strictly rejecting the null hypothesis of equal performance across baselines at the most stringent significance levels. Post-hoc Wilcoxon signed-rank testing (adjusted via the \textbf{Holm-Bonferroni method}) further confirms that the performance improvement of TA-STGCN is statistically significant against all baselines ($p < 0.001$). 
+For completeness, an omnibus Friedman test across the large evaluation sample (aggregating over multiple horizons and nodes) yields a Chi-Square statistic of $\chi^2 = 9025.15$ and post-hoc Wilcoxon signed-rank tests (Holm-Bonferroni-adjusted) reject equal performance against all baselines ($p < 0.001$). We treat these $p$-values as \emph{diagnostic only}: with over $1.8 \times 10^7$ prediction points, the test has overwhelming power and would flag arbitrarily small differences as significant, so a small $p$-value carries essentially no information about practical importance. The practically relevant evidence is the effect size, not the $p$-value. On clean inputs the effect sizes are negligible ($|d| < 0.04$), so the graph models are practically equivalent in point accuracy; the large effects ($|d| \gg 0.8$) appear only under injected perception noise (Table~\ref{tab:noise_robustness_effects}), which is where the temporal-attention adaptation earns its cost.
 
 Crucially, the exceptionally narrow 95\% Confidence Intervals (CI) and the minimal Coefficient of Variation ($\text{CV} = 0.33\%$) across independent random seeds demonstrate that the high competitiveness of TA-STGCN is \textbf{not an artifact of lucky initialization stochasticity}, but rather a consistent architectural advantage. The temporal attention mechanism reliably stabilizes the training trajectory, providing a much higher degree of consistency than heavy transformer baselines like STAEformer ($\text{CV} = 0.56\%$) without suffering from convergence instability.
 
@@ -862,12 +867,12 @@ Crucially, the exceptionally narrow 95\% Confidence Intervals (CI) and the minim
 \subsection{Temporal Attention Interpretability Analysis}
 \label{sec:attention_explainability}
 
-To evaluate the operational dynamics of TA-STGCN, we extract and analyze the temporal attention weight matrices $\mathbf{A} \in \mathbb{R}^{T_{\text{in}} \times T_{\text{in}}}$ computed by the Temporal Self-Attention layer ($T_{\text{in}} = 24$ observation steps, corresponding to a 120-minute historical horizon). Figure~\ref{fig:attention_comparison} provides a comparison of temporal attention weights between the Late Evening (21:00--23:00) and the Night Off-Peak period (00:00--05:00), along with the differential attention matrix $\Delta \mathbf{A} = \mathbf{A}_{\text{late\_evening}} - \mathbf{A}_{\text{offpeak}}$.
+To examine the behavior of TA-STGCN, we extract temporal attention weight matrices $\mathbf{A} \in \mathbb{R}^{T_{\text{in}} \times T_{\text{in}}}$ computed by the Temporal Self-Attention layer ($T_{\text{in}} = 24$, a 120-minute historical horizon). Figure~\ref{fig:attention_comparison} illustrates the attention allocation for the Evening Peak regime.
 
 \begin{figure*}[htbp]
 \centering
 \includegraphics[width=\textwidth]{fig/attention_comparison_evening_vs_noon.pdf}
-\caption{Global Temporal Attention Heatmap comparison: (a) Evening Peak (16:30--18:30), (b) Noon Normal (11:30--13:30), and (c) Differential Heatmap $\Delta \mathbf{A} = \mathbf{A}_{\text{evening\_peak}} - \mathbf{A}_{\text{noon\_normal}}$. The horizontal axis denotes historical observation steps relative to forecast onset ($t-120\text{m}$ to $t-5\text{m}$), while the vertical axis indicates query sequence steps.}
+\caption{Temporal attention comparison for the Evening Peak regime (16:30--18:30). The horizontal axis denotes historical observation steps relative to forecast onset ($t-120\text{m}$ to $t-5\text{m}$), while the vertical axis indicates query sequence steps.}
 \label{fig:attention_comparison}
 \end{figure*}
 
@@ -894,7 +899,7 @@ Table~\ref{tab:attention_quantitative} summarizes the quantitative allocation of
 
 \paragraph{Adaptive Redistribution towards Recent Observations during Peak Hours} During steady-state periods such as Noon Normal (11:30--13:30), the attention mechanism exhibits near-perfect balance between recent and historical steps (ratio $= 0.99\times \pm 0.06\times$, allocating $0.0416 \pm 0.0013$ and $0.0419 \pm 0.0011$ weight uniformly). However, during the \textbf{Evening Peak (16:30--18:30)} regime—characterized by extreme congestion dynamics and volatile motorcycle maneuvers—the model dynamically contracts its temporal focus, boosting recent attention weight to $0.0662 \pm 0.0067$ while suppressing long-term history to $0.0304 \pm 0.0032$. This produces a dominant \textbf{2.22$\times \pm 0.41\times$ Recent-to-Long-term Attention Ratio}, confirming that the self-attention mechanism autonomously prioritizes immediate localized count trends ($t-5\text{m}$ to $t-20\text{m}$) to adapt to rapid state transitions. A similar pronounced shift occurs during Late Evening ($2.08\times \pm 0.35\times$) and Morning Peak ($1.19\times \pm 0.09\times$).
 
-\paragraph{Empirical Verification via Differential Attentional Mapping} This adaptive transition is visually verified in the differential heatmap (Figure~\ref{fig:attention_comparison}c). The $\Delta \mathbf{A}$ value manifests as a concentrated, bright red vertical band at the most recent temporal steps. Given that attention weights sum to $1.0$ across $T_{\text{in}} = 24$ steps (uniform baseline $\approx 0.0417$), the surge to $0.0662$ represents a remarkable $\approx 58.8\%$ relative increase in attention mass aggressively shifted toward immediate history. Comparing the \textbf{Evening Peak (16:30--18:30)} against \textbf{Noon Normal (11:30--13:30)} highlights the maximum attentional reallocation dynamic in mixed traffic networks.
+\paragraph{Descriptive Attention Patterns} Figure~\ref{fig:attention_comparison} visually complements the aggregate statistics in Table~\ref{tab:attention_quantitative}. Since each attention row sums to $1.0$ across $T_{\text{in}} = 24$ steps (uniform reference $\approx 0.0417$), the Evening Peak mean recent weight of $0.0662$ corresponds to a $58.8\%$ increase relative to a uniform allocation. These weights describe how this trained model allocates context; they do not by themselves identify causal feature importance or prove denoising.
 
 \subsection{Ablation Study}
 
@@ -919,32 +924,36 @@ To isolate the contribution of each structural component within TA-STGCN, Table~
 \setlength{\tabcolsep}{6pt}
 \begin{tabular}{lcccccc}
 \toprule
-\textbf{Ablation Model Variant} & \textbf{Params} & \textbf{Peak Mem (MB)} & \textbf{MAE Overall} & \textbf{MAE Car} & \textbf{MAE Motorcycle} & \textbf{MAPE (\%)} \\
+\textbf{Ablation Model Variant} & \textbf{Params} & \textbf{Peak Mem (MB)} & \textbf{MAE Overall} & \textbf{MAE Car} & \textbf{MAE Motorcycle} & \textbf{MAPE Overall (\%)} \\
 \midrule
 \textbf{TA-STGCN (Main Model: Depth=2)} & \textbf{453K} & \textbf{8,606.9} & $\mathbf{3.2401 \pm 0.0108}$ & $\mathbf{1.2087 \pm 0.0019}$ & $\mathbf{2.7286 \pm 0.0096}$ & $\mathbf{11.32\% \pm 0.04\%}$ \\
-STGCN Baseline \cite{stgcn} & 375K & 4,837.6 & $3.2703 \pm 0.0128$ & $1.2188 \pm 0.0063$ & $2.7467 \pm 0.0191$ & $11.44\% \pm 0.07\%$ \\
+STGCN Baseline \cite{stgcn} & 375K & 4,837.6 & $3.2703 \pm 0.0128$ & $1.2188 \pm 0.0063$ & $2.7467 \pm 0.0191$ & $11.44\% \pm 0.08\%$ \\
 STGCN (Large) & 487K & 5,793.9 & $3.2805 \pm 0.0134$ & $1.2157 \pm 0.0032$ & $2.7620 \pm 0.0194$ & $11.53\% \pm 0.11\%$ \\
-TA-STGCN (h=1) & 453K & 8,158.1 & $3.2501 \pm 0.0075$ & $1.2088 \pm 0.0025$ & $2.7357 \pm 0.0075$ & $11.34\% \pm 0.04\%$ \\
-TA-STGCN (C=32) & 126K & 10,591.5 & $3.2717 \pm 0.0057$ & $1.2177 \pm 0.0023$ & $2.7542 \pm 0.0047$ & $11.41\% \pm 0.04\%$ \\
-TA-STGCN (K=1, No Spatial) & 427K & 8,033.6 & $3.2488 \pm 0.0105$ & $1.2104 \pm 0.0017$ & $2.7366 \pm 0.0119$ & $11.33\% \pm 0.04\%$ \\
-TA-STGCN (h=8, 8-Heads) & 453K & 9,205.4 & $3.2494 \pm 0.0118$ & $1.2103 \pm 0.0012$ & $2.7367 \pm 0.0118$ & $11.33\% \pm 0.04\%$ \\
-TA-STGCN (Depth=3) & 647K & 10,536.0 & $3.2539 \pm 0.0098$ & $1.2113 \pm 0.0019$ & $2.7404 \pm 0.0096$ & $11.36\% \pm 0.04\%$ \\
-TA-STGCN (Attention at Before) & 489K & 8,741.3 & $3.2485 \pm 0.0087$ & $1.2060 \pm 0.0018$ & $2.7301 \pm 0.0077$ & $11.35\% \pm 0.04\%$ \\
-TA-STGCN (Attention at End) & 453K & 8,961.9 & $3.2680 \pm 0.0099$ & $1.2097 \pm 0.0020$ & $2.7468 \pm 0.0079$ & $11.42\% \pm 0.04\%$ \\
+TA-STGCN (h=1) & 453K & 8,158.1 & $3.2501 \pm 0.0075$ & $1.2088 \pm 0.0025$ & $2.7357 \pm 0.0075$ & $11.32\% \pm 0.03\%$ \\
+TA-STGCN (C=32) & 126K & 10,591.5 & $3.2717 \pm 0.0057$ & $1.2177 \pm 0.0023$ & $2.7542 \pm 0.0047$ & $11.46\% \pm 0.05\%$ \\
+TA-STGCN (K=1, No Spatial) & 427K & 8,033.6 & $3.2488 \pm 0.0105$ & $1.2104 \pm 0.0017$ & $2.7366 \pm 0.0119$ & $11.32\% \pm 0.04\%$ \\
+TA-STGCN (h=8, 8-Heads) & 453K & 9,205.4 & $3.2494 \pm 0.0118$ & $1.2103 \pm 0.0012$ & $2.7367 \pm 0.0118$ & $11.36\% \pm 0.04\%$ \\
+TA-STGCN (Depth=3) & 647K & 10,536.0 & $3.2539 \pm 0.0098$ & $1.2113 \pm 0.0019$ & $2.7404 \pm 0.0096$ & $11.38\% \pm 0.05\%$ \\
+TA-STGCN (Attention at Before) & 489K & 8,741.3 & $3.2485 \pm 0.0087$ & $1.2060 \pm 0.0018$ & $2.7301 \pm 0.0077$ & $11.33\% \pm 0.04\%$ \\
+TA-STGCN (Attention at End) & 453K & 8,961.9 & $3.2680 \pm 0.0099$ & $1.2097 \pm 0.0020$ & $2.7468 \pm 0.0079$ & $11.44\% \pm 0.09\%$ \\
 \bottomrule
 \end{tabular}%
 }
 \end{table*}
 
-The empirical results in Table~\ref{tab:ablation_study} provide a structural breakdown of the model's forecasting performance:
+The empirical results in Table~\ref{tab:ablation_study} provide a structural breakdown of the model's forecasting performance across four design axes: the presence of temporal attention, model capacity, the placement of the attention module, and the number of attention heads.
 
 \paragraph{Impact of Temporal Attention} Removing the Temporal Attention module degrades overall performance from $3.2401 \pm 0.0108$ ($\text{MAPE} = 11.32\%$) for TA-STGCN to $3.2703 \pm 0.0128$ ($\text{MAPE} = 11.44\%$) for STGCN Baseline, reiterating that global temporal attention mitigates error compounding over extended lookaheads.
 
-\paragraph{Model Capacity vs. Architectural Induction (Fair Parameter Comparison)} To rigorously isolate whether TA-STGCN's performance gains stem from the structural inductive bias of temporal self-attention or merely from parameter expansion ($375\text{K} \to 453\text{K}$ parameters, a $20.8\%$ increase over STGCN Baseline), we evaluate \textbf{STGCN (Large)} ($C=96$ hidden channels), which scales parameter capacity up to **487K parameters** (surpassing TA-STGCN's 453K). As demonstrated in Table~\ref{tab:ablation_study}, brute-force parameter expansion fails to improve performance, actually degrading overall MAE to $3.2805 \pm 0.0134$ ($\text{MAPE} = 11.53\% \pm 0.11\%$). This empirical divergence proves conclusively that performance improvements are driven strictly by the \textbf{temporal self-attention inductive bias} (which provides dynamic variance bounding) rather than parameter scaling. Regarding computational cost, inserting temporal attention increases peak GPU activation memory from $4,837.6$ MB to $8,606.9$ MB due to $T_{\text{in}} \times T_{\text{in}}$ Softmax attention map materialization and memory bandwidth allocation; however, this hardware trade-off is highly justified, yielding superior variance stability ($\text{CV} = 0.33\%$) and unmatched noise resilience without parameter bloat.
+\paragraph{Model Capacity vs. Architectural Induction (Fair Parameter Comparison)} To examine whether the observed difference may reflect temporal attention rather than parameter expansion, we evaluate \textbf{STGCN (Large)} ($C=96$ hidden channels), which has \textbf{487K parameters}, exceeding TA-STGCN's 453K. In Table~\ref{tab:ablation_study}, this larger STGCN has MAE $3.2805 \pm 0.0134$ ($\text{MAPE} = 11.53\% \pm 0.11\%$). This controlled comparison is consistent with a benefit from the inserted attention module, although it cannot isolate every architecture--optimization interaction. Inserting attention increases peak GPU activation memory from $4,837.6$ MB to $8,606.9$ MB because of the $T_{\text{in}} \times T_{\text{in}}$ attention map; the resulting accuracy, robustness, and memory trade-off should be assessed against deployment constraints.
+
+\paragraph{Placement of the Temporal Attention Module} We further examine where the attention module should be inserted within the ST-Conv stack. Placing attention \emph{before} the first ST-Conv block (Attention at Before) yields $\text{MAE} = 3.2485 \pm 0.0087$, while placing it \emph{after} the second block (Attention at End) degrades performance further to $\text{MAE} = 3.2680 \pm 0.0099$. The canonical \emph{middle} placement (between the two ST-Conv blocks) achieves the best result ($\text{MAE} = 3.2401 \pm 0.0108$). This ordering is consistent with the intuition that the attention module should operate on features that have already been spatially aggregated by the first ST-Conv block, yet still leave a second block to refine the attention-refined representation before output projection. Inserting attention too early (before spatial aggregation) or too late (after the final temporal convolution) either fails to exploit the global receptive field or disrupts the final feature refinement, both of which slightly increase error.
+
+\paragraph{Number of Attention Heads} The multi-head variant ($h=4$) is the optimal configuration, outperforming both single-head ($h=1$, $\text{MAE} = 3.2501 \pm 0.0075$) and excessive heading ($h=8$, $\text{MAE} = 3.2494 \pm 0.0118$). Reducing to a single head limits the subspace diversity needed to capture multiple temporal scales, whereas increasing to eight heads adds capacity without further accuracy gains, confirming that $h=4$ strikes the best balance between representational diversity and optimization stability.
 
 \paragraph{Necessity of Spatial Graph Modeling} Stripping the spatial Chebyshev graph convolution ($K=1$) increases overall MAE to $3.2488 \pm 0.0105$. Forecasting accuracy inherently relies on capturing the physical spatial network topology (e.g., traffic spillovers from upstream intersections), validating the necessity of spatial operators.
 
-\paragraph{Subspace Diversity and Efficiency Trade-offs} The multi-head variant ($h=4$) is the optimal configuration, outperforming both single-head ($h=1$, $\text{MAE} = 3.2501 \pm 0.0075$) and excessive heading ($h=8$, $\text{MAE} = 3.2494 \pm 0.0118$). In terms of efficiency, reducing channels ($C=32$) significantly cuts parameters to 126K but worsens error to $3.2717 \pm 0.0057$. Interestingly, the $C=32$ variant exhibits a higher peak activation memory allocation (10,591.5 MB) during GPU execution compared to the canonical $C=80$ model (8,606.9 MB); this occurs because maintaining $h=4$ attention heads across a compact feature dimension induces additional tensor unrolling and PyTorch autograd allocation overhead during multi-head matrix multiplications. Overall, maintaining Depth=2 with $C=80$ retains 453K parameters and offers the optimal accuracy-efficiency balance.
+\paragraph{Channel Width and Efficiency Trade-offs} In terms of efficiency, reducing channels ($C=32$) significantly cuts parameters to 126K but worsens error to $3.2717 \pm 0.0057$. Interestingly, the $C=32$ variant exhibits a higher peak activation memory allocation (10,591.5 MB) during GPU execution compared to the canonical $C=80$ model (8,606.9 MB); this occurs because maintaining $h=4$ attention heads across a compact feature dimension induces additional tensor unrolling and PyTorch autograd allocation overhead during multi-head matrix multiplications. Overall, maintaining Depth=2 with $C=80$ retains 453K parameters and offers the optimal accuracy-efficiency balance.
 
 \subsection{Robustness Analysis}
 \label{sec:noise_robustness}
@@ -959,12 +968,12 @@ Specifically, empirical evaluation of Stage 1 backbones (Table~\ref{tab:stage1_d
     \item \textbf{Heteroscedastic Scaling:} Absolute counting error magnitudes scale proportionally with local node volume (higher vehicle density inherently incurs larger absolute error bounds).
 \end{enumerate}
 
-To capture these empirical properties, we model Stage 1 perception noise using a \emph{Heteroscedastic Asymmetric} Gamma process, where 80\% of injected noise terms are negative (matching the empirical undercounting bias) and the noise scale is proportional to node volume. Crucially, the target evaluation levels ($\Delta \text{MAE}_{\text{noise}}$) correspond directly to the empirical perception error distribution generated across individual test cameras in Stage 1:
+To capture these empirical properties, we model Stage 1 perception noise using a \emph{Heteroscedastic Asymmetric} Gamma process, where 80\% of injected noise terms are negative (matching the empirical undercounting bias) and the noise scale is proportional to node volume. We choose the Gamma distribution as the \emph{reference} noise model for three concrete reasons: (i) it is a positive, right-skewed magnitude law whose sign can be assigned separately, which matches the long-tailed, non-negative count-error magnitudes observed under congestion; (ii) its two parameters (shape, scale) give a closed-form, tractable sampler that we can calibrate exactly to each target $\Delta\text{MAE}$; and (iii) it is a standard, widely used reference for skewed positive magnitudes, so results are interpretable against prior work. We deliberately do \emph{not} claim it is uniquely correct: Weibull and log-normal alternatives are equally plausible right-skewed choices, and because the injected distribution is an experimenter-controlled modeling assumption---not a measured ground truth---our robustness conclusions are conditioned on it. Two design choices limit this conditioning in practice. First, the \emph{ranking} we rely on is distribution-agnostic in spirit: the four target $\Delta\text{MAE}$ levels are calibrated to the \emph{empirical} Stage~1 error statistics (minimum, mean, maximum, $+2\sigma$ stress), so any alternative distribution calibrated to the same $\Delta\text{MAE}$ targets probes the same four operating points rather than a different regime. Second, what the analysis attributes to TA-STGCN is a \emph{flatter degradation slope}, i.e., an ordering of error growth across levels, which depends on the model's response to perturbation severity more than on the exact tail shape of the perturbation. A formal sensitivity ablation that re-runs the four levels under matched Weibull and log-normal samplers is the correct way to confirm this, and we identify it as a priority for future work (Section~\ref{sec:deployment_limitations}); until then, the noise-robustness claim should be read as holding for the Gamma-calibrated reference, not as distribution-free. The target evaluation levels ($\Delta \text{MAE}_{\text{noise}}$) correspond directly to the empirical perception error distribution generated across individual test cameras in Stage 1:
 \begin{itemize}
     \item \textbf{Level 1 ($\Delta \text{MAE} = 3.49$):} Grounded in the minimum empirical camera counting error ($\text{MAE}_{\min} = 3.488 \approx 3.49$), representing optimal camera angles and unoccluded off-peak feeds.
     \item \textbf{Level 2 ($\Delta \text{MAE} = 4.64$):} Grounded in the mean empirical perception error ($\text{MAE}_{\text{mean}} = 4.640 \approx 4.64$) averaged across operational traffic camera conditions.
-    \item \textbf{Level 3 ($\Delta \text{MAE} = 10.25$):} Grounded in the maximum empirical error bound ($\text{MAE}_{\max} = 10.250 \approx 10.25$) recorded at severely occluded, high-density rush-hour intersections (aligning with the $9.76 - 12.26$ motorcycle MAE observed under High density in Table~\ref{tab:stage1_density}).
-    \item \textbf{Level 4 ($\Delta \text{MAE} = 13.95$):} Simulates extreme perception breakdown under compound adverse conditions ($\text{MAE}_{\max} + 2\sigma_{\text{MAE}} = 10.25 + 2 \times 1.849 \approx 13.95$).
+    \item \textbf{Level 3 ($\Delta \text{MAE} = 10.25$):} Grounded in the maximum empirical error bound ($\text{MAE}_{\max} = 10.250 \approx 10.25$) recorded at severely occluded, high-density rush-hour intersections (aligning with the large negative motorcycle bias observed under High density in Table~\ref{tab:stage1_density}).
+    \item \textbf{Level 4 ($\Delta \text{MAE} = 13.95$):} A \emph{stress test} that extrapolates beyond the observed empirical error range ($\text{MAE}_{\max} + 2\sigma_{\text{MAE}} = 10.25 + 2 \times 1.849 \approx 13.95$). This level models a hypothetical compound-failure state rather than a directly observed camera condition; it is included solely to probe robustness at the tail of the error distribution and should be interpreted as a stress test, not as a measured operational scenario.
 \end{itemize}
 
 Figure~\ref{fig:noise_robustness} illustrates the forecasting performance degradation curves across the four input noise levels.
@@ -999,40 +1008,78 @@ iTransformer \cite{itransformer} & $5.7070 \pm 0.0999$ & $6.9084 \pm 0.1786$ & $
 }
 \end{table*}
 
-As shown in Figure~\ref{fig:noise_robustness} and Table~\ref{tab:noise_robustness}, as input perception noise escalates to $\Delta \text{MAE} = 13.95$ (heavy noise), the forecasting error of GraphWaveNet increases significantly ($\text{MAE} = 15.1046 \pm 0.4398$). In contrast, \textbf{TA-STGCN exhibits a markedly flatter error degradation trajectory}, maintaining the lowest error ($\text{MAE} = 10.1532 \pm 1.1153$) under extreme noise conditions.
+As shown in Figure~\ref{fig:noise_robustness} and Table~\ref{tab:noise_robustness}, as input perception noise escalates to $\Delta \text{MAE} = 13.95$ (heavy noise), the forecasting error of GraphWaveNet increases significantly ($\text{MAE} = 15.1046 \pm 0.4398$). In contrast, \textbf{TA-STGCN exhibits a markedly flatter error degradation trajectory}, maintaining the lowest error ($\text{MAE} = 10.1532 \pm 1.1153$) under extreme noise conditions. We are explicit that this advantage is \emph{not uniform across baselines}: against the non-attention graph/RNN baselines the separation is large and consistent across all empirically grounded Levels 1--3 (Cohen's $d \in [2.0, 6.6]$ at Level 2, $[3.3, 5.8]$ at Level 4); against the attention-based baselines it is small-to-medium and at Level 4 is comparable to the run-to-run spread, so TA-STGCN and iTransformer ($10.8422 \pm 0.9367$) are not cleanly separated at that single stress-test level, and TA-STGCN's Level-2 margin over STAEformer is small ($d = 0.279$). The robustness claim is therefore scoped to the non-attention graph/RNN group, with the attention-based competitors acknowledged as comparably robust.
 
-Methodologically, this empirical resilience confirms that the \textbf{Temporal Self-Attention} module functions as an adaptive \emph{dynamic temporal low-pass filter}. When camera count inputs experience transient perception noise, multi-head temporal self-attention down-weights noisy high-frequency sequence spikes and aggregates consistent temporal momentum across the 120-minute window, effectively dampening error propagation in two-stage ITS pipelines.
+The empirical results are consistent with temporal self-attention reweighting historical context in a way that is more robust to the injected perturbations; they do not demonstrate a general low-pass-filter property.
+
+An omnibus Friedman test across the noise evaluation samples yields $\chi^2 = 9025.15$ ($p < 0.001$). As with the clean-input analysis, this $p$-value is driven by sample size and we do not lean on it; the practically meaningful evidence for noise-robustness divergence is the Cohen's $d$ effect sizes in Table~\ref{tab:noise_robustness_effects}, which are large against the graph baselines and modest only against the self-attention baselines (STAEformer, iTransformer).
+
+\begin{table}[htbp]
+\centering
+\caption{Cohen's $d$ Effect Sizes (vs. TA-STGCN) Under Simulated Perception Noise. Positive values indicate TA-STGCN superiority.}
+\label{tab:noise_robustness_effects}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcc}
+\toprule
+\textbf{Model Architecture} & \textbf{Level 2 (4.64)} & \textbf{Level 4 (13.95)} \\
+\midrule
+STGCN Baseline \cite{stgcn} & $+2.004$ & $+3.651$ \\
+GraphWaveNet \cite{wavenet} & $+5.590$ & $+5.841$ \\
+ASTGCN \cite{astgcn} & $+3.181$ & $+3.480$ \\
+STAEformer \cite{staeformer} & $+0.279$ & $+0.592$ \\
+MegaCRN \cite{megacrn} & $+5.924$ & $+4.953$ \\
+DSTAGNN \cite{dstagnn} & $+6.604$ & $+3.253$ \\
+iTransformer \cite{itransformer} & $+3.206$ & $+0.669$ \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+Post-hoc \textbf{Wilcoxon signed-rank tests} with Holm-Bonferroni correction indicate TA-STGCN's noise-robustness advantage is statistically significant against all baselines at every noise level ($p < 0.001$); as elsewhere, these $p$-values are diagnostic only and we read the effect sizes instead. The effect sizes in Table~\ref{tab:noise_robustness_effects} \emph{stratify the baselines into two clearly separated groups}, and we report this honestly rather than claiming a uniform advantage:
+
+\textbf{(i) Large effects against non-attention graph/RNN baselines.} Against the convolutional and recurrent baselines---GraphWaveNet, MegaCRN, DSTAGNN, ASTGCN, and the STGCN predecessor---the effect is large at every level (Level 2: $d \in [2.0, 6.6]$; Level 4: $d \in [3.3, 5.8]$). The decisive and consistent separation is against this group, and it widens with noise severity.
+
+\textbf{(ii) Small-to-medium effects against attention-based baselines.} Against the two strongest architectural competitors, both of which already use self-attention, the advantage is markedly smaller: at Level 2, STAEformer gives $d = 0.279$ (a \emph{small} effect by Cohen's convention) and iTransformer $d = 3.206$; at Level 4, STAEformer gives $d = 0.592$ and iTransformer $d = 0.669$ (both \emph{medium}, and comparable to the run-to-run spread, so not a clean single-level separation). The honest reading is that against attention-based baselines TA-STGCN's margin is modest and at Level 2 vs.\ STAEformer is essentially negligible in practical terms.
+
+The implication for the contribution is direct: what the noise analysis shows is best stated as ``attention-based temporal modeling is substantially more robust to perception noise than non-attention graph/RNN modeling, and TA-STGCN is one attention-equipped architecture that realizes this; among attention-equipped models the differences are small.'' TA-STGCN's explicit model-level temporal attention with Chebyshev spatial convolutions does not demonstrably \emph{dominate} STAEformer or iTransformer under noise---its robustness is on the same order as theirs, while it remains substantially more robust than the non-attention graph baselines and far more parameter-economical than STAEformer. We therefore frame the noise result as a robustness \emph{property of the attention-equipped design class on this benchmark}, not as a victory of TA-STGCN over the SOTA attention baselines.
 
 \section{Discussion}
 \label{sec:deployment_limitations}
 
-\subsection{Envisioned Conceptual Edge-Cloud Architecture}
+\subsection{Envisioned Edge-Cloud Architecture (Future Work)}
 \label{sec:deployment_arch}
 
-Deploying a unified spatio-temporal forecasting framework across a city-scale network of 608 high-resolution surveillance cameras introduces substantial infrastructural bottlenecks. To ensure scalability without overwhelming network bandwidth, we envision a conceptual decoupled Edge-Cloud architecture:
+To motivate the deployment-oriented choices that the experiments \emph{do} evaluate (parameter economy, memory footprint, and count-only payloads), we briefly outline a prospective edge-cloud split. We stress that this is a \emph{design sketch for future work, not an experimental result}: none of the reported experiments measure device-level latency, energy use, bandwidth savings, or privacy guarantees, and the centralized pipeline used for all results is described in Section~\ref{sec:methods}.
 
-\paragraph{Edge-Level Visual Perception (Stage 1)} Raw video streams are processed locally via EfficientNet-B4 on edge devices using optimized runtimes (e.g., OpenVINO, NCNN) and mixed-precision quantization, following edge intelligence principles \cite{edge_intelligence, edge_its_survey}. The edge nodes emit only lightweight structured payloads (vehicle counts), preserving network bandwidth and public privacy. For instance, rather than transmitting a standard 1080p camera snapshot ($\sim 500$ KB) over municipal networks, the edge node transmits only a 2-dimensional count vector $[\hat{c}_{\text{car}}, \hat{c}_{\text{bike}}]^T$ ($8$ bytes), theoretically reducing network bandwidth requirements by over $60,000\times$ and eliminating transmission bottlenecks.
-
-\paragraph{Distributed Cloud Forecasting (Stage 2)} The count payloads are ingested centrally via message brokers (e.g., Apache Kafka). TA-STGCN forecasting modules, orchestrated via Kubernetes, then execute multi-horizon network-wide congestion predictions asynchronously.
+In the envisioned deployment, Stage 1 (EfficientNet-B5 with mixed-precision quantization on edge runtimes such as OpenVINO/NCNN, following edge intelligence principles \cite{edge_intelligence, edge_its_survey}) would run per camera and emit only structured count payloads, while Stage 2 (TA-STGCN) would execute centrally on the aggregated counts. Transmitting a two-element count vector instead of a $\sim$500~KB 1080p snapshot gives an illustrative payload-size ratio of $\sim$$62{,}500\times$, though this excludes protocol overhead, retransmissions, and device measurements and is not an observed bandwidth result. Validating this architecture requires end-to-end measurements---latency, power, bandwidth, and privacy---across 608 devices, which we leave to future work.
 
 \subsection{Parameter Economy vs. GPU Activation Memory}
 
-A key hardware design insight from our benchmarks (Table~\ref{tab:benchmark_5seeds}) is that static parameter count ($N_{\text{params}}$) alone is insufficient to evaluate model efficiency for city-scale graph architectures. While SOTA models like STAEformer maintain moderate parameter footprints ($\sim 568\text{K}$), their internal dynamic soft-attention allocations generate large activation footprints across $N=608$ nodes (\textbf{11,509.1 MB} peak GPU memory).
+A key hardware design insight from our benchmarks (Table~\ref{tab:benchmark_5seeds}) is that static parameter count ($N_{\text{params}}$) alone is insufficient to evaluate model efficiency for city-scale graph architectures. While SOTA models like STAEformer maintain moderate parameter footprints ($\sim 568\text{K}$), their internal dynamic soft-attention allocations generate large activation footprints across $N=608$ nodes (\textbf{11,509.1 MB} peak GPU memory). The anomalously low footprint of iTransformer (265.2 MB) reflects its design: as an Inverted Transformer, it applies self-attention over individual variates/nodes rather than materializing an $N \times N$ spatial attention map, so it incurs no graph-scale activation memory; this is precisely why it is not a graph-structured baseline and is treated separately in our analysis.
 
 In contrast, TA-STGCN explicitly decouples spatial Chebyshev graph convolutions from temporal self-attention. While this increases peak GPU memory by $77.9\%$ over the naive STGCN baseline ($4,837.6 \to 8,606.9$ MB), it still achieves a \textbf{25.2\% reduction} compared to STAEformer ($11,509.1$ MB). Furthermore, TA-STGCN achieves the lowest overall forecasting error ($\text{MAE} = \mathbf{3.2401 \pm 0.0108}$) with a \textbf{70.4\% parameter reduction} over heavy baselines like ASTGCN ($1,533\text{K} \to 453\text{K}$), establishing a competitive trade-off among parameter capacity, activation memory footprint, and multi-horizon forecasting accuracy for cost-constrained real-world deployment.
 
+\subsection{Fairness of the Baseline Comparison}
+We are explicit about three respects in which the Stage~2 comparison is a \emph{controlled implementation comparison} rather than a per-model-optimized contest, because each bears on how the numbers in Table~\ref{tab:benchmark_5seeds} should be read.
+
+\textbf{Shared loss vs.\ native losses.} Every model is trained under the same Huber objective for experimental control. Some baselines were originally proposed with a different objective (e.g., GraphWaveNet uses an MAE-style loss), and retraining under Huber may not be their individually optimal setting. We accept this trade-off deliberately: applying a common objective holds the outlier-treatment constant and isolates architectural differences, but it means a given baseline's reported number is its Huber-trained result, not its published best. This is a reason to interpret absolute baseline accuracies as lower-bound estimates of their potential rather than as a ranking of the architectures themselves---and, correspondingly, a reason we do \emph{not} headline the small clean-input MAE margins, which sit inside the noise of such loss-choice effects.
+
+\textbf{No per-model hyperparameter search.} We did not run an exhaustive, model-specific hyperparameter search on the 608-node benchmark; baselines use the authors' recommended configurations adapted to the shared input/output dimensions. Individual baselines may therefore be sensitive to further tuning, and their clean-input MAE could improve. This cuts in both directions: it means the comparison is conservative about declaring any architecture superior on clean inputs, which is consistent with our effect-size reading (all $|d|<0.1$) that the graph models are practically equivalent in point accuracy.
+
+\textbf{iTransformer as a non-graph baseline.} iTransformer is included as a strong multivariate-time-series reference, but it is not a graph-structured forecaster: as an Inverted Transformer it applies self-attention over individual variates and never materializes an $N\times N$ spatial map (hence its 265.2~MB footprint). We therefore treat it separately throughout---it is excluded from ``graph-baseline'' statements, and where iTransformer is the closest competitor under noise (Level~4) we report the gap as a modest, non-decisive one rather than folding it into a graph-vs-graph claim. Its value in the table is to show that a non-graph attention model can also be noise-robust, which bounds how much of TA-STGCN's robustness is attributable to graph structure specifically versus to temporal attention in general.
+
 \subsection{Limitations and Future Work}
-Several limitations remain in this study. First, the Stage 2 models are trained on vehicle count pseudo-labels produced by Stage 1, making forecasting fidelity inherently bound by visual perception error margins. Second, the total system computational cost is substantial. While the Stage 2 graph model is lightweight (453K parameters), Stage 1 requires deploying a 28.3M-parameter EfficientNet-B4 per camera. Across a 608-node network, this entails over $17$ billion total parameters, posing significant Edge deployment challenges that require future optimization via INT8 quantization or knowledge distillation to smaller backbones (e.g., MobileNet). Third, the Stage 1 dataset contains only 5,012 images, which may limit generalizability across the 608 cameras; future studies should employ semi-supervised learning or data augmentation. Fourth, while TA-STGCN preserves vehicle categories by predicting multi-channel outputs ($C=2$), it processes these channels independently and lacks a cross-attention mechanism to explicitly model the micro-interactions between cars and motorcycles (e.g., motorcycles weaving between cars during congestion). Fifth, the evaluation is constrained to a single city (Ho Chi Minh City); future work must investigate zero-shot model generalization to other motorcycle-dominant metropolises (e.g., Bangkok, Jakarta). Sixth, the dataset spans a 3-month temporal window (June--September 2025), which lacks extreme seasonal or weather variations (e.g., monsoon flooding) that significantly alter traffic flow. Seventh, while edge runtimes are proposed for Stage 1 deployment, empirical hardware benchmarking for latency and power consumption on actual edge devices was left for future work. Finally, the static physical graph topology (RBF adjacency matrix) cannot dynamically adapt to real-time structural shifts in traffic flows caused by unpredictable road incidents. Future work will explore dynamic graph structure learning \cite{staggcn, dstagnn} or neural controlled differential equations \cite{stgncde} to adaptively capture these non-stationary spatial dependencies.
+Several limitations remain in this study. First, the Stage 2 models are trained on vehicle count pseudo-labels produced by Stage 1, so forecasting fidelity is inherently bounded by visual perception error margins. Second, the total system computational cost is substantial. Although the Stage 2 graph model is lightweight (453K parameters), Stage 1 requires deploying a 28.3M-parameter EfficientNet-B5 per camera. Across a 608-node network, this entails 608 independent deployments of the same 28.3M-parameter model (over $17$ billion parameters in aggregate), posing significant edge-deployment, update, latency, and energy challenges. MobileNet-V3 (4.2M parameters) offers a smaller alternative, but its observed Stage 1 MAE is higher ($4.0126$ versus $3.6363$); quantization, distillation, and device-level throughput measurements are required before choosing a deployment backbone. Third, the Stage 1 benchmark compares only classification backbones under a direct-regression head and does not include specialized dense-counting methods (density-map estimators such as MCNN \cite{mcnn}, CSRNet \cite{csrnet}, and CAN \cite{can}; point-supervised counters such as P2PNet and DM-Count; or tracking-by-detection pipelines such as YOLO + ByteTrack \cite{yolo}). We therefore position direct regression as a \emph{practical trade-off} for this dataset rather than a claim of superiority over specialized counters: the aggregate count labels used here avoid the per-vehicle point/density annotation and per-camera calibration cost that such methods require, but a head-to-head comparison on matched annotations remains open. Fourth, the Stage 1 dataset contains only 5,012 images, which may limit generalizability across camera viewpoints; future studies should employ semi-supervised learning, additional annotation, and matched point-supervision for specialized counters. Fifth, the evaluation is constrained to a single city and a 3-month temporal window, without extreme seasonal or weather variation. Sixth, edge runtimes are conceptual: the experiments retrieve images centrally and do not measure latency, power, or end-to-end scale-out across 608 devices. Seventh, the Stage 2 benchmark covers a representative set of graph and Transformer baselines up to 2024 (STGCN \cite{stgcn}, GraphWaveNet \cite{wavenet}, ASTGCN \cite{astgcn}, MegaCRN \cite{megacrn}, STAEformer \cite{staeformer}, iTransformer \cite{itransformer}) but does not include the most recent 2024--2025 architectures, such as spatio-temporal state-space (Mamba) models, diffusion-based forecasters (e.g., CSDI, DiffSTG), or large-language-model and patch-based time-series methods (e.g., TimeXer, PatchTST, Crossformer). We did not integrate these newer families because they are not yet standardized for camera-sensed, category-preserving graph inputs and would require substantial re-engineering and per-model tuning on our 608-node benchmark. We note that the clean-input point-forecasting differences among the evaluated baselines are already practically negligible (Cohen's $d < 0.1$), so we do not expect the inclusion of additional recent architectures to change the central conclusion that the proposed framework's value lies in its camera-sensed benchmark, noise-robustness analysis, and deployment economy rather than in a marginal clean-input accuracy gain; nevertheless, a direct comparison with these newer families is an important direction for future work. Finally, the static RBF graph cannot adapt to non-physical dependencies or incident-driven structural shifts; adaptive graph learning and sensitivity tests for graph parameters are important future comparisons. In addition, the noise-robustness analysis uses a single (Gamma) reference distribution; a sensitivity ablation under matched Weibull and log-normal samplers, and per-baseline retraining under native losses, would further harden the comparison.
 
 \section{Conclusion}
 \label{sec:conclusion}
 
-This paper introduced an end-to-end framework for urban traffic monitoring and multi-horizon forecasting, evaluated on a real-world 608-node camera network in Ho Chi Minh City. By decoupling the pipeline into edge-level vehicle perception (EfficientNet-B4) and cloud-level graph forecasting (TA-STGCN), the system addresses the unique challenges of chaotic, motorcycle-dominant mixed traffic without relying on inductive loops.
+This paper introduced a two-stage framework for urban traffic monitoring and multi-horizon forecasting, evaluated on a real-world 608-node camera network in Ho Chi Minh City. The experimental pipeline combines camera-based vehicle perception (EfficientNet-B5) and graph forecasting (TA-STGCN); an edge-cloud realization is proposed for future deployment rather than implemented in the reported experiments.
 
-Comprehensive evaluations demonstrate that TA-STGCN achieves consistent accuracy improvements ($\text{MAE} = \mathbf{3.2401}$) while operating with a robust and highly stable variance across initializations ($\text{CV}=0.33\%$). Furthermore, noise robustness analysis mathematically and empirically confirms that the temporal self-attention mechanism provides an adaptive variance-bias trade-off, successfully mitigating error propagation from vision-based counts to network-wide forecasts during volatile traffic states.
+Comprehensive evaluations show that TA-STGCN reaches competitive point-forecasting accuracy ($\text{MAE} = \mathbf{3.2401}$) with low run-to-run variation ($\text{CV}=0.33\%$); on clean inputs the evaluated graph models are practically equivalent in point accuracy. Under simulated perception noise, the robustness advantage \emph{stratifies by competitor class}: TA-STGCN degrades far more gracefully than the non-attention graph/RNN baselines (Cohen's $d$ up to $+5.84$ vs.\ GraphWaveNet), while against the attention-based baselines (STAEformer, iTransformer) its margin is only small-to-medium ($d \in [0.28, 0.67]$) and not a decisive separation---i.e., the robustness is a property of the attention-equipped design class on this benchmark, not a dominance of TA-STGCN over the SOTA attention baselines, with which it is comparably robust while being more parameter-economical (453K parameters, $25.2\%$ less peak training memory than STAEformer). The ablations and noise simulations indicate improved robustness under the evaluated perturbations, while leaving broader claims about optimal attention filtering, graph choice, noise-distribution sensitivity, and deployment performance for future validation.
 
 \section*{Ethics and Visual Privacy Statement}
-All traffic surveillance camera feeds analyzed in this study were obtained from the public Ho Chi Minh City Traffic Portal via open civic access provided for public transportation monitoring and non-commercial scientific research. Protecting public privacy and adhering to ethical surveillance standards are central to the design of this framework. To ensure strict anonymization, our envisioned Edge-Cloud architecture confines all visual processing directly to the edge (Stage 1). The edge nodes extract only aggregated numerical payloads (category-specific vehicle counts). Consequently, no raw video frames, license plates, or human facial details are ever stored, logged, or transmitted to the centralized cloud servers. Furthermore, the inherent camera mounting elevations, long observation distances, and stream resolution limits render individual personally identifiable information (PII) fundamentally non-identifiable. We acknowledge that large-scale camera monitoring runs the risk of normalizing public surveillance; hence, by designing a system that mathematically destroys PII at the source, this work advocates for privacy-by-design in municipal sensing.
+Traffic surveillance camera feeds analyzed in this study were obtained from the public Ho Chi Minh City Traffic Portal. The experimental collection and inference pipeline retrieved image snapshots centrally; it therefore does not establish an edge-processing or privacy-by-design guarantee. The proposed edge-cloud architecture would transmit aggregate category-specific counts rather than images, but its privacy properties require deployment validation. We do not claim that camera elevation or resolution makes all personally identifiable information impossible to recover. Any public release or redistribution of image-derived data must comply with the Traffic Portal's terms of use, applicable law, and institutional ethics requirements; only materials for which redistribution permission is confirmed should be released.
 
 \section*{Data and Code Availability}
 To support open science and reproducible research in intelligent transportation systems, all code, benchmark scripts, and datasets used in this study are made publicly accessible. The complete PyTorch codebase—comprising Stage 1 visual perception backbones, Stage 2 graph forecasting architectures (TA-STGCN and 7 baseline models), multi-seed evaluation protocols, and spatial graph construction pipelines—is available at the project repository: \url{https://github.com/vietanhlee/nckh} and permanently archived on Zenodo (DOI: \url{https://doi.org/10.5281/zenodo.12345678}). Furthermore, the manually annotated traffic camera vehicle counting dataset (5,012 high-resolution image frames with class-separated passenger car and motorcycle annotations) alongside the 608-node city-scale traffic volume time-series matrix can be accessed at: \url{https://drive.google.com/drive/folders/1RPVwr3QD3JsCTojeMKduJIYWXnTn29n0} and archived under Zenodo (DOI: \url{https://doi.org/10.5281/zenodo.87654321}).
@@ -1141,7 +1188,7 @@ Z. Shao, Z. Zhang, F. Wang, W. Wei, and Y. Xu, ``Spatial-temporal identity: A si
 \bibitem{minh2003}
 C. C. Minh and K. Sano, ``Analysis of motorcycle effects to saturation flow rate at signalized intersections in developing countries,'' \emph{J. Eastern Asia Soc. Transp. Stud.}, vol. 5, pp. 1211--1222, 2003. \url{https://doi.org/10.1111/minh.2003}
 
-\bibitem{lee2015}
+\bibitem{lee2009}
 T. C. Lee, J. W. Polak, and M. G. H. Bell, ``New approach to modeling mixed traffic containing motorcycles in urban areas,'' \emph{Transp. Res. Rec.: J. Transp. Res. Board}, vol. 2140, no. 1, pp. 195--205, 2009. \url{https://doi.org/10.3141/2140-21}
 
 \bibitem{cao2007}
@@ -1172,7 +1219,7 @@ S. Shih, J. Sun, and C. Lee, ``Temporal pattern attention for multivariate time 
 B. Lu, X. Gan, H. Jin, L. Fu, and H. Zhang, ``Spatiotemporal adaptive gated graph convolution network for urban traffic flow forecasting,'' in \emph{Proc. 29th ACM Int. Conf. Inf. Knowl. Manag. (CIKM)}, 2020.
 
 \bibitem{stjgcn}
-C. Zheng, X. Fan, S. Pan, Z. Wu, C. Wang, and P. S. Yu, ``Spatio-temporal joint graph convolutional networks for traffic forecasting,'' \emph{IEEE Trans. Knowl. Data Eng.}, vol. 36, pp. 372--385, 2021.
+C. Zheng, X. Fan, S. Pan, Z. Wu, C. Wang, and P. S. Yu, ``Spatio-temporal joint graph convolutional networks for traffic forecasting,'' \emph{IEEE Trans. Knowl. Data Eng.}, vol. 36, pp. 372--385, 2024.
 
 \bibitem{feng2024}
 Y. Feng, Y. Zhao, X. Zhang, S. Batista, Y. Demiris, and P. Angeloudis, ``Predicting spatio-temporal traffic flow: a comprehensive end-to-end approach from surveillance cameras,'' \emph{Transportmetrica B: Transp. Dyn.}, vol. 12, 2024.
@@ -1180,11 +1227,8 @@ Y. Feng, Y. Zhao, X. Zhang, S. Batista, Y. Demiris, and P. Angeloudis, ``Predict
 \bibitem{liu2024}
 B. Liu, C. Lam, B. Ng, X. Yuan, and S. Im, ``A graph-based framework for traffic forecasting and congestion detection using online images from multiple cameras,'' \emph{IEEE Access}, vol. 12, pp. 3756--3767, 2024.
 
-\bibitem{nguyen2025}
-Q. Nguyen, D. Le, and M. Dao, ``HCMCTrafficDataset: Enabling smart mobility solutions for motorcycle-dense cities with limited infrastructure,'' in \emph{Proc. IEEE Int. Conf. Big Data}, 2025, pp. 2962--2969.
-
 \bibitem{vu2026}
-T. Vu and N. V. Pham, ``AI-based estimation of vehicle dwell time at signalized intersections in motorcycle-dominated mixed traffic environment: A case study in Hanoi,'' \emph{J. Sci. Technol. Civil Eng.}, vol. 20, 2026.
+T. Vu and N. V. Pham, ``AI-based estimation of vehicle dwell time at signalized intersections in motorcycle-dominated mixed traffic environment: A case study in Hanoi,'' \emph{J. Sci. Technol. Civil Eng. (JSTCE) - HUCE}, vol. 20, no. 1, pp. 100--112, 2026.
 
 \end{thebibliography}
 

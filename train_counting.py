@@ -215,7 +215,7 @@ def get_dataset(image_dir, csv_file, is_train=False):
 def build_counting_model(model_name: str, num_classes: int = 2, pretrained: bool = True):
     """
     Khởi tạo mô hình ước lượng số lượng phương tiện (2 đầu ra: [Ô tô, Xe máy]).
-    Hỗ trợ 4 họ mô hình tiêu chuẩn: ResNet (ResNet-50), EfficientNet (EfficientNet-B4), ViT (ViT-Small), ConvNeXt (ConvNeXt-Tiny).
+    Hỗ trợ 5 họ mô hình tiêu chuẩn: ResNet (ResNet-50), EfficientNet (EfficientNet-B5), ViT (ViT-Base/16), ConvNeXt (ConvNeXt-Tiny), MobileNet (MobileNetV3-Large).
     """
     name_clean = model_name.lower()
     
@@ -447,8 +447,8 @@ def generate_vision_explainability_figures(sample_img_path, trained_models_dict,
     available_models = [m for m in ['resnet', 'efficientnet', 'vit', 'convnext', 'mobilenet'] if m in trained_models_dict]
     title_dict = {
         'resnet': "(b) ResNet-50\n(Grad-CAM++)",
-        'efficientnet': "(c) EfficientNet-B4\n(Grad-CAM++)",
-        'vit': "(d) ViT-Small\n(Grad-CAM++)",
+        'efficientnet': "(c) EfficientNet-B5\n(Grad-CAM++)",
+        'vit': "(d) ViT-Base/16\n(Grad-CAM++)",
         'convnext': "(e) ConvNeXt-Tiny\n(Grad-CAM++)",
         'mobilenet': "(f) MobileNet-V3\n(Grad-CAM++)"
     }
@@ -915,7 +915,7 @@ def run_counting_benchmark():
         f.write(f"# 🚗🏍️ Báo cáo Benchmark Mô hình Đếm Phương tiện (Sub-problem 1)\n\n")
         f.write(f"- **Seeds sử dụng**: `{args.seeds}`\n")
         f.write(f"- **Cấu hình**: Epochs={args.epochs}, Early Stopping Patience={args.patience}, Batch Size={args.batch_size}, LR={args.lr}\n")
-        f.write(f"- **Họ mô hình so sánh**: ResNet (ResNet-50), EfficientNet (EfficientNet-B4), ViT (ViT-Small), ConvNeXt (ConvNeXt-Tiny)\n\n")
+        f.write(f"- **Họ mô hình so sánh**: ResNet (ResNet-50), EfficientNet (EfficientNet-B5), ViT (ViT-Base/16), ConvNeXt (ConvNeXt-Tiny), MobileNet (MobileNetV3-Large)\n\n")
         f.write("## 🏆 1. Bảng So sánh Tổng quan (Params, FLOPs, Latency & Overall Error)\n\n")
         f.write(df_overall.to_markdown(index=False))
         f.write("\n\n---\n\n## 🏍️🚗 2. Bảng So sánh Chi tiết Tách riêng Ô tô (Car) và Xe máy (Motorcycle)\n\n")
